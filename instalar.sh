@@ -199,6 +199,13 @@ systemctl enable apoiarcred-robo
 systemctl restart apoiarcred-robo
 systemctl is-active --quiet apoiarcred-robo
 curl --fail --silent --show-error --max-time 20 "https://$DOMAIN/" > /dev/null
+if [[ "$SOURCE" == /opt/apoiarcred-src && -f "$SOURCE/atualizar.sh" ]]; then
+    cat > /usr/local/bin/apoiarcred-atualizar <<'EOF'
+#!/bin/sh
+exec /bin/bash /opt/apoiarcred-src/atualizar.sh "$@"
+EOF
+    chmod 755 /usr/local/bin/apoiarcred-atualizar
+fi
 SUCCESS=1
 printf '\nInstalação concluída: https://%s\n' "$DOMAIN"
 printf 'Entre em Configurações com um usuário do Supabase Auth e selecione Supabase · fila real.\n'
