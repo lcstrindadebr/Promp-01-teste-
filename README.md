@@ -1,82 +1,81 @@
-# ApoiarCred · Instalação automática do MVP
+# ApoiarCred · Instalar direto do GitHub
 
-VPS **Ubuntu Server 24.04 x86-64**, com **2 vCPU e 4 GB RAM**. Sem Docker e sem instalar Git.
+VPS Ubuntu Server **24.04 x86-64**, **2 vCPU e 4 GB RAM**. Sem Docker e sem ZIP. Os comandos são executados na VPS como root.
 
 ## 1. DNS
-
-Crie este registro antes de instalar:
 
 | Tipo | Nome | Valor |
 |---|---|---|
 | **A** | **consultas** | **IP público da VPS** |
 
-Isso cria `consultas.apoiarcred.com.br`. É A, não CNAME, porque o destino é um IP. Se usar outro nome, informe esse endereço ao instalador. Se usar Cloudflare, deixe Somente DNS inicialmente. As portas 80 e 443 precisam estar livres e liberadas no firewall do provedor.
+Resultado: `consultas.apoiarcred.com.br`. É A porque o destino é um IP. Libere TCP 80/443 no provedor. Se usar Cloudflare, comece com Somente DNS.
 
-## 2. Baixar e executar
+## 2. Instalar direto do repositório
 
-No [repositório, branch do MVP](https://github.com/lcstrindadebr/Promp-01-teste-/tree/apoiarcred-consultas-mvp), clique em **Code → Download ZIP**. Renomeie para `apoiarcred.zip`.
-
-Como o repositório é privado, baixe conectado à sua conta. Envie o ZIP para a VPS por SFTP ou pelo PowerShell, na pasta onde baixou:
-
-```powershell
-scp apoiarcred.zip root@IP_DA_VPS:/tmp/apoiarcred.zip
-ssh root@IP_DA_VPS
-```
-
-Na VPS, como root:
+Se a chave SSH da VPS já tem acesso ao repositório privado, basta executar:
 
 ```bash
-apt update && apt install -y unzip
-unzip /tmp/apoiarcred.zip -d /tmp/apoiarcred-instalacao
-cd /tmp/apoiarcred-instalacao/Promp-01-teste--apoiarcred-consultas-mvp
-bash instalar.sh
+apt update && apt install -y git openssh-client
+git clone --branch apoiarcred-consultas-mvp --single-branch git@github.com:lcstrindadebr/Promp-01-teste-.git /opt/apoiarcred-src
+bash /opt/apoiarcred-src/instalar.sh
 ```
 
-Se o nome da pasta extraída for diferente, entre na pasta que contém `instalar.sh`.
+O Git é instalado automaticamente **na VPS**, apenas para puxar o código. Não precisa instalar GitHub nem baixar nada no seu computador. No primeiro acesso SSH, confira a impressão digital do GitHub antes de aceitar.
 
-O instalador pergunta:
+O instalador pergunta **subdomínio, e-mail do SSL e chave secreta do Supabase**, e pede confirmação dos termos do certificado. Depois configura Python, Chromium, Nginx, HTTPS e o serviço do robô.
 
-1. Subdomínio, por exemplo `consultas.apoiarcred.com.br`.
-2. E-mail para o certificado SSL.
-3. Chave secret/service_role do **projeto Supabase deste MVP**. A digitação fica oculta.
-4. Confirmação para iniciar e aceitar os termos do certificado Let's Encrypt.
+### Se aparecer Permission denied (publickey)
 
-A chave está no Supabase → Project Settings → API Keys. Não é a chave publishable. Ela é necessária para o robô acessar a fila e fica somente na VPS, em `.env` protegido.
+O repositório é privado: a VPS precisa de autorização uma única vez. Se ainda não tem chave, crie na VPS:
 
-O instalador configura Python, Chromium, Nginx, HTTPS com renovação automática e serviço do robô que inicia com a VPS. O painel abre no subdomínio informado. Se o DNS não chegar à VPS ou outra aplicação ocupar as portas, ele para com a orientação do erro. Depois de corrigir, execute `bash instalar.sh` novamente.
+```bash
+ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -C apoiarcred-vps
+cat /root/.ssh/id_ed25519.pub
+```
 
-**Use em VPS nova ou com Nginx sem conflito nesse subdomínio.** O instalador não substitui Traefik/Apache. Ao executar novamente, ele para o worker durante a atualização e redefine o modo para disabled. Se houver falha, pode ser necessário reiniciar o worker depois da correção. Backups locais ficam em `/var/tmp/apoiarcred-install.*`, restritos a root; podem conter configuração secreta anterior.
+Se o arquivo já existir, não sobrescreva: use a chave existente. Copie a chave **pública** para o GitHub → repositório → Settings → Deploy keys → Add deploy key. Deixe somente leitura. Depois repita o clone e a instalação. A chave privada fica na VPS; não envie por chat.
 
-## 3. Primeiro acesso
+[Conferir impressão digital SSH do GitHub](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints).
 
-Crie seu usuário em Supabase → Authentication → Users, com e-mail e senha definidos por você. O projeto e suas tabelas já estão configurados; não reaplique o SQL.
+Se a pasta `/opt/apoiarcred-src` já existir por uma tentativa anterior, não clone por cima. Confira se é este repositório e, nele, use `git pull --ff-only origin apoiarcred-consultas-mvp` e execute o instalador. Não apague instalações existentes.
 
-Abra o subdomínio → **Configurações** → entre com esse usuário → selecione **Supabase · fila real**.
+## 3. Atualizar com um comando
 
-O robô inicia em **disabled**: os registros retornam Revisão, sem consulta bancária. A execução completa do robô Digi+ ainda precisa de homologação na VPS. Para uma consulta real autorizada de teste:
+Após instalar:
+
+```bash
+apoiarcred-atualizar
+```
+
+Ele puxa a branch do MVP, verifica o Python, faz backup do código anterior, aplica os arquivos, atualiza dependências e reinicia o robô se ele estava ligado. **Preserva `.env`, chave do Supabase, certificado e modo do robô.** Se o serviço estava parado manualmente, continua parado.
+
+Esse comando busca e aplica atualizações quando você o executa; não há atualização agendada em segundo plano. Alterações locais ou divergência da branch interrompem a atualização em vez de sobrescrever seu trabalho. Mudanças de banco e infraestrutura não são aplicadas automaticamente. Uma falha pode deixar o robô parado: confira a mensagem e os logs antes de reiniciar.
+
+Se já instalou anteriormente por ZIP, use o clone do passo 2 e rode o instalador uma vez para registrar o comando de atualização. Essa reinstalação pede as informações e redefine o robô para disabled.
+
+## 4. Primeiro acesso
+
+Crie seu usuário no Supabase → Authentication → Users. Abra o subdomínio → Configurações → entre com esse usuário → selecione **Supabase · fila real**. A chave do worker fica em Project Settings → API Keys, tipo secret/service_role; ela é solicitada de forma oculta e salva somente na VPS.
+
+O banco já está configurado. Não reaplique o SQL. Cada usuário vê apenas as próprias consultas.
+
+O robô começa em **disabled**, testando a fila sem consulta bancária. A execução completa do Digi+ ainda precisa de homologação na VPS. Para testar uma consulta real autorizada:
 
 ```bash
 nano /opt/apoiarcred/.env
-# Troque ROBOT_MODE=disabled por ROBOT_MODE=live, salve e execute:
+# Altere ROBOT_MODE=disabled para ROBOT_MODE=live, salve e execute:
 systemctl restart apoiarcred-robo
 ```
 
-Confira uma consulta individual antes de enviar lotes. CSV: `nome;cpf;telefone`, até 1.000 linhas. Cada usuário vê apenas suas próprias consultas.
+Valide uma consulta individual antes de enviar lotes. CSV: `nome;cpf;telefone`, até 1.000 linhas.
 
 ## Comandos úteis
 
 ```bash
-# Logs (Ctrl+C fecha apenas o acompanhamento)
 journalctl -u apoiarcred-robo -n 50 -f
-
-# Reiniciar ou parar
 systemctl restart apoiarcred-robo
 systemctl stop apoiarcred-robo
-
-# Testar renovação do certificado
 certbot renew --dry-run
 ```
 
-Se a VPS interromper uma consulta, ela pode ficar processando e precisa de revisão antes de reenviar. O banco fica no Supabase: configure os backups e a retenção dos dados nele.
-
-Instalação automática preparada e verificada com testes simulados; instalação real e emissão do certificado dependem da sua VPS e do DNS.
+Se uma consulta for interrompida, revise antes de reenviar: a recuperação automática de tarefas em processamento ainda não está implementada. Configure backups e retenção no Supabase. A instalação real depende do acesso SSH ao GitHub, do DNS e das portas livres na VPS.
