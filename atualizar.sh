@@ -12,7 +12,10 @@ flock -n 9 || { echo 'Instalação ou atualização já em andamento.'; exit 1; 
 [[ -d "$REPO/.git" && -f "$APP/.env" && -x "$APP/.venv/bin/python" ]] || { echo 'Faça primeiro a instalação pelo comando do README.'; exit 1; }
 cd "$REPO"
 [[ $(git branch --show-current) == "$BRANCH" ]] || { echo 'Branch diferente da esperada; não alterei o checkout.'; exit 1; }
-[[ $(git remote get-url origin) == 'git@github.com:lcstrindadebr/Promp-01-teste-.git' ]] || { echo 'O remoto não é o repositório esperado.'; exit 1; }
+case "$(git remote get-url origin)" in
+    git@github.com:lcstrindadebr/Promp-01-teste-.git|https://github.com/lcstrindadebr/Promp-01-teste-.git) ;;
+    *) echo 'O remoto não é o repositório esperado.'; exit 1 ;;
+esac
 [[ -z $(git status --porcelain) ]] || { echo 'Há mudanças locais no código. Revise-as antes de atualizar.'; exit 1; }
 STAGE='download do GitHub'
 git pull --ff-only origin "$BRANCH"
