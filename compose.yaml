@@ -1,0 +1,19 @@
+services:
+  painel:
+    image: nginx:1.28-alpine
+    restart: unless-stopped
+    ports:
+      - "${PANEL_BIND:-127.0.0.1}:${PANEL_PORT:-8088}:80"
+    volumes:
+      - ./dist:/usr/share/nginx/html:ro
+  worker:
+    build:
+      context: ./vps
+      dockerfile: Dockerfile.worker
+    restart: unless-stopped
+    init: true
+    shm_size: 1gb
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL:?Informe SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?Informe a chave secreta do servidor}
+      ROBOT_MODE: ${ROBOT_MODE:-disabled}
