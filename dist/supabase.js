@@ -4,7 +4,7 @@ const storageKey='apoiarcred-auth:'+sb.url;
 let session=null,authenticated=false,refreshing=null,loadingCloud=false,authEpoch=0;
 const statusNames={aguardando:'Aguardando',processando:'Processando',concluida:'Concluída',nao_localizado:'Não é cliente',nao_cliente:'Não é cliente',erro:'Erro',revisao:'Revisão'};
 function showLogin(message=''){
- authenticated=false;session=null;authEpoch++;records=[];pending=[];campaigns=[];activeCampaign=null;retryingCampaign=false;$('#campaignName').value='';navigate("home");
+ authenticated=false;session=null;authEpoch++;if(typeof resetAmigoz==='function')resetAmigoz();records=[];pending=[];campaigns=[];activeCampaign=null;retryingCampaign=false;$('#campaignName').value='';navigate("home");
  $('#consultationLogPanel').open=false;sessionStorage.removeItem(storageKey);$('#appShell').hidden=true;$('#loginPage').hidden=false;
  $('#loginError').textContent=message;$('#preview').classList.add('hide');$('#file').value='';$('#import').disabled=true;render();
 }
@@ -47,7 +47,7 @@ async function add(items){
  await sbRequest('/rest/v1/consulta_jobs',{method:'POST',body:JSON.stringify(items.map(r=>({nome:r.nome,cpf:r.cpf,telefone:r.telefone,lote_id:batches[0].id,user_id:session.user.id})))});
  toast(items.length+' consulta(s) salva(s) na fila.');await loadCloud();
 }
-function openPanel(){authenticated=true;$('#loginPage').hidden=true;$('#appShell').hidden=false;$('#accountEmail').textContent=session.user.email;$('#authState').textContent='Conectado como '+session.user.email;$('#password').value='';$('#loginError').textContent='';loadCloud()}
+function openPanel(){authenticated=true;$('#loginPage').hidden=true;$('#appShell').hidden=false;$('#accountEmail').textContent=session.user.email;$('#authState').textContent='Conectado como '+session.user.email;$('#password').value='';$('#loginError').textContent='';loadCloud();if(typeof loadAmigozSettings==='function')loadAmigozSettings()}
 $('#login').onsubmit=async e=>{
  e.preventDefault();const button=$('#loginSubmit');button.disabled=true;$('#loginError').textContent='Entrando…';
  try{const data=await raw('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email:$('#email').value.trim(),password:$('#password').value})});authEpoch++;saveSession(data);openPanel()}catch(e){showLogin(e.status===400?'E-mail ou senha inválidos. Confira também a confirmação da conta.':e.message)}finally{button.disabled=false}

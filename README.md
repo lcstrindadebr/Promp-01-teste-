@@ -226,3 +226,15 @@ Validação desta mudança: testes do painel (`node tests/test_frontend.cjs` e
 criação atômica, isolamento por conta, escopo da nova tentativa e totais estáveis.
 Os dados usados para testar o banco foram desfeitos na mesma transação; nenhuma
 consulta real ao banco Digi+ foi disparada por esses testes.
+
+### Simulação Amigoz e comissão
+
+Em consultas individuais ou campanhas, clique em **Simular Amigoz** quando saldo e parcela estiverem disponíveis na mesma consulta. As sete tabelas são calculadas juntas no Supabase. Em **Configurações → Comissão do vendedor · Amigoz**, informe o percentual de cada tabela e salve. Campo vazio oculta a comissão; zero mostra R$ 0,00. Percentuais pertencem à conta conectada e ficam disponíveis em outros dispositivos.
+
+Método autorizado: estimativa de valor presente pelo CET mensal de referência, 96 parcelas iguais e primeira parcela após um mês. `liberado = parcela × [1 − (1 + CET)^(-96)] / CET`; `troco = liberado − dívida`; `comissão = (dívida + troco) × percentual / 100`. Valores arredondados em centavos. IOF e demais custos representados no CET não são descontados novamente. O limite pré-aprovado não pode ser deduzido dessa fórmula e aparece como indisponível. Disponibilidade insuficiente não gera troco negativo nem comissão.
+
+**São estimativas teóricas, não resultados homologados pelo banco.** A tabela de 3% usa CET de 3,63% e retorna R$ 3.780,17 no exemplo de parcela R$ 179,37 e dívida R$ 1.000,00, diferente do troco bancário observado de R$ 3.639,44. Essa diferença é conhecida. As regras individuais de custos e limites ainda não estão disponíveis. A autorização para estimar as sete tabelas substitui a orientação anterior de deixar seis tabelas sem parametrização.
+
+Cada simulação guarda entradas, resultados, percentuais, método, versão e data. Se os dados da consulta mudarem, o resultado aberto é ocultado e sinalizado como desatualizado; clique em Recalcular. Não é necessário consultar o banco novamente para simular.
+
+O projeto Supabase original já recebeu a atualização. Para outro projeto existente, execute `supabase/upgrade_amigoz.sql` no SQL Editor uma vez antes de atualizar o painel. Instalações novas usam `supabase/schema.sql`. O auto instalador (opção 1) distribui todo o código atualizado, incluindo `dist/amigoz.js`; preserva as configurações e não executa SQL em projetos externos automaticamente.
