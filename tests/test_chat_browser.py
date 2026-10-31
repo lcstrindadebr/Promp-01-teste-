@@ -1,6 +1,6 @@
 import sys,unittest,types
 sys.path.insert(0,'vps')
-from chat_browser import open_bank,open_chat,describe_error,check_access,NavigationIssue,BANK_URL,CHAT_HOST
+from chat_browser import open_bank,open_chat,open_direct_chat,describe_error,check_access,NavigationIssue,BANK_URL,CHAT_HOST
 class Loc:
  def __init__(self,page,name):self.page=page;self.name=name
  async def count(self):
@@ -16,7 +16,7 @@ class Page:
  def locator(self,name):return Loc(self,name)
  def get_by_role(self,role,**kw):return Loc(self,str(kw.get('name')))
  async def add_locator_handler(self,loc,handler):self.handlers.append((loc.name,handler))
- async def goto(self,*a,**kw):self.before_navigation=list(self.handlers);return types.SimpleNamespace(status=200)
+ async def goto(self,*a,**kw):self.url=a[0];self.before_navigation=list(self.handlers);return types.SimpleNamespace(status=200)
 class Ctx:
  def __init__(self,variant):self.variant=variant;self.home=Page(BANK_URL,self);self.chat=Page('https://'+CHAT_HOST+'/chat',self);self.pages=[self.home]
  async def new_page(self):return self.home
@@ -25,6 +25,17 @@ class Ctx:
   elif self.variant=='same-tab':self.home.url=self.chat.url
   elif self.variant=='iframe':self.home.frames=[self.chat]
 class BrowserTests(unittest.IsolatedAsyncioTestCase):
+ async def test_direct_chat_does_not_open_bank_or_click_widget(self):
+  c=Ctx('missing');scope=await open_direct_chat(c,timeout=200)
+  self.assertIs(scope,c.home);self.assertIn(CHAT_HOST,c.home.url)
+  self.assertEqual(c.pages,[c.home])
+ async def test_bank_failure_does_not_affect_direct_chat(self):
+  c=Ctx('missing');original=c.home.goto
+  async def guarded(url,**kwargs):
+   if url==BANK_URL:raise Exception('net::ERR_EMPTY_RESPONSE')
+   return await original(url,**kwargs)
+  c.home.goto=guarded
+  self.assertIs(await open_direct_chat(c,timeout=200),c.home)
  async def test_new_tab(self):
   c=Ctx('new-tab');self.assertIs(await open_chat(c,c.home,timeout=200),c.chat)
  async def test_same_tab(self):
@@ -48,3 +59,4 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
  def test_verification_stops(self):
   with self.assertRaisesRegex(NavigationIssue,'verificação'):check_access('Checking your browser. Verify you are human')
 if __name__=='__main__':unittest.main()
+

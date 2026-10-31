@@ -41,7 +41,9 @@ class Opened:
 class Context:
  def __init__(self,actions,fail):
   self.home=Page(actions);self.chat=Page(actions,fail);self.chat.url='https://widget.voltdigital.com.br/chat';self.pages=[self.home];self.home.context=self;self.chat.context=self
- async def new_page(self):return self.home
+ async def new_page(self):
+  if self.chat not in self.pages:self.pages.append(self.chat)
+  return self.chat
  def expect_page(self,**kw):return Opened(self.chat)
  async def close(self):pass
 class Browser:
@@ -66,10 +68,11 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
  async def test_complete_negative_flow_and_format(self):
   result,actions,events=await self.execute();self.assertEqual(result['status'],'nao_cliente');self.assertEqual(result['progress'],100)
   self.assertIn(('fill','Digitar...','001.234.567-89'),actions);self.assertIn(('click','button.send[type="submit"]'),actions)
-  self.assertEqual([e[0] for e in events],sorted(e[0] for e in events));self.assertIn(('goto',robot.BANK_URL),actions)
+  self.assertEqual([e[0] for e in events],sorted(e[0] for e in events));self.assertIn(('goto',robot.CHAT_URL),actions)
   launch=next(a for a in actions if a[0]=='launch')[1]
   self.assertIn('--disable-http2',launch);self.assertIn('--disable-quic',launch);self.assertNotIn('--ignore-certificate-errors',launch)
  async def test_timeout_includes_exact_stage_not_nonclient(self):
   result,actions,events=await self.execute(True);self.assertEqual(result['status'],'erro');self.assertEqual(result['progress'],50);self.assertIn('Selecionar boleto',result['message'])
 if __name__=='__main__':unittest.main()
+
 

@@ -1,8 +1,7 @@
 """No client data: test DNS, TLS, Chromium and the chat form as the worker user."""
 import asyncio, os, socket, ssl, sys
 from datetime import datetime,timezone
-from urllib.parse import urlsplit
-from chat_browser import CHROMIUM_ARGS, BANK_URL,CHAT_HOST,open_bank,open_chat,describe_error,NavigationIssue
+from chat_browser import CHROMIUM_ARGS, CHAT_HOST,open_direct_chat,describe_error,NavigationIssue
 
 async def main():
     from playwright.async_api import async_playwright
@@ -10,7 +9,7 @@ async def main():
     def record(name,ok,detail):
         results['checks'].append({'check':name,'ok':ok,'detail':detail})
         print(('OK   ' if ok else 'FALHA')+' | '+name+' | '+detail,flush=True)
-    for host in [urlsplit(BANK_URL).hostname,CHAT_HOST]:
+    for host in [CHAT_HOST]:
         try:
             addrs=await asyncio.to_thread(socket.getaddrinfo,host,443,type=socket.SOCK_STREAM)
             record('DNS '+host,True,str(len(addrs))+' endereços encontrados')
@@ -30,8 +29,8 @@ async def main():
             context=await browser.new_context(locale='pt-BR');record('Chromium',True,'iniciado')
             record('Configuração de transporte',True,'HTTP/2 e QUIC desativados; HTTPS com validação TLS mantida')
             async def report(percent,label):print(f'ETAPA | {percent}% | {label}',flush=True)
-            page=await open_bank(context,timeout=45000,report=report);record('Página do banco',True,'carregada; avisos tratados por clique')
-            scope=await open_chat(context,page,timeout=45000);record('Widget',True,'formulário/menu identificado, sem enviar dados')
+            record('Rota da consulta',True,'chat direto; não depende da página institucional nem de popup')
+            scope=await open_direct_chat(context,timeout=45000,report=report);record('Chat direto',True,'formulário/menu identificado, sem enviar dados')
         except Exception as e:
             # No client data is entered in this diagnostic; the first browser error is safe to show.
             detail=str(e).split('Call log:')[0][:600] if not isinstance(e,NavigationIssue) else str(e)
@@ -47,4 +46,5 @@ async def main():
     return 0 if all(c['ok'] for c in results['checks']) else 1
 
 if __name__=='__main__':sys.exit(asyncio.run(main()))
+
 

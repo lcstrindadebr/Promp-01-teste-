@@ -68,7 +68,7 @@ Busca e aplica atualizações quando executado. Sem agendamento em segundo plano
 
 ## Nova dinâmica de consulta e progresso
 
-O robô abre o site do banco, clica no widget e acompanha a nova aba. Preenche os dados e envia o CPF no padrão **000.000.000-00**, pelo botão de envio.
+O robô abre diretamente o endereço público do chat que o widget do banco utiliza. A consulta não depende da página institucional nem da abertura de popup. Preenche os dados e envia o CPF no padrão **000.000.000-00**, pelo botão de envio.
 
 Cada CPF mostra barra e etapa atual: iniciar navegador, abrir site, abrir chat, preencher dados, selecionar consignado/boleto, enviar CPF e aguardar saldo. O progresso é informado pelo worker, sem simulação por tempo. Erros mantêm o percentual e a etapa da falha.
 
@@ -96,19 +96,11 @@ Valide uma consulta individual antes de lotes. Se uma tarefa for interrompida, r
 
 Depois de atualizar pela opção **1**, abra novamente o instalador e selecione **3) Diagnosticar robô**.
 
-O teste roda como o mesmo usuário do worker (`apoiarcred`), com o mesmo Chromium, e verifica:
+O teste roda como o mesmo usuário do worker (`apoiarcred`), com o mesmo Chromium, e verifica DNS, TLS, navegador e formulário do **chat direto**, sem enviar nome, telefone ou CPF.
 
-- DNS e TLS do site do banco e do widget.
-- Inicialização do navegador e abertura do banco.
-- Tratamento do aviso Fechar e avisos de cookies.
-- Chat em nova aba, mesma aba ou iframe.
-- Presença do formulário/menu, **sem enviar nome, telefone ou CPF**.
+A página institucional falhou na VPS com `ERR_HTTP2_PROTOCOL_ERROR` e depois `ERR_EMPTY_RESPONSE`. A consulta não passa mais por essa página: usa o endereço público do widget, que já foi aberto e utilizado na demonstração. Não há troca de IP, proxy ou desativação da validação TLS. Se o próprio chat apresentar verificação adicional, o robô para para revisão.
 
-O diagnóstico não depende da chave do Supabase e não a imprime. Ele mostra a etapa e o código real do erro de rede (por exemplo `ERR_NAME_NOT_RESOLVED` ou `ERR_CERT_AUTHORITY_INVALID`), quando existir. Se houver falha, copie a saída do diagnóstico para análise. Não desative validação TLS para corrigir erros de certificado.
-
-O diagnóstico da VPS identificou `net::ERR_HTTP2_PROTOCOL_ERROR` na abertura do site. O robô e o diagnóstico agora compartilham os parâmetros `--disable-http2` e `--disable-quic` para usar HTTP/1.1, mantendo HTTPS e a validação do certificado. A mudança afeta o Chromium do robô, não exige alteração no Nginx e chega pela opção Atualizar. Execute o diagnóstico novamente após atualizar para confirmar o resultado nessa VPS.
-
-Uma falha em 10% é anterior ao clique no widget; não é evidência de popup bloqueando o CPF. Avisos e as variantes de abertura do chat têm testes simulados, mas o teste na VPS real é necessário para confirmar o acesso dessa máquina. A opção diagnóstico não envia consultas bancárias nem modifica dados de clientes.
+O teste exibe a linha `Rota da consulta | chat direto` e precisa terminar com `Chat direto | formulário/menu identificado` e `RESULTADO: PASSOU`. Se falhar, envie a saída para identificarmos o acesso ao chat nessa máquina. A troca de rota foi testada com respostas simuladas; a confirmação na VPS depende deste diagnóstico.
 
 ## Comandos úteis
 
@@ -129,4 +121,5 @@ node tests/test_frontend.cjs
 ```
 
 Os testes cobrem menu, instalação simulada, troca de configuração, autenticação do frontend com respostas simuladas e interpretação do robô. Não substituem a validação na VPS real.
+
 

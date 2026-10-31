@@ -1,7 +1,7 @@
 """Digi+ UI workflow with real step progress and explicit result classification."""
 import asyncio, inspect, re, time
 from decimal import Decimal
-from chat_browser import CHROMIUM_ARGS, BANK_URL, NavigationIssue, describe_error, open_bank, open_chat
+from chat_browser import CHROMIUM_ARGS, CHAT_URL, NavigationIssue, describe_error, open_direct_chat
 class RobotError(Exception):pass
 
 def format_cpf(value):
@@ -49,8 +49,7 @@ async def run(client,timeout=60000,on_progress=None):
    await emit(5,'Iniciar navegador')
    browser=await pw.chromium.launch(headless=True,args=list(CHROMIUM_ARGS))
    context=await browser.new_context(locale='pt-BR')
-   page=await open_bank(context,timeout=timeout,report=emit)
-   chat=await open_chat(context,page,timeout=timeout)
+   chat=await open_direct_chat(context,timeout=timeout,report=emit)
    await emit(30,'Preencher nome e telefone')
    await chat.locator('input:not([type="hidden"]):not([type="file"])').nth(0).fill(client['nome'])
    await chat.locator('input:not([type="hidden"]):not([type="file"])').nth(1).fill(client['telefone'])
@@ -96,4 +95,5 @@ async def run(client,timeout=60000,on_progress=None):
    if browser:
     try:await browser.close()
     except Exception:pass
+
 

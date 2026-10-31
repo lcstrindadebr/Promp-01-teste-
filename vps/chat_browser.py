@@ -3,6 +3,7 @@ import asyncio, re, time
 from urllib.parse import urlsplit
 BANK_URL='https://www.bancodigimais.com.br/'
 CHAT_HOST='widget.voltdigital.com.br'
+CHAT_URL='https://widget.voltdigital.com.br/br/14603de1a63fa6c1331d69c278d6d32f2bbd825b28c5e4053e6418b24c7e761f/chat'
 # The bank failed HTTP/2 on the VPS; use HTTP/1.1 over verified TLS.
 CHROMIUM_ARGS=('--disable-dev-shm-usage','--disable-http2','--disable-quic')
 
@@ -71,3 +72,19 @@ async def open_chat(context,page,timeout=60000):
         await asyncio.sleep(.2)
     raise NavigationIssue('O widget foi clicado, mas o formulário do chat não abriu em aba, página ou iframe.')
 
+
+
+async def open_direct_chat(context,timeout=60000,report=None):
+    """Use the same public chat destination opened by the bank widget."""
+    page=await context.new_page();page.set_default_timeout(timeout)
+    if report:await report(10,'Abrir chat direto do banco')
+    response=await page.goto(CHAT_URL,wait_until='domcontentloaded',timeout=timeout)
+    check_access(await body_text(page),response.status if response else None)
+    if report:await report(20,'Aguardar formulário do chat')
+    deadline=time.monotonic()+timeout/1000
+    while time.monotonic()<deadline:
+        check_access(await body_text(page))
+        scope=await find_chat_scope(context,page)
+        if scope:return scope
+        await asyncio.sleep(.2)
+    raise NavigationIssue('O chat direto abriu, mas não exibiu formulário ou menu no prazo esperado.')
