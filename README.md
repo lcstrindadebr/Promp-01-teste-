@@ -238,3 +238,9 @@ Método autorizado: estimativa de valor presente pelo CET mensal de referência,
 Cada simulação guarda entradas, resultados, percentuais, método, versão e data. Se os dados da consulta mudarem, o resultado aberto é ocultado e sinalizado como desatualizado; clique em Recalcular. Não é necessário consultar o banco novamente para simular.
 
 O projeto Supabase original já recebeu a atualização. Para outro projeto existente, execute `supabase/upgrade_amigoz.sql` no SQL Editor uma vez antes de atualizar o painel. Instalações novas usam `supabase/schema.sql`. O auto instalador (opção 1) distribui todo o código atualizado, incluindo `dist/amigoz.js`; preserva as configurações e não executa SQL em projetos externos automaticamente.
+
+### Excluir campanhas e consultas
+
+Use **Excluir** na linha de uma consulta (individual ou dentro da campanha), ou **Excluir campanha** na campanha selecionada. O sistema pede confirmação. A exclusão é definitiva e remove também as simulações relacionadas; excluir a campanha remove todas as suas consultas. Cada conta só pode excluir os próprios registros. Consultas ainda na fila deixam de ser executadas; um atendimento já iniciado no banco pode continuar até encerrar, sem recriar o registro apagado.
+
+O Supabase original já foi atualizado. Em outro projeto existente, execute `supabase/upgrade_exclusao.sql` antes de atualizar pela opção 1 do auto instalador. Instalação nova: `supabase/schema.sql`.

@@ -1,0 +1,31 @@
+begin;
+create temporary table deletion_fixture as select gen_random_uuid() uid,gen_random_uuid() other_uid,gen_random_uuid() lot,gen_random_uuid() job;
+grant select on deletion_fixture to authenticated;
+insert into auth.users(id,aud,role,email) select uid,'authenticated','authenticated',uid::text||'@test.invalid' from deletion_fixture union all select other_uid,'authenticated','authenticated',other_uid::text||'@test.invalid' from deletion_fixture;
+insert into public.consulta_lotes(id,user_id,nome,tipo) select lot,uid,'TESTE EXCLUSAO','campanha' from deletion_fixture;
+insert into public.consulta_jobs(id,lote_id,user_id,nome,cpf,telefone) select job,lot,uid,'TESTE','00123456789','11999999999' from deletion_fixture;
+insert into public.amigoz_simulacoes(user_id,job_id,resultado) select uid,job,'{}' from deletion_fixture;
+set local role authenticated;
+do $$ declare n int; begin
+ perform set_config('request.jwt.claim.sub',(select other_uid::text from deletion_fixture),true);
+ delete from public.consulta_jobs where id=(select job from deletion_fixture);get diagnostics n=row_count;
+ if n<>0 then raise exception 'Cross-user job deletion';end if;
+ delete from public.consulta_lotes where id=(select lot from deletion_fixture);get diagnostics n=row_count;
+ if n<>0 then raise exception 'Cross-user campaign deletion';end if;
+ perform set_config('request.jwt.claim.sub',(select uid::text from deletion_fixture),true);
+ delete from public.consulta_jobs where id=(select job from deletion_fixture);get diagnostics n=row_count;
+ if n<>1 then raise exception 'Own deletion failed';end if;
+ if exists(select 1 from public.amigoz_simulacoes where job_id=(select job from deletion_fixture)) then raise exception 'Simulation cascade failed';end if;
+ if not exists(select 1 from public.consulta_lotes where id=(select lot from deletion_fixture)) then raise exception 'Single deletion removed campaign';end if;
+end $$;
+reset role;
+insert into public.consulta_jobs(id,lote_id,user_id,nome,cpf,telefone) select job,lot,uid,'TESTE','00123456789','11999999999' from deletion_fixture;
+insert into public.amigoz_simulacoes(user_id,job_id,resultado) select uid,job,'{}' from deletion_fixture;
+set local role authenticated;
+delete from public.consulta_lotes where id=(select lot from deletion_fixture);
+reset role;
+do $$ begin
+ if exists(select 1 from public.consulta_jobs where id=(select job from deletion_fixture)) or exists(select 1 from public.amigoz_simulacoes where job_id=(select job from deletion_fixture)) then raise exception 'Campaign cascade failed';end if;
+end $$;
+rollback;
+select 'PASS: owner deletion, cross-user denial, individual deletion preserves campaign, campaign cascades jobs and simulations; fixtures rolled back' result;
