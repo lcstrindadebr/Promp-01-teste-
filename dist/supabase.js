@@ -4,7 +4,7 @@ const storageKey='apoiarcred-auth:'+sb.url;
 let session=null,authenticated=false,refreshing=null,loadingCloud=false,authEpoch=0;
 const statusNames={aguardando:'Aguardando',processando:'Processando',concluida:'Concluída',nao_localizado:'Não é cliente',nao_cliente:'Não é cliente',erro:'Erro',revisao:'Revisão'};
 function showLogin(message=''){
- authenticated=false;session=null;authEpoch++;if(typeof resetAmigoz==='function')resetAmigoz();records=[];pending=[];campaigns=[];activeCampaign=null;retryingCampaign=false;$('#campaignName').value='';navigate("home");
+ authenticated=false;session=null;authEpoch++;importGeneration++;readingImport=false;importError='';if(typeof resetAmigoz==='function')resetAmigoz();records=[];pending=[];campaigns=[];activeCampaign=null;retryingCampaign=false;$('#campaignName').value='';navigate("home");
  $('#consultationLogPanel').open=false;sessionStorage.removeItem(storageKey);$('#appShell').hidden=true;$('#loginPage').hidden=false;
  $('#loginError').textContent=message;$('#preview').classList.add('hide');$('#file').value='';$('#import').disabled=true;render();
 }

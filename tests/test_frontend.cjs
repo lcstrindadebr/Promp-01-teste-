@@ -1,6 +1,6 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 function setup(stored){
- const nodes=new Map();function element(){return {value:'',textContent:'',innerHTML:'',hidden:false,disabled:false,style:{},classList:{add(){},remove(){},toggle(){}},querySelector(){return element()}}}
+ const nodes=new Map();function element(){return {value:'',textContent:'',innerHTML:'',hidden:false,disabled:false,dataset:{},style:{},classList:{add(){},remove(){},toggle(){}},querySelector(){return element()}}}
  const get=s=>{if(!nodes.has(s))nodes.set(s,element());return nodes.get(s)};get('#appShell').hidden=true;
  const data=new Map(stored||[]),storage={getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)};
  const calls=[];let handler=async()=>({ok:true,status:200,text:async()=>JSON.stringify([])});

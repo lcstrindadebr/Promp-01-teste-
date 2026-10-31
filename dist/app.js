@@ -50,21 +50,72 @@ function render(){
 const digits=s=>String(s).replace(/\D/g,'');
 function validate(r){r.nome=r.nome.trim();r.cpf=digits(r.cpf);r.telefone=digits(r.telefone);if(!r.nome||r.nome.length>160||r.cpf.length!==11||!/^\d{10,13}$/.test(r.telefone))throw Error('Informe nome, CPF com 11 dígitos e telefone com DDD.');return r}
 function csvParse(text){
- const sep=text.split(/\r?\n/)[0].includes(';')?';':',';let rows=[],row=[],value='',quoted=false;
+ const first=text.split(/\r?\n/)[0],sep=first.includes('\t')?'\t':first.includes(';')?';':',';let rows=[],row=[],value='',quoted=false;
  for(let i=0;i<text.length;i++){const c=text[i];if(c==='"'){if(quoted&&text[i+1]==='"'){value+='"';i++}else quoted=!quoted}else if(c===sep&&!quoted){row.push(value);value=''}else if(c==='\n'&&!quoted){row.push(value.replace(/\r$/,''));rows.push(row);row=[];value=''}else value+=c}
  if(quoted)throw Error('CSV com aspas não fechadas.');if(value||row.length){row.push(value.replace(/\r$/,''));rows.push(row)}return rows.filter(r=>r.some(v=>v.trim()));
 }
 $('#single').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('button');button.disabled=true;try{await add([validate(Object.fromEntries(new FormData(e.target)))]);e.target.reset()}catch(e){toast(e.message)}finally{button.disabled=false}};
+let readingImport=false,creatingCampaign=false,importGeneration=0,importError='';
+function syncImportButton(message){
+ const named=Boolean($('#campaignName').value.trim());
+ $('#import').disabled=readingImport||creatingCampaign||!pending.length||!named;
+ $('#import').textContent=creatingCampaign?'Criando campanha…':readingImport?'Lendo planilha…':'Criar campanha e consultar';
+ $('#importStatus').textContent=message||importError||(readingImport?'Aguarde a leitura da planilha.':!pending.length?'Selecione uma planilha preenchida com os dados dos clientes.':!named?'Planilha validada. Informe o nome da campanha para continuar.':`${pending.length} cliente(s) pronto(s) para consultar.`);
+}
+$('#campaignName').oninput=()=>syncImportButton();
+function importHeader(value){
+ const key=value.trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[_\s]+/g,' ');
+ return ({'nome completo':'nome','nome do cliente':'nome','celular':'telefone','telefone com ddd':'telefone','telefone 1':'telefone','whatsapp':'telefone'})[key]||key;
+}
 $('#file').onchange=async e=>{
- pending=[];$('#import').disabled=true;
- try{const file=e.target.files[0];if(!file)return;if(file.size>2000000)throw Error('Arquivo acima de 2 MB.');
- const rows=csvParse((await file.text()).replace(/^\uFEFF/,''));if(!rows.length)throw Error('Arquivo vazio.');const headers=rows.shift().map(x=>x.trim().toLowerCase());
- if(!['nome','cpf','telefone'].every(h=>headers.includes(h)))throw Error('Use o modelo padrão: nome, cpf e telefone.');if(rows.length>1000)throw Error('Envie até 1.000 registros.');let errors=[],seen=new Set();
- rows.forEach((row,i)=>{try{const r=validate(Object.fromEntries(headers.map((h,j)=>[h,row[j]||''])));if(r.nome==='NOME COMPLETO DO CLIENTE'&&r.cpf==='00000000000')throw Error();if(seen.has(r.cpf))throw Error();seen.add(r.cpf);pending.push(r)}catch{errors.push('Linha '+(i+2)+': corrija os dados, substitua o exemplo ou remova o CPF duplicado.')}});
- $('#preview').classList.remove('hide');$('#preview').textContent=`${pending.length} válidos · ${errors.length} inválidos\n`+errors.slice(0,10).join('\n');$('#import').disabled=!pending.length;
- }catch(e){toast(e.message)}
+ const generation=++importGeneration;pending=[];readingImport=true;importError='';
+ $('#preview').classList.remove('hide');$('#preview').textContent='';syncImportButton();
+ try{
+ const file=e.target.files[0];if(!file){syncImportButton('Selecione uma planilha.');return;}
+ if(file.name&&!/\.(csv|tsv|xlsx|xls)$/i.test(file.name))throw Error('Formato não suportado. Envie CSV, TSV, XLSX ou XLS.');
+ if(file.size>2000000)throw Error('Arquivo acima de 2 MB. Divida a planilha em arquivos menores.');
+ let rows;
+ if(/\.xlsx?$/i.test(file.name||'')){
+ if(typeof XLSX==='undefined')throw Error('O leitor de Excel não carregou. Atualize a página e tente novamente.');
+ let book;try{book=XLSX.read(await file.arrayBuffer(),{type:'array',sheetRows:1002,cellFormula:false,cellHTML:false,cellText:false});}catch{throw Error('Não foi possível abrir o Excel. Confira se o arquivo está íntegro e sem senha.');}
+ const sheet=book.Sheets[book.SheetNames[0]];if(!sheet)throw Error('A planilha não contém abas.');
+ const range=sheet['!fullref']||sheet['!ref'];if(range&&XLSX.utils.decode_range(range).e.r>1000)throw Error('A primeira aba deve conter até 1.000 clientes e o cabeçalho. Remova linhas extras ou divida o arquivo.');
+ rows=XLSX.utils.sheet_to_json(sheet,{header:1,raw:true,defval:'',blankrows:false}).map(row=>row.map(value=>String(value??'')));
+ }else{
+ let text=(await file.text()).replace(/^\uFEFF/,'').replace(/^sep=[;,]\r?\n/i,'');
+ if(text.includes('\uFFFD'))throw Error('Codificação não reconhecida. Salve como CSV UTF-8 no Excel e envie novamente.');
+ rows=csvParse(text);
+ }
+ if(generation!==importGeneration)return;
+ if(!rows.length)throw Error('Arquivo vazio. Preencha o modelo com os dados dos clientes.');
+ const headers=rows.shift().map(importHeader),missing=['nome','cpf','telefone'].filter(h=>!headers.includes(h));
+ if(missing.length)throw Error('Colunas ausentes: '+missing.join(', ')+'. Use o modelo padrão e salve como CSV UTF-8.');
+ if(new Set(headers).size!==headers.length)throw Error('Há títulos de colunas repetidos. Mantenha uma coluna nome, cpf e telefone.');
+ if(rows.length>1000)throw Error('Envie até 1.000 registros por campanha.');
+ if(!rows.length)throw Error('A planilha contém apenas o cabeçalho. Adicione os clientes antes de enviar.');
+ const errors=[],seen=new Set(),valid=[];
+ rows.forEach((row,i)=>{try{
+ const r=Object.fromEntries(headers.map((h,j)=>[h,(row[j]||'').trim()]));
+ if(r.nome.toUpperCase()==='NOME COMPLETO DO CLIENTE'&&digits(r.cpf)==='00000000000')throw Error('Substitua a linha de exemplo pelos dados de um cliente.');
+ if(!r.nome||r.nome.length>160)throw Error('Nome ausente ou acima de 160 caracteres.');
+ if(/^\d{1,11}$/.test(r.cpf))r.cpf=r.cpf.padStart(11,'0');
+ if(!/^\d{11}$/.test(digits(r.cpf)))throw Error('CPF deve ter 11 dígitos. Preserve os zeros à esquerda.');
+ if(!/^\d{10,13}$/.test(digits(r.telefone)))throw Error('Telefone deve conter DDD e 10 a 13 dígitos.');
+ validate(r);if(seen.has(r.cpf))throw Error('CPF duplicado nesta planilha.');seen.add(r.cpf);valid.push(r);
+ }catch(error){errors.push('Linha '+(i+2)+': '+error.message);}});
+ pending=valid;$('#preview').textContent=`${pending.length} válidos · ${errors.length} inválidos\n`+errors.slice(0,30).join('\n')+(errors.length>30?'\nMais erros: revise as demais linhas.':'');
+ if(!pending.length)throw Error('Nenhum cliente válido. Corrija os motivos abaixo e selecione o arquivo novamente.');
+ }catch(error){if(generation===importGeneration){pending=[];$('#importStatus').textContent=error.message;importError=error.message;}}
+ finally{if(generation===importGeneration){readingImport=false;syncImportButton();}}
 };
-$('#import').onclick=async()=>{const button=$('#import');button.disabled=true;try{const name=$('#campaignName').value.trim();if(!name)throw Error('Informe o nome da campanha.');activeCampaign=await createCampaign(name,pending);pending=[];$('#campaignName').value='';$('#file').value='';$('#preview').classList.add('hide');$('#newCampaignPanel').open=false;renderCampaigns()}catch(e){toast(e.message)}finally{button.disabled=!pending.length}};
+$('#import').onclick=async()=>{
+ if(creatingCampaign||readingImport)return;
+ creatingCampaign=true;importError='';syncImportButton();
+ try{const name=$('#campaignName').value.trim();if(!name)throw Error('Informe o nome da campanha.');if(!pending.length)throw Error('Selecione uma planilha com clientes válidos.');
+ activeCampaign=await createCampaign(name,pending);pending=[];$('#campaignName').value='';$('#file').value='';$('#preview').classList.add('hide');$('#newCampaignPanel').open=false;renderCampaigns();toast('Campanha criada. Consultas adicionadas à fila.');
+ }catch(e){toast(e.message);importError=e.message;}
+ finally{creatingCampaign=false;syncImportButton();}
+};
 function download(name,content){const u=URL.createObjectURL(new Blob(['\uFEFF'+content],{type:'text/csv;charset=utf-8'})),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)}
 function exportResults(items,filename='consultas.csv'){const safe=v=>'"'+String(v??'').replace(/^[=+@\-]/,"'$&").replaceAll('"','""')+'"';download(filename,[['nome','cpf','telefone','status','saldo','parcelas','valor_parcela','data','observacao'],...items.map(r=>[r.nome,r.cpf,r.telefone,statusLabel(r.status),r.saldo,r.parcelas,r.valorParcela,r.date,resultMessage(r)])].map(r=>r.map(safe).join(';')).join('\r\n'))}
 $('#export').onclick=()=>exportResults(individualRecords());

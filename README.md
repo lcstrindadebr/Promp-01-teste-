@@ -244,3 +244,11 @@ O projeto Supabase original já recebeu a atualização. Para outro projeto exis
 Use **Excluir** na linha de uma consulta (individual ou dentro da campanha), ou **Excluir campanha** na campanha selecionada. O sistema pede confirmação. A exclusão é definitiva e remove também as simulações relacionadas; excluir a campanha remove todas as suas consultas. Cada conta só pode excluir os próprios registros. Consultas ainda na fila deixam de ser executadas; um atendimento já iniciado no banco pode continuar até encerrar, sem recriar o registro apagado.
 
 O Supabase original já foi atualizado. Em outro projeto existente, execute `supabase/upgrade_exclusao.sql` antes de atualizar pela opção 1 do auto instalador. Instalação nova: `supabase/schema.sql`.
+
+### Importação de campanhas: Excel, CSV e TSV
+
+Aceita `.xlsx`, `.xls`, `.csv` (vírgula ou ponto e vírgula) e `.tsv` (tabulação). Limites: 2 MB e 1.000 clientes. No Excel, coloque os dados na primeira aba, com cabeçalho na primeira linha: `nome`, `cpf`, `telefone`. Também são reconhecidos `Nome completo`, `Celular` e `Telefone com DDD`. Substitua a linha de exemplo antes de importar. CPF e telefone devem ser texto; CPFs numéricos curtos recebem zeros à esquerda até completar 11 dígitos.
+
+O botão é liberado depois da leitura, com nome de campanha e ao menos uma linha válida. Erros ficam visíveis abaixo do botão, com detalhes por linha. Linhas inválidas e CPFs duplicados não são enviados; revise a prévia antes de criar a campanha. O leitor Excel SheetJS CE 0.20.3 é distribuído localmente em `dist/vendor`, com licença; o navegador não depende de CDN para importar.
+
+Validação: `node tests/test_import_formats.cjs` testa arquivos reais nos quatro formatos, criação via RPC simulada, zeros à esquerda, arquivo inválido, limite de linhas e troca rápida de arquivo. `tests/campaigns_database.sql` valida a criação e o isolamento no banco em transação revertida, sem deixar clientes na fila.
