@@ -6,7 +6,9 @@ KEY=os.environ['SUPABASE_SERVICE_ROLE_KEY']
 MODE=os.environ.get('ROBOT_MODE','disabled')
 def request(path,payload=None,method='POST'):
  data=json.dumps(payload).encode() if payload is not None else None
- req=urllib.request.Request(URL+'/rest/v1/'+path,data=data,method=method,headers={'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json'})
+ headers={'apikey':KEY,'Content-Type':'application/json'}
+ if not KEY.startswith('sb_secret_'):headers['Authorization']='Bearer '+KEY
+ req=urllib.request.Request(URL+'/rest/v1/'+path,data=data,method=method,headers=headers)
  with urllib.request.urlopen(req,timeout=30) as res:
   text=res.read().decode();return json.loads(text) if text else None
 

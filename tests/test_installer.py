@@ -10,16 +10,20 @@ class InstallerTests(unittest.TestCase):
    for f in ['dist/index.html','dist/app.js','dist/supabase.js','dist/supabase-config.js','vps/worker.py','vps/robot.py','vps/requirements.txt']:
     (src/f).write_text('test')
    replacements={'/opt/apoiarcred':str(base/'app'),'/etc/nginx':str(base/'nginx'),'/etc/systemd/system':str(base/'systemd'),'/var/www/apoiarcred-acme':str(base/'acme'),'/etc/letsencrypt':str(base/'tls'),'/var/lib/apoiarcred':str(base/'home'),'/var/tmp/apoiarcred-install.':str(base/'run.'),'/run/lock/apoiarcred-instalar.lock':str(base/'lock')}
-   code=(ROOT/'instalar.sh').read_text()
+   code=(ROOT/'scripts/install-core.sh').read_text().replace('\"$(dirname -- \"${BASH_SOURCE[0]}\")/..\"','\"$(dirname -- \"${BASH_SOURCE[0]}\")\"')
+   code=code.replace('SOURCE=$(cd -- \"$(dirname -- \"${BASH_SOURCE[0]}\")/..\" && pwd)', 'SOURCE='+str(src))
    for old,new in replacements.items():code=code.replace(old,new)
    (src/'instalar.sh').write_text(code)
+   (src/'scripts').mkdir()
+   (src/'scripts/configure_supabase.py').write_text((ROOT/'scripts/configure_supabase.py').read_text())
+   (src/'dist/supabase-config.js').write_text('window.SUPABASE_CONFIG = {\"url\":\"https://aaaaaaaaaaaaaaaaaaaa.supabase.co\",\"key\":\"sb_publishable_test\"};')
    for d in ['nginx/sites-available','nginx/sites-enabled','systemd']:(base/d).mkdir(parents=True)
    def mock(name,text):
     p=bin/name;p.write_text('#!/bin/bash\n'+text);p.chmod(0o755)
    for name in ['apt-get','nginx','id','useradd','ufw']:mock(name,'exit 0\n')
    mock('ss','echo "State Recv-Q Send-Q Local Peer Process"\n')
    mock('systemctl','if [[ "$1" == is-active ]]; then [[ -f "$TEST_ROOT/started" ]]; elif [[ "$1" == restart ]]; then touch "$TEST_ROOT/started"; fi\n')
-   mock('python3','mkdir -p "$3/bin"\nprintf "#!/bin/bash\\nexit 0\\n" > "$3/bin/pip"\nprintf \'#!/bin/bash\\nmkdir -p "$PLAYWRIGHT_BROWSERS_PATH"\\n\' > "$3/bin/playwright"\nchmod +x "$3/bin/"*\n')
+   mock('python3','if [[ \"$1\" != -m ]]; then exec /usr/bin/python3 \"$@\"; fi\nmkdir -p "$3/bin"\nprintf "#!/bin/bash\\nexit 0\\n" > "$3/bin/pip"\nprintf \'#!/bin/bash\\nmkdir -p "$PLAYWRIGHT_BROWSERS_PATH"\\n\' > "$3/bin/playwright"\nchmod +x "$3/bin/"*\n')
    mock('curl','if [[ "$*" == *apoiarcred-check* ]]; then\n [[ "$DNS_OK" == 1 ]] || exit 22\n cat "$TEST_ROOT/acme/.well-known/acme-challenge/apoiarcred-check"\nfi\n')
    mock('certbot','exit 0\n')
    master,slave=pty.openpty()
@@ -52,3 +56,4 @@ class InstallerTests(unittest.TestCase):
  def test_invalid_domain_rejected_before_changes(self):
   code,out,state=self.simulate(domain='example.com;touch /tmp/bad');self.assertNotEqual(code,0,out);self.assertFalse(state['env'])
 if __name__=='__main__':unittest.main()
+

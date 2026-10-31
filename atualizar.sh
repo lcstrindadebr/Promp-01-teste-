@@ -27,7 +27,11 @@ for p in [Path('vps/worker.py'),Path('vps/robot.py')]:
  ast.parse(p.read_text())
 assert Path('dist/index.html').is_file()
 PY
-STAGE='aplicação da atualização'
+# Capturar a configuração da instalação antiga antes de copiar o frontend novo.
+if [[ ! -f "$APP/supabase-public.json" ]]; then
+    python3 "$REPO/scripts/configure_supabase.py" --app "$APP" --capture-public
+fi
+STAGE='aplicação da atualização' 
 BACKUP=$(mktemp -d /var/tmp/apoiarcred-update.XXXXXX)
 chmod 700 "$BACKUP"
 cp -a "$APP/dist" "$APP/vps" "$BACKUP/"
@@ -39,6 +43,7 @@ if systemctl is-active --quiet apoiarcred-robo; then
 fi
 cp -a dist/. "$APP/dist/"
 cp -a vps/. "$APP/vps/"
+python3 "$REPO/scripts/configure_supabase.py" --app "$APP" --render-only
 chmod -R a+rX "$APP/dist" "$APP/vps"
 "$APP/.venv/bin/pip" install -r "$APP/vps/requirements.txt"
 PLAYWRIGHT_BROWSERS_PATH="$APP/browsers" "$APP/.venv/bin/playwright" install --with-deps chromium
@@ -51,3 +56,4 @@ if (( WAS_ACTIVE )); then
 fi
 printf '\nAtualizado para o commit %s. .env, modo do robô e SSL preservados.\n' "$(git rev-parse --short HEAD)"
 printf 'Migrações de banco e mudanças de infraestrutura não são executadas automaticamente.\n'
+

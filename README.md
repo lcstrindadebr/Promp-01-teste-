@@ -1,58 +1,84 @@
-# ApoiarCred · Instalação do MVP
+# ApoiarCred · MVP
 
-## 1. DNS
+Ubuntu Server **24.04 x86-64**, 2 vCPU e 4 GB RAM. Instalação direta, sem Docker.
+
+## DNS
 
 | Tipo | Nome | Valor |
 |---|---|---|
 | A | consultas | IP público da VPS |
 
-Deixe as portas 80/443 livres e liberadas no provedor. Se usar Cloudflare, comece com Somente DNS.
+Libere TCP 80/443 no provedor. Se usar Cloudflare, comece com Somente DNS.
 
-## 2. Instalar por HTTPS
+## Instalar
 
-Na VPS Ubuntu Server **24.04 x86-64**, como root, execute o bloco inteiro:
+Na VPS como root:
 
 ```bash
 git clone --branch apoiarcred-consultas-mvp --single-branch https://github.com/lcstrindadebr/Promp-01-teste-.git /opt/apoiarcred-src && bash /opt/apoiarcred-src/instalar.sh
 ```
 
-O repositório está público: não precisa de chave SSH, senha do GitHub ou ZIP. Caso o comando git não exista, execute primeiro `apt update && apt install -y git`.
+Se o Git não existir: `apt update && apt install -y git`.
 
-Se aparecer “destination path already exists”, não apague a pasta. Se ela já contém este repositório:
+### Já baixou ou instalou antes?
 
 ```bash
-git -C /opt/apoiarcred-src remote set-url origin https://github.com/lcstrindadebr/Promp-01-teste-.git &&
-git -C /opt/apoiarcred-src pull --ff-only origin apoiarcred-consultas-mvp &&
-bash /opt/apoiarcred-src/instalar.sh
+git -C /opt/apoiarcred-src pull --ff-only origin apoiarcred-consultas-mvp && bash /opt/apoiarcred-src/instalar.sh
 ```
 
-O instalador pergunta **subdomínio, e-mail do SSL e chave secreta do Supabase**, além da confirmação dos termos do certificado. Configura Python, Chromium, Nginx, HTTPS e serviço do robô. Sem Docker. Sugestão inicial: 2 vCPU e 4 GB RAM.
+O menu identifica a instância em `/opt/apoiarcred`:
 
-A chave secret/service_role fica no Supabase → Project Settings → API Keys. A digitação é oculta e a chave fica somente no .env da VPS. Não use a publishable no lugar dela.
+- **Sem instalação completa:** oferece instalar. Pergunta subdomínio, e-mail do SSL e chave secret/service_role do Supabase e configura os serviços.
+- **Com instalação completa:** oferece atualizar pelo GitHub, trocar a conexão do Supabase ou sair. Não reinstala nem pede domínio e certificado novamente.
 
-## 3. Atualizar
+O MVP gerencia uma instância por VPS no caminho padrão. Instalações incompletas podem ser retomadas pela opção instalar. Atualizações preservam `.env`, projeto Supabase, certificado e modo do robô, sem executar migrações automaticamente.
+
+## Trocar API/conexão do Supabase
+
+Abra o mesmo menu e escolha **2) Trocar conexão/API do Supabase**.
+
+Ele pede URL do projeto, chave **publishable/anon** do painel e chave **secret/service_role** do robô, com chaves ocultas. Valida a conexão e as tabelas antes de salvar. A chave secreta fica somente em `/opt/apoiarcred/.env`; nunca é enviada ao frontend. O worker é parado durante a troca e retomado se estava ativo.
+
+A conexão é atualizada no painel e no robô. Recarregue o navegador e entre novamente. Os usuários e dados não são migrados para o outro projeto; ele precisa ter o schema do MVP e contas Auth configurados. URLs de projeto neste MVP usam `https://REFERENCIA.supabase.co`.
+
+## Acesso ao sistema
+
+A primeira tela é **login**. Entre com um usuário criado em Supabase → Authentication → Users. Não existe opção de modo de operação: consultas e resultados usam sempre o Supabase. A configuração web mostra apenas a conta conectada e permite sair.
+
+O projeto original já tem o banco configurado. Não reaplique o schema nele. Cada usuário vê somente suas próprias consultas.
+
+## Importar clientes
+
+No painel, clique em **Baixar modelo CSV** ou **Baixar modelo padrão de importação**. O arquivo contém:
+
+```csv
+nome;cpf;telefone
+NOME COMPLETO DO CLIENTE;00000000000;11999999999
+```
+
+Substitua o exemplo pelos clientes. CPF e telefone devem ser texto para preservar zeros à esquerda. O painel aceita até 1.000 registros, valida a planilha e mostra linhas que precisam de correção antes da importação. A linha de exemplo não é enviada ao robô. Os arquivos devem ter no máximo 2 MB.
+
+## Atualizar sem abrir o menu
 
 ```bash
 apoiarcred-atualizar
 ```
 
-Busca e aplica o código mais recente da branch, atualiza dependências e reinicia o robô se ele estava ligado. Preserva .env, modo do robô e certificado. Não há atualização agendada; execute o comando quando quiser atualizar. Não sobrescreve alterações locais nem executa migrações de banco.
+Busca e aplica atualizações quando executado. Sem agendamento em segundo plano. Não sobrescreve alterações locais. Se o serviço estava parado, permanece parado. Se a atualização falhar, confira o erro antes de reiniciar.
 
-Se o repositório voltar a privado, será necessário autorizar o acesso da VPS novamente.
+## Robô
 
-## 4. Entrar e testar
+O robô inicia com `ROBOT_MODE=disabled` no servidor. Isso é uma proteção de homologação do worker, **não um modo selecionável no painel**: a fila e os resultados continuam no Supabase. Nesse estado, registros retornam Revisão sem consultar o banco.
 
-Crie seu usuário em Supabase → Authentication → Users. Abra o subdomínio → Configurações → entre → selecione **Supabase · fila real**. O banco já está configurado; não reaplique o schema.
-
-O robô inicia em **disabled**, testando a fila sem consulta bancária. A execução completa do Digi+ ainda precisa ser homologada na VPS. Para uma consulta real autorizada de teste:
+A execução completa no Digi+ ainda precisa de homologação na VPS. Para uma consulta autorizada de teste:
 
 ```bash
 nano /opt/apoiarcred/.env
-# Troque ROBOT_MODE=disabled por ROBOT_MODE=live, salve e execute:
+# Altere ROBOT_MODE=disabled para ROBOT_MODE=live, salve e execute:
 systemctl restart apoiarcred-robo
 ```
 
-Valide uma consulta individual antes de enviar lotes. CSV: nome;cpf;telefone, até 1.000 linhas. Cada usuário vê apenas as próprias consultas.
+Valide uma consulta individual antes de lotes. Se uma tarefa for interrompida, revise antes de reenviar: recuperação automática de consultas em processamento ainda não está implementada.
 
 ## Comandos úteis
 
@@ -63,4 +89,13 @@ systemctl stop apoiarcred-robo
 certbot renew --dry-run
 ```
 
-Se uma consulta for interrompida, revise antes de reenviar. Configure backups e retenção no Supabase. Se a instalação falhar, corrija o erro e execute novamente; uma reinstalação redefine o robô para disabled e pode interromper temporariamente o serviço.
+Configure backups e retenção no Supabase. Scripts novos ficam em `scripts/`; execute pelo menu principal, não pelo instalador interno.
+
+## Verificação do código
+
+```bash
+python3 -m unittest discover -s tests -v
+node tests/test_frontend.cjs
+```
+
+Os testes cobrem menu, instalação simulada, troca de configuração, autenticação do frontend com respostas simuladas e interpretação do robô. Não substituem a validação na VPS real.
