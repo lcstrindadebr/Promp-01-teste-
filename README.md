@@ -180,3 +180,11 @@ as colunas antes de trocar o código; não executa SQL com a chave de serviço.
 Atualize pelo menu, opção 1. A homologação assistida confirmou o retorno do valor
 da parcela no chat, mas a execução das duas sessões pelo worker precisa ser
 verificada na VPS após instalar a versão.
+
+### Exibição simplificada das consultas
+
+Durante o processamento, o painel mostra **Consultando...** e a barra percentual.
+Etapas e mensagens técnicas ficam em **Configurações → Log de consultas**,
+recolhido por padrão. Esse log mostra o último estado salvo de cada consulta e
+os detalhes dos resultados de saldo/parcela, sem exigir nova coluna no banco.
+A lista principal e o CSV de resultados usam mensagens resumidas.

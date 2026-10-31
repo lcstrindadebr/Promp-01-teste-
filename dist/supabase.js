@@ -5,7 +5,7 @@ let session=null,authenticated=false,refreshing=null,loadingCloud=false,authEpoc
 const statusNames={aguardando:'Aguardando',processando:'Processando',concluida:'Concluída',nao_localizado:'Não é cliente',nao_cliente:'Não é cliente',erro:'Erro',revisao:'Revisão'};
 function showLogin(message=''){
  authenticated=false;session=null;authEpoch++;records=[];pending=[];
- sessionStorage.removeItem(storageKey);$('#appShell').hidden=true;$('#loginPage').hidden=false;
+ $('#consultationLogPanel').open=false;sessionStorage.removeItem(storageKey);$('#appShell').hidden=true;$('#loginPage').hidden=false;
  $('#loginError').textContent=message;$('#preview').classList.add('hide');$('#file').value='';$('#import').disabled=true;render();
 }
 function saveSession(data){session={...data,expires_at:data.expires_at||Math.floor(Date.now()/1000)+data.expires_in};sessionStorage.setItem(storageKey,JSON.stringify(session))}

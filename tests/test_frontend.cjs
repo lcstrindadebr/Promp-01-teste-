@@ -18,11 +18,16 @@ const response=(data,status=200)=>({ok:status<400,status,text:async()=>JSON.stri
  const bad=setup();bad.handler(async()=>response({msg:'Invalid login credentials'},400));await bad.get('#login').onsubmit({preventDefault(){}});assert.equal(bad.get('#appShell').hidden,true);assert.match(bad.get('#loginError').textContent,/inválidos/);
  const stale=setup([['apoiarcred-auth:https://test.supabase.co',JSON.stringify({access_token:'revoked',refresh_token:'x',expires_at:Date.now()/1000+3600})]]);stale.handler(async()=>response({},401));await new Promise(setImmediate);assert.equal(stale.get('#appShell').hidden,true,'Revoked stored session must not open dashboard');
  vm.runInContext("records=[{id:'job',nome:'CLIENTE',cpf:'00123456789',status:'Processando',progress:70,stage:'CPF enviado',date:'2026-10-30T20:00:00Z'}];render()",t.ctx);
- assert(t.get('#rows').innerHTML.includes('value="70"'));assert(t.get('#rows').innerHTML.includes('70%'));assert(t.get('#rows').innerHTML.includes('CPF enviado'));
+ assert(t.get('#rows').innerHTML.includes('value="70"'));assert(t.get('#rows').innerHTML.includes('70%'));assert(!t.get('#rows').innerHTML.includes('CPF enviado'));assert(t.get('#rows').innerHTML.includes('Consultando...'));assert(t.get('#consultationLogs').textContent.includes('CPF enviado'));
  vm.runInContext("records=[{id:'job',nome:'CLIENTE',cpf:'00123456789',status:'Não é cliente',progress:100,stage:'Não é cliente',date:'2026-10-30T20:00:00Z'}];render()",t.ctx);
  assert(t.get('#rows').innerHTML.includes('value="100"'));assert(t.get('#rows').innerHTML.includes('Não é cliente'));
  vm.runInContext("records=[{id:'job',nome:'CLIENTE',status:'Revisão',saldo:1234.56,parcelas:24,valorParcela:123.4,date:'2026-10-30T20:00:00Z'}];render()",t.ctx);
  assert(t.get('#rows').innerHTML.includes('123,40'));assert(t.get('#rows').innerHTML.includes('1.234,56'));
+ vm.runInContext("records=[{id:'job',nome:'CLIENTE',cpf:'00123456789',status:'Erro',progress:40,stage:'Selecionar empréstimo consignado',message:'Tempo excedido: detalhe técnico <img src=x>',date:'2026-10-30T20:00:00Z'}];render()",t.ctx);
+ assert(!t.get('#rows').innerHTML.includes('Selecionar empréstimo'));assert(!t.get('#rows').innerHTML.includes('detalhe técnico'));
+ assert(t.get('#consultationLogs').textContent.includes('detalhe técnico <img src=x>'));
+ await t.get('#logout').onclick();assert.equal(t.get('#consultationLogs').textContent,'Nenhuma consulta registrada.');assert.equal(t.get('#consultationLogPanel').open,false);
+ const html=fs.readFileSync('dist/index.html','utf8');assert(/<details id="consultationLogPanel"(?![^>]*\bopen\b)/.test(html));
  const rows=vm.runInContext('csvParse("nome;cpf;telefone\\nCliente;00123456789;11999999999")',t.ctx);assert.equal(rows[1][1],'00123456789');
  const model=fs.readFileSync('dist/modelo-importacao.csv','utf8');assert(model.includes('nome;cpf;telefone'));
  assert(fs.readFileSync('dist/index.html','utf8').includes('href="modelo-importacao.csv" download'));
