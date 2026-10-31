@@ -52,7 +52,9 @@ class Engine:
  def __init__(self,browser):self.browser=browser;self.chromium=self
  async def __aenter__(self):return self
  async def __aexit__(self,*a):pass
- async def launch(self,**kw):return self.browser
+ async def launch(self,**kw):
+  self.browser.context.home.actions.append(('launch',tuple(kw.get('args',[]))))
+  return self.browser
 class FlowTests(unittest.IsolatedAsyncioTestCase):
  async def execute(self,fail=False):
   actions=[];events=[];engine=Engine(Browser(actions,fail))
@@ -65,6 +67,9 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
   result,actions,events=await self.execute();self.assertEqual(result['status'],'nao_cliente');self.assertEqual(result['progress'],100)
   self.assertIn(('fill','Digitar...','001.234.567-89'),actions);self.assertIn(('click','button.send[type="submit"]'),actions)
   self.assertEqual([e[0] for e in events],sorted(e[0] for e in events));self.assertIn(('goto',robot.BANK_URL),actions)
+  launch=next(a for a in actions if a[0]=='launch')[1]
+  self.assertIn('--disable-http2',launch);self.assertIn('--disable-quic',launch);self.assertNotIn('--ignore-certificate-errors',launch)
  async def test_timeout_includes_exact_stage_not_nonclient(self):
   result,actions,events=await self.execute(True);self.assertEqual(result['status'],'erro');self.assertEqual(result['progress'],50);self.assertIn('Selecionar boleto',result['message'])
 if __name__=='__main__':unittest.main()
+

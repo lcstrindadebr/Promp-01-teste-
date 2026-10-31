@@ -3,6 +3,8 @@ import asyncio, re, time
 from urllib.parse import urlsplit
 BANK_URL='https://www.bancodigimais.com.br/'
 CHAT_HOST='widget.voltdigital.com.br'
+# The bank failed HTTP/2 on the VPS; use HTTP/1.1 over verified TLS.
+CHROMIUM_ARGS=('--disable-dev-shm-usage','--disable-http2','--disable-quic')
 
 class NavigationIssue(Exception):pass
 
@@ -68,3 +70,4 @@ async def open_chat(context,page,timeout=60000):
         if scope:return scope
         await asyncio.sleep(.2)
     raise NavigationIssue('O widget foi clicado, mas o formulário do chat não abriu em aba, página ou iframe.')
+

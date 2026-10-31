@@ -2,7 +2,7 @@
 import asyncio, os, socket, ssl, sys
 from datetime import datetime,timezone
 from urllib.parse import urlsplit
-from chat_browser import BANK_URL,CHAT_HOST,open_bank,open_chat,describe_error,NavigationIssue
+from chat_browser import CHROMIUM_ARGS, BANK_URL,CHAT_HOST,open_bank,open_chat,describe_error,NavigationIssue
 
 async def main():
     from playwright.async_api import async_playwright
@@ -26,8 +26,9 @@ async def main():
     browser=None;context=None
     async with async_playwright() as pw:
         try:
-            browser=await pw.chromium.launch(headless=True,args=['--disable-dev-shm-usage'])
+            browser=await pw.chromium.launch(headless=True,args=list(CHROMIUM_ARGS))
             context=await browser.new_context(locale='pt-BR');record('Chromium',True,'iniciado')
+            record('Configuração de transporte',True,'HTTP/2 e QUIC desativados; HTTPS com validação TLS mantida')
             async def report(percent,label):print(f'ETAPA | {percent}% | {label}',flush=True)
             page=await open_bank(context,timeout=45000,report=report);record('Página do banco',True,'carregada; avisos tratados por clique')
             scope=await open_chat(context,page,timeout=45000);record('Widget',True,'formulário/menu identificado, sem enviar dados')
@@ -46,3 +47,4 @@ async def main():
     return 0 if all(c['ok'] for c in results['checks']) else 1
 
 if __name__=='__main__':sys.exit(asyncio.run(main()))
+

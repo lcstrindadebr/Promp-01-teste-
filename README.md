@@ -106,6 +106,8 @@ O teste roda como o mesmo usuário do worker (`apoiarcred`), com o mesmo Chromiu
 
 O diagnóstico não depende da chave do Supabase e não a imprime. Ele mostra a etapa e o código real do erro de rede (por exemplo `ERR_NAME_NOT_RESOLVED` ou `ERR_CERT_AUTHORITY_INVALID`), quando existir. Se houver falha, copie a saída do diagnóstico para análise. Não desative validação TLS para corrigir erros de certificado.
 
+O diagnóstico da VPS identificou `net::ERR_HTTP2_PROTOCOL_ERROR` na abertura do site. O robô e o diagnóstico agora compartilham os parâmetros `--disable-http2` e `--disable-quic` para usar HTTP/1.1, mantendo HTTPS e a validação do certificado. A mudança afeta o Chromium do robô, não exige alteração no Nginx e chega pela opção Atualizar. Execute o diagnóstico novamente após atualizar para confirmar o resultado nessa VPS.
+
 Uma falha em 10% é anterior ao clique no widget; não é evidência de popup bloqueando o CPF. Avisos e as variantes de abertura do chat têm testes simulados, mas o teste na VPS real é necessário para confirmar o acesso dessa máquina. A opção diagnóstico não envia consultas bancárias nem modifica dados de clientes.
 
 ## Comandos úteis
@@ -127,3 +129,4 @@ node tests/test_frontend.cjs
 ```
 
 Os testes cobrem menu, instalação simulada, troca de configuração, autenticação do frontend com respostas simuladas e interpretação do robô. Não substituem a validação na VPS real.
+
