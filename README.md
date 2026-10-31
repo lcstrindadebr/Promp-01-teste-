@@ -123,3 +123,33 @@ node tests/test_frontend.cjs
 Os testes cobrem menu, instalação simulada, troca de configuração, autenticação do frontend com respostas simuladas e interpretação do robô. Não substituem a validação na VPS real.
 
 
+
+### Correção do travamento em 40% (31/10/2026)
+
+O formulário do chat valida nome/telefone por eventos de teclado. Apenas preencher o
+valor podia deixar “Campo obrigatório” no telefone; o robô aguardava um menu que
+nunca abriria. Agora digita os campos, confirma a chegada do menu e só então avança
+para 40%. Validação recusada, sessão encerrada e menu indisponível têm mensagens
+específicas. Não há reenvio automático do CPF nem aumento artificial do progresso.
+CPF recusado pelo banco fica em Revisão, nunca “Não é cliente”.
+
+Instale essa correção com a opção **1 — Atualizar** do instalador. Ela está no
+próprio `vps/robot.py`, copiado e reiniciado pelo atualizador existente. A opção 3
+verifica infraestrutura/abertura do formulário, **não** homologa uma consulta.
+Após atualizar, use uma nova consulta individual autorizada para verificar também
+o ambiente da VPS. Os testes locais simulam falhas e transições; não garantem
+ disponibilidade do serviço externo nem uma resposta de saldo/parcelas.
+
+Homologação assistida no chat em 31/10/2026 confirmou os três retornos: CPF
+recusado como inválido, documento não localizado e saldo com total de parcelas.
+A resposta positiva usa `Valor Saldo: R$ 1234.56` (exemplo fictício), com ponto
+decimal. O robô aceita esse formato e o brasileiro, abre “Visualizar Chat” no
+encerramento e permite a chegada da última mensagem. Ainda é necessário validar
+a execução na VPS após a atualização; teste assistido no navegador não equivale
+a executar o worker nessa máquina.
+
+Para acompanhar o tempo acumulado de cada etapa, sem dados pessoais nos logs:
+
+```bash
+journalctl -u apoiarcred-robo -f
+```

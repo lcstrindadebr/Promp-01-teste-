@@ -8,19 +8,33 @@ class Locator:
  def __init__(self,page,name):self.page=page;self.name=name
  def nth(self,i):return Locator(self.page,self.name+str(i))
  async def fill(self,value):self.page.actions.append(('fill',self.name,value))
+ async def press_sequentially(self,value,**kwargs):self.page.actions.append(('type',self.name,value))
+ async def press(self,key):self.page.actions.append(('key',self.name,key))
  async def click(self,**kwargs):
   self.page.actions.append(('click',self.name))
-  if self.page.fail and 'Boleto' in self.name:raise Timeout()
+  if self.page.fail is True and 'Boleto' in self.name:raise Timeout()
+  if 'Saldo' in self.name:self.page.finished=True
+  if self.name=='Visualizar Chat':self.page.history=True
+  if self.name=='Enviar':self.page.registered=True
   if self.name=='button.send[type="submit"]':self.page.sent=True
   if self.name=='button.v-chat-button':self.page.context.pages.append(self.page.context.chat)
  async def count(self):
+  if self.name=='Novo Chat':return int(self.page.finished)
   if self.name=='body':return 1
   if self.name.startswith('input') and self.page.url.startswith('https://widget.'):return 2
   return 0
- async def is_visible(self):return False
- async def inner_text(self,**kwargs):return 'Desculpe, o seu documento não foi localizado para esse produto.' if self.page.sent else 'CPF'
+ async def is_visible(self):
+  if 'Saldo' in self.name:return self.page.fail=='positive' and self.page.sent and not self.page.finished
+  if self.name=='Visualizar Chat':return self.page.finished and not self.page.history
+  return ('consignado' in self.name and self.page.registered) or 'Boleto' in self.name
+ async def inner_text(self,**kwargs):
+  if self.page.fail=='positive':
+   if self.page.history:return 'Segue o valor do Saldo para quitação na data de hoje. Valor Saldo: R$ 1234.56 Total de parcelas: 24'
+   return 'A sessão de chat acabou' if self.page.finished else 'CPF'
+  return 'Desculpe, o seu documento não foi localizado para esse produto.' if self.page.sent else 'CPF'
+
 class Page:
- def __init__(self,actions,fail=False):self.actions=actions;self.sent=False;self.fail=fail;self.url='https://www.bancodigimais.com.br/';self.frames=[];self.main_frame=None
+ def __init__(self,actions,fail=False):self.actions=actions;self.registered=False;self.finished=False;self.history=False;self.sent=False;self.fail=fail;self.url='https://www.bancodigimais.com.br/';self.frames=[];self.main_frame=None
  def is_closed(self):return False
  def set_default_timeout(self,*a):pass
  async def goto(self,*a,**kw):self.url=a[0];self.actions.append(('goto',a[0]));return types.SimpleNamespace(status=200)
@@ -67,10 +81,17 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
   return result,actions,events
  async def test_complete_negative_flow_and_format(self):
   result,actions,events=await self.execute();self.assertEqual(result['status'],'nao_cliente');self.assertEqual(result['progress'],100)
+  self.assertIn(('type',robot.INPUTS+'1','11999999999'),actions)
   self.assertIn(('fill','Digitar...','001.234.567-89'),actions);self.assertIn(('click','button.send[type="submit"]'),actions)
   self.assertEqual([e[0] for e in events],sorted(e[0] for e in events));self.assertIn(('goto',robot.CHAT_URL),actions)
   launch=next(a for a in actions if a[0]=='launch')[1]
   self.assertIn('--disable-http2',launch);self.assertIn('--disable-quic',launch);self.assertNotIn('--ignore-certificate-errors',launch)
+ async def test_positive_flow_reads_history_after_session_closes(self):
+  result,actions,events=await self.execute('positive')
+  self.assertEqual(result['status'],'concluida');self.assertEqual(result['progress'],100)
+  self.assertEqual(result['saldo_liquidacao'],1234.56);self.assertEqual(result['total_parcelas'],24)
+  self.assertIn(('click','Visualizar Chat'),actions)
+  self.assertEqual(sum(a==('click','button.send[type="submit"]') for a in actions),1)
  async def test_timeout_includes_exact_stage_not_nonclient(self):
   result,actions,events=await self.execute(True);self.assertEqual(result['status'],'erro');self.assertEqual(result['progress'],50);self.assertIn('Selecionar boleto',result['message'])
 if __name__=='__main__':unittest.main()

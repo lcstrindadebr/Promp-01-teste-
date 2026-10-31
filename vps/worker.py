@@ -19,7 +19,9 @@ def process(job):
  async def execute():
   # Only the latest pending progress matters; database latency must not pause chat clicks.
   queue=asyncio.Queue(maxsize=1)
+  started=time.monotonic()
   async def report(percent,stage):
+   print(f"ETAPA | {percent}% | {time.monotonic()-started:.1f}s | {stage}",flush=True)
    if queue.full():queue.get_nowait();queue.task_done()
    queue.put_nowait({'progress':percent,'stage':stage})
   async def flush():

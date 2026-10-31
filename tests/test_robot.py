@@ -5,6 +5,13 @@ class ResponseTests(unittest.TestCase):
  def test_saldo(self):
   r=parse_response('Saldo para quitação hoje: R$ 6.014,63. Total de parcelas: 89')
   self.assertEqual(r['saldo_liquidacao'],6014.63);self.assertEqual(r['total_parcelas'],89)
+ def test_observed_bank_response_with_decimal_dot(self):
+  r=parse_response('Segue o valor do Saldo para quitação na data de hoje. Valor Saldo: R$ 1234.56 Total de parcelas: 24 O Banco Digimais agradece seu contato e até breve!',ended=True,cpf_sent=True)
+  self.assertEqual(r['status'],'concluida');self.assertEqual(r['saldo_liquidacao'],1234.56);self.assertEqual(r['total_parcelas'],24)
+ def test_valor_saldo_brazilian_number(self):
+  self.assertEqual(parse_response('Valor Saldo: R$ 1.234,56 Total de parcelas: 24')['saldo_liquidacao'],1234.56)
+ def test_incomplete_decimal_not_accepted(self):
+  self.assertIsNone(parse_response('Valor Saldo: R$ 1234.567 Total de parcelas: 24'))
  def test_missing_not_zero(self):
   r=parse_response('Desculpe, o seu documento não foi localizado para esse produto.')
   self.assertEqual(r['status'],'nao_cliente');self.assertNotIn('saldo_liquidacao',r)

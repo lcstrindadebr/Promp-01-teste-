@@ -1,7 +1,7 @@
 """Digi+ UI workflow with real step progress and explicit result classification."""
 import asyncio, inspect, re, time
 from decimal import Decimal
-from chat_browser import CHROMIUM_ARGS, CHAT_URL, NavigationIssue, describe_error, open_direct_chat
+from chat_browser import CHROMIUM_ARGS, CHAT_URL, NavigationIssue, describe_error, open_direct_chat, check_access
 class RobotError(Exception):pass
 
 def format_cpf(value):
@@ -18,12 +18,15 @@ def parse_response(text, *, ended=False, cpf_sent=False):
   return {'status':'erro','message':'Sessão encerrada por falta de interação.'}
  if re.search(r'\b(?:erro|falha|indisponível)\b|tente novamente|não foi possível',lower):
   return {'status':'revisao','message':'O chat informou uma falha; revisar a consulta.'}
+ if re.search(r'não foi informado um cpf válido|cpf inválido',lower):
+  return {'status':'revisao','message':'O banco recusou o CPF como inválido. Confira os dados antes de nova consulta.'}
  if 'documento não foi localizado para esse produto' in lower:
   return {'status':'nao_cliente','message':'Documento não localizado para esse produto no chat.'}
- saldo=re.search(r'saldo\s*(?:para\s*)?(?:de\s*)?(?:quitação|liquidação)(?:\s*(?:hoje|atual))?\s*[:\-]?\s*R\$\s*([\d.]+,\d{2})',text,re.I)
+ saldo=re.search(r'(?:valor\s+(?:do\s+)?saldo|saldo\s*(?:para\s*)?(?:de\s*)?(?:quitação|liquidação)(?:\s*(?:hoje|atual))?)\s*[:\-]?\s*R\$\s*((?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}|\d+\.\d{2})(?!\d|[.,]\d)',text,re.I)
  parcelas=re.search(r'(?:total|quantidade|número)\s*(?:de\s*)?parcelas\s*[:\-]?\s*(\d+)',text,re.I)
  if saldo and parcelas:
-  value=Decimal(saldo.group(1).replace('.','').replace(',','.'));n=int(parcelas.group(1))
+  amount=saldo.group(1)
+  value=Decimal(amount.replace('.','').replace(',','.') if ',' in amount else amount);n=int(parcelas.group(1))
   if value<0 or not 0<=n<=1000:raise RobotError('Resposta fora dos limites esperados; revisar manualmente.')
   return {'status':'concluida','saldo_liquidacao':float(value),'total_parcelas':n,'message':'Saldo informado pelo chat na data desta consulta.'}
  if ended and cpf_sent:
@@ -31,6 +34,40 @@ def parse_response(text, *, ended=False, cpf_sent=False):
    return {'status':'revisao','message':'Atendimento encerrado com resposta parcial de saldo/parcelas.'}
   return {'status':'revisao','message':'Chat encerrado sem resposta conclusiva após o CPF. Não é possível afirmar que não é cliente.'}
  return None
+
+INPUTS='input:not([type="hidden"]):not([type="file"]):not([type="checkbox"])'
+CONSIGNADO=re.compile(r'^Empr[ée]stimo\s+consignado$',re.I)
+
+async def wait_menu(chat, name, timeout, *, registration=False):
+ """Observe the actual state instead of waiting blindly on an absent button."""
+ deadline=time.monotonic()+timeout/1000
+ button=chat.get_by_role('button',name=name)
+ while time.monotonic()<deadline:
+  text=normalize(await chat.locator('body').inner_text(timeout=3000))
+  check_access(text)
+  if re.search(r'campo obrigatório|telefone inválido|nome obrigatório',text,re.I):
+   raise RobotError('O formulário recusou nome/telefone; a consulta ainda não começou.')
+  if re.search(r'encerrado|sessão de chat acabou',text,re.I):
+   raise RobotError('O chat encerrou a sessão antes da consulta. Nenhum CPF foi reenviado.')
+  if re.search(r'indisponível|tente novamente|não foi possível',text,re.I):
+   raise RobotError('O chat informou indisponibilidade antes da consulta.')
+  if await button.is_visible():return button
+  await asyncio.sleep(.2)
+ if registration:
+  raise RobotError('Nome/telefone enviados, mas o banco não disponibilizou o menu no prazo. Nenhum CPF foi enviado.')
+ raise RobotError('O banco não disponibilizou a próxima opção do atendimento no prazo.')
+
+async def start_chat(chat, client, timeout):
+ if await chat.get_by_role('button',name=CONSIGNADO).is_visible():return
+ fields=chat.locator(INPUTS)
+ # The live widget validates on keyboard events; fill alone leaves phone "required".
+ for index,value in enumerate((client['nome'],re.sub(r'\D','',client['telefone']))):
+  field=fields.nth(index)
+  await field.fill('')
+  await field.press_sequentially(value,delay=20,timeout=10000)
+  await field.press('Tab')
+ await chat.get_by_role('button',name='Enviar',exact=True).click(timeout=5000)
+ await wait_menu(chat,CONSIGNADO,timeout,registration=True)
 
 async def run(client,timeout=60000,on_progress=None):
  from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
@@ -51,13 +88,12 @@ async def run(client,timeout=60000,on_progress=None):
    context=await browser.new_context(locale='pt-BR')
    chat=await open_direct_chat(context,timeout=timeout,report=emit)
    await emit(30,'Preencher nome e telefone')
-   await chat.locator('input:not([type="hidden"]):not([type="file"])').nth(0).fill(client['nome'])
-   await chat.locator('input:not([type="hidden"]):not([type="file"])').nth(1).fill(client['telefone'])
-   await chat.get_by_role('button',name='Enviar',exact=True).click()
+   await start_chat(chat,client,timeout)
    await emit(40,'Selecionar empréstimo consignado')
-   await chat.get_by_role('button',name=re.compile(r'^Empréstimo consignado$',re.I)).click()
+   await chat.get_by_role('button',name=CONSIGNADO).click(timeout=5000)
    await emit(50,'Selecionar boleto')
-   await chat.get_by_role('button',name='Boleto',exact=True).click()
+   boleto=await wait_menu(chat,re.compile(r'^Boleto$',re.I),timeout)
+   await boleto.click(timeout=5000)
    await emit(60,'Aguardar solicitação do CPF')
    # Match normalized text across nested elements/nonbreaking spaces.
    await chat.wait_for_function("() => /para te localizar.*cpf/i.test(document.body.innerText.replace(/\\s+/g,' '))",timeout=timeout)
@@ -66,7 +102,7 @@ async def run(client,timeout=60000,on_progress=None):
    # Observed actual send button; Enter is no longer assumed to submit.
    await chat.locator('button.send[type="submit"]').click()
    await emit(70,'CPF enviado; aguardando resposta')
-   selected_saldo=False;end_seen=None;deadline=time.monotonic()+timeout/1000
+   selected_saldo=False;end_seen=None;history_opened=False;deadline=time.monotonic()+timeout/1000
    while time.monotonic()<deadline:
     text=await chat.locator('body').inner_text()
     if re.search(r'verifique.{0,30}human|captcha|checking your browser|access denied',text,re.I):
@@ -75,7 +111,11 @@ async def run(client,timeout=60000,on_progress=None):
     # Let any last message settle after the close event, without resending CPF.
     if ended:
      end_seen=end_seen or time.monotonic()
-    result=parse_response(text,ended=ended and time.monotonic()-(end_seen or 0)>=2,cpf_sent=True)
+     history=chat.get_by_role('button',name='Visualizar Chat',exact=True)
+     if not history_opened and await history.is_visible():
+      await history.click(timeout=5000);history_opened=True
+      continue # Read the newly visible final message before deciding.
+    result=parse_response(text,ended=ended and time.monotonic()-(end_seen or 0)>=5,cpf_sent=True)
     if result:return await finish(result)
     button=chat.get_by_role('button',name=re.compile(r'^Saldo\s+Liquidação$',re.I))
     if not selected_saldo and await button.is_visible():
