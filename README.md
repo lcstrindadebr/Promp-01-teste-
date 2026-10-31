@@ -252,3 +252,11 @@ Aceita `.xlsx`, `.xls`, `.csv` (vírgula ou ponto e vírgula) e `.tsv` (tabulaç
 O botão é liberado depois da leitura, com nome de campanha e ao menos uma linha válida. Erros ficam visíveis abaixo do botão, com detalhes por linha. Linhas inválidas e CPFs duplicados não são enviados; revise a prévia antes de criar a campanha. O leitor Excel SheetJS CE 0.20.3 é distribuído localmente em `dist/vendor`, com licença; o navegador não depende de CDN para importar.
 
 Validação: `node tests/test_import_formats.cjs` testa arquivos reais nos quatro formatos, criação via RPC simulada, zeros à esquerda, arquivo inválido, limite de linhas e troca rápida de arquivo. `tests/campaigns_database.sql` valida a criação e o isolamento no banco em transação revertida, sem deixar clientes na fila.
+
+### Tipos de higienização
+
+A central agora identifica o serviço antes de iniciar consultas individuais ou campanhas. **Digi+ · Saldo devedor e parcela** está disponível. **Consulta de margem** aparece como próxima integração, desabilitada: ainda será necessário definir e integrar o banco/convênio e seu robô. Não são geradas consultas de margem fictícias.
+
+O identificador `digimais_saldo_parcela` é salvo nos lotes e consultas; os registros anteriores recebem esse valor. Histórico, campanhas e exportações identificam o serviço. A fila e o worker Digi+ só aceitam o serviço implementado. A RPC anterior permanece compatível. Para habilitar um serviço futuro, será necessário adicionar suas regras, permissões e processamento, além de sua opção no catálogo.
+
+O Supabase original já recebeu a migração. Em outro projeto existente, execute `supabase/upgrade_servicos.sql` antes de atualizar. O auto instalador distribui o painel, o novo CSS e a proteção de roteamento do worker. Execute a opção 1 e recarregue a página com Ctrl + F5.

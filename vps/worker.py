@@ -13,6 +13,7 @@ def request(path,payload=None,method='POST',timeout=30):
   text=res.read().decode();return json.loads(text) if text else None
 
 def process(job):
+ if job.get('servico','digimais_saldo_parcela')!='digimais_saldo_parcela':return {'status':'revisao','message':'Tipo de higienização sem robô disponível.'}
  if MODE=='demo':return {'status':'revisao','message':'Worker em modo demo. Nenhuma consulta realizada; use a demonstração local para valores fictícios.'}
  if MODE!='live':return {'status':'revisao','message':'Robô desativado. Ative somente após homologação.'}
  from robot import run

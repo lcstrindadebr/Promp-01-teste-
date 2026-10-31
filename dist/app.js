@@ -1,5 +1,8 @@
 const $=s=>document.querySelector(s);
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const serviceCatalog={digimais_saldo_parcela:{label:'Digi+ · Saldo devedor e parcela',available:true},margem:{label:'Consulta de margem',available:false}};
+function selectedService(){const id=$('#serviceSelect').value||'digimais_saldo_parcela';if(!serviceCatalog[id]?.available)throw Error('Este tipo de higienização ainda não está disponível.');return id;}
+function serviceLabel(id){return serviceCatalog[id||'digimais_saldo_parcela']?.label||'Serviço não identificado';}
 let records=[],pending=[],campaigns=[],activeCampaign=null,currentPage="home",retryingCampaign=false;
 function toast(message){$('#toast').textContent=message;$('#toast').style.display='block';setTimeout(()=>$('#toast').style.display='none',4500)}
 function statusLabel(status){return status==='Processando'?'Consultando...':status}
@@ -24,13 +27,13 @@ function individualRecords(){const ids=new Set(campaigns.map(c=>c.id));return re
 function campaignStats(rows){
  return {total:rows.length,clients:rows.filter(r=>r.saldo!=null||r.valorParcela!=null||r.status==='Concluída').length,nonclients:rows.filter(r=>r.status==='Não é cliente').length,errors:rows.filter(r=>r.status==='Erro').length,review:rows.filter(r=>r.status==='Revisão').length,waiting:rows.filter(r=>['Aguardando','Processando'].includes(r.status)).length};
 }
-function rowsHTML(rows){return rows.map(r=>`<tr><td><b>${escapeHTML(r.nome)}</b><br><span class="muted">${escapeHTML(r.cpf)}</span></td><td><span class="pill ${r.status==='Concluída'?'ok':['Erro','Revisão'].includes(r.status)?'err':r.status==='Processando'?'run':''}">${escapeHTML(statusLabel(r.status))}</span><div class="progress-line"><progress max="100" value="${Math.max(0,Math.min(100,Number(r.progress)||(['Concluída','Não é cliente'].includes(r.status)?100:0)))}" aria-label="Progresso da consulta"></progress><small>${Math.max(0,Math.min(100,Number(r.progress)||(['Concluída','Não é cliente'].includes(r.status)?100:0)))}%</small></div>${resultMessage(r)?`<small class="muted">${escapeHTML(resultMessage(r))}</small>`:''}</td><td>${r.saldo==null?'—':r.saldo.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</td><td>${r.parcelas??'—'}</td><td>${r.valorParcela==null?'—':r.valorParcela.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</td><td>Supabase<br><span class="muted">${new Date(r.date).toLocaleString('pt-BR')}</span></td><td>${['Erro','Revisão'].includes(r.status)?`<button data-retry="${r.id}">Tentar novamente</button>`:'—'}<br>${typeof amigozAction==='function'?amigozAction(r):''}<button class="danger" data-delete-job="${escapeHTML(r.id)}">Excluir</button></td></tr>`).join('')||'<tr><td colspan="7" class="empty">Nenhuma consulta encontrada.</td></tr>'}
+function rowsHTML(rows){return rows.map(r=>`<tr><td><b>${escapeHTML(r.nome)}</b><br><span class="muted">${escapeHTML(r.cpf)}</span></td><td><span class="pill ${r.status==='Concluída'?'ok':['Erro','Revisão'].includes(r.status)?'err':r.status==='Processando'?'run':''}">${escapeHTML(statusLabel(r.status))}</span><div class="progress-line"><progress max="100" value="${Math.max(0,Math.min(100,Number(r.progress)||(['Concluída','Não é cliente'].includes(r.status)?100:0)))}" aria-label="Progresso da consulta"></progress><small>${Math.max(0,Math.min(100,Number(r.progress)||(['Concluída','Não é cliente'].includes(r.status)?100:0)))}%</small></div>${resultMessage(r)?`<small class="muted">${escapeHTML(resultMessage(r))}</small>`:''}</td><td>${r.saldo==null?'—':r.saldo.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</td><td>${r.parcelas??'—'}</td><td>${r.valorParcela==null?'—':r.valorParcela.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</td><td><span class="service-tag">${escapeHTML(serviceLabel(r.servico))}</span><br><span class="muted">${new Date(r.date).toLocaleString('pt-BR')}</span></td><td>${['Erro','Revisão'].includes(r.status)?`<button data-retry="${r.id}">Tentar novamente</button>`:'—'}<br>${typeof amigozAction==='function'?amigozAction(r):''}<button class="danger" data-delete-job="${escapeHTML(r.id)}">Excluir</button></td></tr>`).join('')||'<tr><td colspan="7" class="empty">Nenhuma consulta encontrada.</td></tr>'}
 function renderCampaigns(){
  if(!campaigns.length)$('#newCampaignPanel').open=true;
- $('#campaignList').innerHTML=campaigns.map(c=>{const n=campaignStats(campaignRecords(c.id));return `<button class="campaign-item ${activeCampaign===c.id?'selected':''}" data-campaign="${escapeHTML(c.id)}"><b>${escapeHTML(c.nome)}</b><small>${n.total} consultas · ${n.waiting?'Consultando...':'Finalizada'} · ${new Date(c.created_at).toLocaleDateString('pt-BR')}</small></button>`}).join('')||'<p class="muted">Crie sua primeira campanha usando a planilha padrão.</p>';
+ $('#campaignList').innerHTML=campaigns.map(c=>{const n=campaignStats(campaignRecords(c.id));return `<button class="campaign-item ${activeCampaign===c.id?'selected':''}" data-campaign="${escapeHTML(c.id)}"><b>${escapeHTML(c.nome)}</b><span class="campaign-service">${escapeHTML(serviceLabel(c.servico))}</span><small>${n.total} consultas · ${n.waiting?'Consultando...':'Finalizada'} · ${new Date(c.created_at).toLocaleDateString('pt-BR')}</small></button>`}).join('')||'<p class="muted">Crie sua primeira campanha usando a planilha padrão.</p>';
  const c=campaigns.find(c=>c.id===activeCampaign);$('#campaignDetail').classList.toggle('hide',!c);if(!c)return;
  const rows=campaignRecords(c.id),n=campaignStats(rows);
- $('#campaignTitle').textContent=c.nome;$('#campaignState').textContent=n.waiting?'Consultando...':'Campanha finalizada';
+ $('#campaignTitle').textContent=c.nome;$('#campaignState').textContent=serviceLabel(c.servico)+' · '+(n.waiting?'Consultando...':'Campanha finalizada');
  $('#campaignReport').innerHTML=[['Consultas solicitadas',n.total],['Clientes identificados',n.clients],['Não são clientes',n.nonclients],['Erros',n.errors],['Solicitam revisão',n.review],['Na fila / consultando',n.waiting]].map(([label,value])=>`<div class="stat"><label>${label}</label><strong>${value}</strong></div>`).join('');
  $('#retryCampaign').disabled=retryingCampaign||!(n.errors+n.review);$('#retryCampaign').textContent=`Nova tentativa: erros e revisão (${n.errors+n.review})`;
  $('#campaignRows').innerHTML=rowsHTML(rows).replace(/<button data-retry="[^"]+">Tentar novamente<\/button>/g,'Use o botão da campanha');
@@ -43,7 +46,7 @@ function render(){
  $('#waiting').textContent=rows.filter(r=>['Aguardando','Processando'].includes(r.status)).length;
  $('#done').textContent=rows.filter(r=>r.status==='Concluída').length;
  $('#errors').textContent=rows.filter(r=>['Erro','Revisão'].includes(r.status)).length;
- $('.modeNotice').textContent='Consulte um cliente por vez. Para importar uma planilha, use Campanhas.';
+ $('.modeNotice').textContent='Preencha os dados para consultar uma pessoa. Para uma lista de clientes, use Campanhas.';
  $('#rows').innerHTML=rowsHTML(rows.filter(r=>(!filter||r.status===filter)&&`${r.nome} ${r.cpf}`.toLowerCase().includes(q)));
 }
 
@@ -117,7 +120,7 @@ $('#import').onclick=async()=>{
  finally{creatingCampaign=false;syncImportButton();}
 };
 function download(name,content){const u=URL.createObjectURL(new Blob(['\uFEFF'+content],{type:'text/csv;charset=utf-8'})),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)}
-function exportResults(items,filename='consultas.csv'){const safe=v=>'"'+String(v??'').replace(/^[=+@\-]/,"'$&").replaceAll('"','""')+'"';download(filename,[['nome','cpf','telefone','status','saldo','parcelas','valor_parcela','data','observacao'],...items.map(r=>[r.nome,r.cpf,r.telefone,statusLabel(r.status),r.saldo,r.parcelas,r.valorParcela,r.date,resultMessage(r)])].map(r=>r.map(safe).join(';')).join('\r\n'))}
+function exportResults(items,filename='consultas.csv'){const safe=v=>'"'+String(v??'').replace(/^[=+@\-]/,"'$&").replaceAll('"','""')+'"';download(filename,[['nome','cpf','telefone','tipo_higienizacao','status','saldo','parcelas','valor_parcela','data','observacao'],...items.map(r=>[r.nome,r.cpf,r.telefone,serviceLabel(r.servico),statusLabel(r.status),r.saldo,r.parcelas,r.valorParcela,r.date,resultMessage(r)])].map(r=>r.map(safe).join(';')).join('\r\n'))}
 $('#export').onclick=()=>exportResults(individualRecords());
 $('#exportCampaign').onclick=()=>exportResults(campaignRecords(activeCampaign),'campanha-resultados.csv');
 $('#exportCampaignReport').onclick=()=>{
@@ -134,7 +137,8 @@ $('#retryCampaign').onclick=async()=>{
 $('#rows').onclick=async e=>{const id=e.target.dataset.retry;if(!id)return;const r=records.find(r=>r.id===id);if(!r)return;e.target.disabled=true;try{await add([{nome:r.nome,cpf:r.cpf,telefone:r.telefone}])}catch(err){toast(err.message)}finally{if(e.target.isConnected)e.target.disabled=false}};
 $('#search').oninput=render;$('#filter').onchange=render;
 function navigate(page){
- currentPage=page;
+ currentPage=page;$('#serviceContext').classList.toggle('hide',page==='settings');
+ $('#pageBreadcrumb').textContent=({home:'Consulta individual',campaigns:'Campanhas',settings:'Configurações'})[page];
  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
  $('#home').classList.toggle('hide',page!=='home');$('#campaigns').classList.toggle('hide',page!=='campaigns');$('#settings').classList.toggle('hide',page!=='settings');$('#results').classList.toggle('hide',page!=='home');
 }
