@@ -21,7 +21,7 @@ def validate(url, public, secret):
 def probe(url, public, secret):
     # Both keys must belong to the same project, and the MVP tables must exist.
     checks=[('/auth/v1/settings',{'apikey':public}),
-            ('/rest/v1/consulta_jobs?select=id,lote_id,user_id,nome,cpf,telefone,status,saldo_liquidacao,total_parcelas,message,created_at,consultado_em&limit=0',{'apikey':secret}),
+            ('/rest/v1/consulta_jobs?select=id,lote_id,user_id,nome,cpf,telefone,status,saldo_liquidacao,total_parcelas,message,created_at,consultado_em,progress,stage&limit=0',{'apikey':secret}),
             ('/rest/v1/consulta_lotes?select=id,user_id,nome&limit=0',{'apikey':secret})]
     for path,headers in checks:
         if role(secret)=='service_role' and path.startswith('/rest/'):headers['Authorization']='Bearer '+secret
@@ -60,7 +60,13 @@ def configure(app,url,public,secret,check=probe):
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--app',required=True,type=Path)
-    parser.add_argument('--show-url',action='store_true');parser.add_argument('--capture-public',action='store_true');parser.add_argument('--render-only',action='store_true');args=parser.parse_args();app=args.app
+    parser.add_argument('--check-runtime',action='store_true');parser.add_argument('--show-url',action='store_true');parser.add_argument('--capture-public',action='store_true');parser.add_argument('--render-only',action='store_true');args=parser.parse_args();app=args.app
+    if args.check_runtime:
+        env=dict(line.split('=',1) for line in (app/'.env').read_text().splitlines() if '=' in line and not line.startswith('#'))
+        config=json.loads((app/'supabase-public.json').read_text())
+        if env['SUPABASE_URL']!=config['url']:raise ValueError('A URL do painel e do robô não coincide. Use Trocar conexão no menu.')
+        validate(config['url'],config['key'],env['SUPABASE_SERVICE_ROLE_KEY'])
+        probe(config['url'],config['key'],env['SUPABASE_SERVICE_ROLE_KEY']);return
     if args.show_url:
         config=json.loads((app/'supabase-public.json').read_text()) if (app/'supabase-public.json').exists() else public_from_js(app/'dist/supabase-config.js')
         print(config['url']);return

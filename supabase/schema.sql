@@ -7,7 +7,9 @@ id uuid primary key default gen_random_uuid(), lote_id uuid not null references 
 user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
 nome text not null check(length(nome) between 1 and 160),
 cpf text not null check(cpf ~ '^[0-9]{11}$'), telefone text not null check(telefone ~ '^[0-9]{10,13}$'),
-status text not null default 'aguardando' check(status in ('aguardando','processando','concluida','nao_localizado','erro','revisao')),
+progress integer not null default 0 check(progress between 0 and 100),
+stage text not null default 'Aguardando na fila',
+status text not null default 'aguardando' check(status in ('aguardando','processando','concluida','nao_localizado','nao_cliente','erro','revisao')),
 saldo_liquidacao numeric(14,2), total_parcelas integer, message text,
 created_at timestamptz not null default now(), consultado_em timestamptz,
 locked_at timestamptz, attempts integer not null default 0);

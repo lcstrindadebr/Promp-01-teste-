@@ -1,0 +1,14 @@
+[Unit]
+Description=Robo de consultas ApoiarCred
+Wants=network-online.target
+After=network-online.target
+[Service]
+User=apoiarcred
+WorkingDirectory=/opt/apoiarcred/vps
+EnvironmentFile=/opt/apoiarcred/.env
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/apoiarcred/browsers
+ExecStart=/opt/apoiarcred/.venv/bin/python -u worker.py
+Restart=always
+RestartSec=10
+[Install]
+WantedBy=multi-user.target

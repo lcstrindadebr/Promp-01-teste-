@@ -2,7 +2,7 @@
 const sb=window.SUPABASE_CONFIG;
 const storageKey='apoiarcred-auth:'+sb.url;
 let session=null,authenticated=false,refreshing=null,loadingCloud=false,authEpoch=0;
-const statusNames={aguardando:'Aguardando',processando:'Processando',concluida:'Concluída',nao_localizado:'Não localizado',erro:'Erro',revisao:'Revisão'};
+const statusNames={aguardando:'Aguardando',processando:'Processando',concluida:'Concluída',nao_localizado:'Não é cliente',nao_cliente:'Não é cliente',erro:'Erro',revisao:'Revisão'};
 function showLogin(message=''){
  authenticated=false;session=null;authEpoch++;records=[];pending=[];
  sessionStorage.removeItem(storageKey);$('#appShell').hidden=true;$('#loginPage').hidden=false;
@@ -49,4 +49,4 @@ async function restoreSession(){
 }
 // Discard credentials from versions that did not distinguish Supabase projects.
 sessionStorage.removeItem('sb-session');
-restoreSession();setInterval(loadCloud,8000);
+restoreSession();setInterval(loadCloud,2000);

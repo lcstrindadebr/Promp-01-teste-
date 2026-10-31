@@ -31,7 +31,7 @@ O menu identifica a instância em `/opt/apoiarcred`:
 - **Sem instalação completa:** oferece instalar. Pergunta subdomínio, e-mail do SSL e chave secret/service_role do Supabase e configura os serviços.
 - **Com instalação completa:** oferece atualizar pelo GitHub, trocar a conexão do Supabase ou sair. Não reinstala nem pede domínio e certificado novamente.
 
-O MVP gerencia uma instância por VPS no caminho padrão. Instalações incompletas podem ser retomadas pela opção instalar. Atualizações preservam `.env`, projeto Supabase, certificado e modo do robô, sem executar migrações automaticamente.
+O MVP gerencia uma instância por VPS no caminho padrão. Instalações incompletas podem ser retomadas pela opção instalar. Atualizações preservam `.env`, projeto Supabase, certificado e modo do robô. Painel, robô, dependências, scripts do menu e configuração do serviço são atualizados pelo mesmo menu. Não precisa copiar o robô manualmente.
 
 ## Trocar API/conexão do Supabase
 
@@ -65,6 +65,18 @@ apoiarcred-atualizar
 ```
 
 Busca e aplica atualizações quando executado. Sem agendamento em segundo plano. Não sobrescreve alterações locais. Se o serviço estava parado, permanece parado. Se a atualização falhar, confira o erro antes de reiniciar.
+
+## Nova dinâmica de consulta e progresso
+
+O robô abre o site do banco, clica no widget e acompanha a nova aba. Preenche os dados e envia o CPF no padrão **000.000.000-00**, pelo botão de envio.
+
+Cada CPF mostra barra e etapa atual: iniciar navegador, abrir site, abrir chat, preencher dados, selecionar consignado/boleto, enviar CPF e aguardar saldo. O progresso é informado pelo worker, sem simulação por tempo. Erros mantêm o percentual e a etapa da falha.
+
+Resposta explícita de documento não localizado recebe **Não é cliente** e 100% (consulta concluída sem valores). Timeout, ausência de resposta ou encerramento silencioso são erro/revisão, não ausência de cliente. Resposta parcial também exige revisão.
+
+O banco original já recebeu os campos `progress` e `stage` e o status `nao_cliente`. Para outro projeto já existente, aplique `supabase/upgrade_progress.sql` no SQL Editor antes de atualizar. O atualizador verifica o schema antes de parar o robô. Para projeto novo, use o schema completo.
+
+Atualize tudo por **1) Atualizar pelo GitHub** no menu. O launcher baixa a branch e executa a lógica de atualização recém-baixada, inclusive quando o próprio atualizador mudou.
 
 ## Robô
 

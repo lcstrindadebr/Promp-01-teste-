@@ -17,6 +17,10 @@ const response=(data,status=200)=>({ok:status<400,status,text:async()=>JSON.stri
  await t.get('#logout').onclick();assert.equal(t.get('#appShell').hidden,true);assert.equal(t.get('#loginPage').hidden,false);
  const bad=setup();bad.handler(async()=>response({msg:'Invalid login credentials'},400));await bad.get('#login').onsubmit({preventDefault(){}});assert.equal(bad.get('#appShell').hidden,true);assert.match(bad.get('#loginError').textContent,/inválidos/);
  const stale=setup([['apoiarcred-auth:https://test.supabase.co',JSON.stringify({access_token:'revoked',refresh_token:'x',expires_at:Date.now()/1000+3600})]]);stale.handler(async()=>response({},401));await new Promise(setImmediate);assert.equal(stale.get('#appShell').hidden,true,'Revoked stored session must not open dashboard');
+ vm.runInContext("records=[{id:'job',nome:'CLIENTE',cpf:'00123456789',status:'Processando',progress:70,stage:'CPF enviado',date:'2026-10-30T20:00:00Z'}];render()",t.ctx);
+ assert(t.get('#rows').innerHTML.includes('value="70"'));assert(t.get('#rows').innerHTML.includes('70%'));assert(t.get('#rows').innerHTML.includes('CPF enviado'));
+ vm.runInContext("records=[{id:'job',nome:'CLIENTE',cpf:'00123456789',status:'Não é cliente',progress:100,stage:'Não é cliente',date:'2026-10-30T20:00:00Z'}];render()",t.ctx);
+ assert(t.get('#rows').innerHTML.includes('value="100"'));assert(t.get('#rows').innerHTML.includes('Não é cliente'));
  const rows=vm.runInContext('csvParse("nome;cpf;telefone\\nCliente;00123456789;11999999999")',t.ctx);assert.equal(rows[1][1],'00123456789');
  const model=fs.readFileSync('dist/modelo-importacao.csv','utf8');assert(model.includes('nome;cpf;telefone'));
  assert(!fs.readFileSync('dist/index.html','utf8').includes('id="mode"'));console.log('PASS: login gate, login failure, logout, revoked session, authenticated-only requests, CSV and no mode selector');
