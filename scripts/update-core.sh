@@ -15,7 +15,7 @@ cd "$REPO"
 python3 - <<'PY'
 import ast
 from pathlib import Path
-for p in [Path('vps/worker.py'),Path('vps/robot.py')]:
+for p in [Path('vps/worker.py'),Path('vps/robot.py'),Path('vps/chat_browser.py'),Path('vps/diagnose.py')]:
  ast.parse(p.read_text())
 assert Path('dist/index.html').is_file()
 PY

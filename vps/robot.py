@@ -1,7 +1,7 @@
 """Digi+ UI workflow with real step progress and explicit result classification."""
 import asyncio, inspect, re, time
 from decimal import Decimal
-BANK_URL='https://www.bancodigimais.com.br/'
+from chat_browser import BANK_URL, NavigationIssue, describe_error, open_bank, open_chat
 class RobotError(Exception):pass
 
 def format_cpf(value):
@@ -49,18 +49,8 @@ async def run(client,timeout=60000,on_progress=None):
    await emit(5,'Iniciar navegador')
    browser=await pw.chromium.launch(headless=True,args=['--disable-dev-shm-usage'])
    context=await browser.new_context(locale='pt-BR')
-   page=await context.new_page();page.set_default_timeout(timeout)
-   await emit(10,'Abrir site do banco')
-   response=await page.goto(BANK_URL,wait_until='domcontentloaded')
-   if response and response.status>=400:raise RobotError('O site do banco retornou erro HTTP. Nenhuma consulta concluída.')
-   close=page.get_by_role('button',name='Fechar',exact=True)
-   async def close_notice(locator):await locator.click()
-   await page.add_locator_handler(close,close_notice)
-   await emit(20,'Abrir widget do chat')
-   async with context.expect_page(timeout=timeout) as opened:
-    await page.locator('button.v-chat-button').click()
-   chat=await opened.value;chat.set_default_timeout(timeout)
-   await chat.wait_for_load_state('domcontentloaded')
+   page=await open_bank(context,timeout=timeout,report=emit)
+   chat=await open_chat(context,page,timeout=timeout)
    await emit(30,'Preencher nome e telefone')
    await chat.locator('input:not([type="hidden"]):not([type="file"])').nth(0).fill(client['nome'])
    await chat.locator('input:not([type="hidden"]):not([type="file"])').nth(1).fill(client['telefone'])
@@ -96,9 +86,13 @@ async def run(client,timeout=60000,on_progress=None):
    raise RobotError('Não houve resposta final reconhecida após o envio. Não é possível classificar como não cliente.')
   except PlaywrightTimeout:
    return {'status':'erro','message':f'Tempo excedido: {stage} ({progress}%). Nenhum resultado conclusivo.','progress':progress,'stage':stage}
-  except RobotError as e:return {'status':'revisao','message':str(e),'progress':progress,'stage':stage}
+  except (RobotError,NavigationIssue) as e:return {'status':'revisao','message':str(e),'progress':progress,'stage':stage}
   except Exception as e:
-   return {'status':'erro','message':f'Falha na etapa {stage}: {type(e).__name__}.','progress':progress,'stage':stage}
+   return {'status':'erro','message':f'Falha na etapa {stage}: {describe_error(e)}.','progress':progress,'stage':stage}
   finally:
-   if context:await context.close()
-   if browser:await browser.close()
+   if context:
+    try:await context.close()
+    except Exception:pass
+   if browser:
+    try:await browser.close()
+    except Exception:pass

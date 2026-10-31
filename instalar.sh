@@ -8,7 +8,7 @@ EXISTING=0
 if [[ -f "$APP/.env" && -f "$APP/vps/worker.py" && -x "$APP/.venv/bin/python" ]]; then EXISTING=1; fi
 printf '\033[1;32m\n╔══════════════════════════════════════════╗\n║       APOIARCRED · INSTALADOR MVP        ║\n╚══════════════════════════════════════════╝\033[0m\n'
 if (( EXISTING )); then
-    printf '\nInstância encontrada: %s\n\n  1) Atualizar pelo GitHub\n  2) Trocar conexão/API do Supabase\n  0) Sair\n\n' "$APP"
+    printf '\nInstância encontrada: %s\n\n  1) Atualizar pelo GitHub\n  2) Trocar conexão/API do Supabase\n  3) Diagnosticar robô (sem consulta de CPF)\n  0) Sair\n\n' "$APP"
 else
     printf '\nNenhuma instância completa encontrada.\n\n  1) Instalar nova instância\n  0) Sair\n\n'
 fi
@@ -42,6 +42,11 @@ case "$OPTION" in
             if (( WAS_ACTIVE )); then systemctl start apoiarcred-robo; fi
             echo 'Conexão não alterada. Confira as informações e tente novamente.'; exit 1
         fi
+        ;;
+    3)
+        (( EXISTING )) || { echo 'Instale o sistema primeiro.'; exit 1; }
+        [[ -f "$APP/vps/diagnose.py" ]] || { echo 'Atualize pela opção 1 para instalar o diagnóstico.'; exit 1; }
+        systemd-run --quiet --wait --pipe --collect --uid=apoiarcred --property=WorkingDirectory="$APP/vps" --setenv=PLAYWRIGHT_BROWSERS_PATH="$APP/browsers" "$APP/.venv/bin/python" -u "$APP/vps/diagnose.py"
         ;;
     *) echo 'Opção inválida.'; exit 1 ;;
 esac

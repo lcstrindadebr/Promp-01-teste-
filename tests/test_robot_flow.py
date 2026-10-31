@@ -8,17 +8,22 @@ class Locator:
  def __init__(self,page,name):self.page=page;self.name=name
  def nth(self,i):return Locator(self.page,self.name+str(i))
  async def fill(self,value):self.page.actions.append(('fill',self.name,value))
- async def click(self):
+ async def click(self,**kwargs):
   self.page.actions.append(('click',self.name))
   if self.page.fail and 'Boleto' in self.name:raise Timeout()
   if self.name=='button.send[type="submit"]':self.page.sent=True
- async def count(self):return 0
+  if self.name=='button.v-chat-button':self.page.context.pages.append(self.page.context.chat)
+ async def count(self):
+  if self.name=='body':return 1
+  if self.name.startswith('input') and self.page.url.startswith('https://widget.'):return 2
+  return 0
  async def is_visible(self):return False
- async def inner_text(self):return 'Desculpe, o seu documento não foi localizado para esse produto.' if self.page.sent else 'CPF'
+ async def inner_text(self,**kwargs):return 'Desculpe, o seu documento não foi localizado para esse produto.' if self.page.sent else 'CPF'
 class Page:
- def __init__(self,actions,fail=False):self.actions=actions;self.sent=False;self.fail=fail
+ def __init__(self,actions,fail=False):self.actions=actions;self.sent=False;self.fail=fail;self.url='https://www.bancodigimais.com.br/';self.frames=[];self.main_frame=None
+ def is_closed(self):return False
  def set_default_timeout(self,*a):pass
- async def goto(self,*a,**kw):self.actions.append(('goto',a[0]));return types.SimpleNamespace(status=200)
+ async def goto(self,*a,**kw):self.url=a[0];self.actions.append(('goto',a[0]));return types.SimpleNamespace(status=200)
  async def wait_for_load_state(self,*a):pass
  async def add_locator_handler(self,*a):pass
  async def wait_for_function(self,*a,**kw):self.actions.append(('wait-cpf',))
@@ -34,7 +39,8 @@ class Opened:
   async def resolve():return self.page
   return resolve()
 class Context:
- def __init__(self,actions,fail):self.home=Page(actions);self.chat=Page(actions,fail)
+ def __init__(self,actions,fail):
+  self.home=Page(actions);self.chat=Page(actions,fail);self.chat.url='https://widget.voltdigital.com.br/chat';self.pages=[self.home];self.home.context=self;self.chat.context=self
  async def new_page(self):return self.home
  def expect_page(self,**kw):return Opened(self.chat)
  async def close(self):pass

@@ -92,6 +92,22 @@ systemctl restart apoiarcred-robo
 
 Valide uma consulta individual antes de lotes. Se uma tarefa for interrompida, revise antes de reenviar: recuperação automática de consultas em processamento ainda não está implementada.
 
+## Diagnosticar falha de abertura do banco
+
+Depois de atualizar pela opção **1**, abra novamente o instalador e selecione **3) Diagnosticar robô**.
+
+O teste roda como o mesmo usuário do worker (`apoiarcred`), com o mesmo Chromium, e verifica:
+
+- DNS e TLS do site do banco e do widget.
+- Inicialização do navegador e abertura do banco.
+- Tratamento do aviso Fechar e avisos de cookies.
+- Chat em nova aba, mesma aba ou iframe.
+- Presença do formulário/menu, **sem enviar nome, telefone ou CPF**.
+
+O diagnóstico não depende da chave do Supabase e não a imprime. Ele mostra a etapa e o código real do erro de rede (por exemplo `ERR_NAME_NOT_RESOLVED` ou `ERR_CERT_AUTHORITY_INVALID`), quando existir. Se houver falha, copie a saída do diagnóstico para análise. Não desative validação TLS para corrigir erros de certificado.
+
+Uma falha em 10% é anterior ao clique no widget; não é evidência de popup bloqueando o CPF. Avisos e as variantes de abertura do chat têm testes simulados, mas o teste na VPS real é necessário para confirmar o acesso dessa máquina. A opção diagnóstico não envia consultas bancárias nem modifica dados de clientes.
+
 ## Comandos úteis
 
 ```bash
