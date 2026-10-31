@@ -153,3 +153,30 @@ Para acompanhar o tempo acumulado de cada etapa, sem dados pessoais nos logs:
 ```bash
 journalctl -u apoiarcred-robo -f
 ```
+
+### Duas consultas por CPF: saldo e valor da parcela
+
+1. O robô consulta o saldo de liquidação e o total de parcelas.
+2. Se o banco informar explicitamente que não é cliente, encerra sem segunda consulta.
+3. Se houver saldo conclusivo, salva esse resultado no mesmo registro antes de abrir
+   uma sessão nova para o mesmo CPF e selecionar **Valor de Parcela**.
+4. Salva `valor_parcela` e os resultados separados em `resultado_saldo` e
+   `resultado_parcela`. Se a segunda falhar, mantém saldo e quantidade, com status
+   Revisão e explicação do que faltou. Falha na primeira interrompe o fluxo.
+
+O progresso vai de 0 a 50% na primeira consulta e de 50 a 100% na segunda.
+O painel e a exportação CSV incluem Valor da parcela. Não há cálculo estimado
+por divisão do saldo: o valor é lido da resposta do banco.
+
+O botão **Baixar planilha padrão (.csv)** fornece o modelo compatível com Excel
+e Google Planilhas (`nome;cpf;telefone`). Substitua a linha de exemplo e mantenha
+os identificadores como texto; os resultados são preenchidos automaticamente.
+
+O projeto Supabase original já recebeu as novas colunas. Para outro projeto
+existente, execute `supabase/upgrade_valor_parcela.sql` no SQL Editor antes de
+atualizar. Instalações novas usam `supabase/schema.sql`. O atualizador verifica
+as colunas antes de trocar o código; não executa SQL com a chave de serviço.
+
+Atualize pelo menu, opção 1. A homologação assistida confirmou o retorno do valor
+da parcela no chat, mas a execução das duas sessões pelo worker precisa ser
+verificada na VPS após instalar a versão.

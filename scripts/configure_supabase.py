@@ -21,7 +21,7 @@ def validate(url, public, secret):
 def probe(url, public, secret):
     # Both keys must belong to the same project, and the MVP tables must exist.
     checks=[('/auth/v1/settings',{'apikey':public}),
-            ('/rest/v1/consulta_jobs?select=id,lote_id,user_id,nome,cpf,telefone,status,saldo_liquidacao,total_parcelas,message,created_at,consultado_em,progress,stage&limit=0',{'apikey':secret}),
+            ('/rest/v1/consulta_jobs?select=id,lote_id,user_id,nome,cpf,telefone,status,saldo_liquidacao,total_parcelas,valor_parcela,resultado_saldo,resultado_parcela,message,created_at,consultado_em,progress,stage&limit=0',{'apikey':secret}),
             ('/rest/v1/consulta_lotes?select=id,user_id,nome&limit=0',{'apikey':secret})]
     for path,headers in checks:
         if role(secret)=='service_role' and path.startswith('/rest/'):headers['Authorization']='Bearer '+secret

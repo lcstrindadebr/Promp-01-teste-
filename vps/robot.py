@@ -11,7 +11,7 @@ def format_cpf(value):
 
 def normalize(text):return re.sub(r'\s+',' ',text).strip()
 
-def parse_response(text, *, ended=False, cpf_sent=False):
+def parse_response(text, *, ended=False, cpf_sent=False, kind="saldo"):
  text=normalize(text);lower=text.casefold()
  # Technical failures must never be classified as absence of a client.
  if 'encerrado por falta de interação' in lower:
@@ -22,6 +22,14 @@ def parse_response(text, *, ended=False, cpf_sent=False):
   return {'status':'revisao','message':'O banco recusou o CPF como inválido. Confira os dados antes de nova consulta.'}
  if 'documento não foi localizado para esse produto' in lower:
   return {'status':'nao_cliente','message':'Documento não localizado para esse produto no chat.'}
+ if kind=='parcela':
+  match=re.search(r'valor\s+(?:da?\s+)?parcela\s*[:\-]?\s*R\$\s*((?:\d{1,3}(?:\.\d{3})+|\d+),\d{1,2}|\d+(?:\.\d{1,2})?)(?!\d|[.,]\d)',text,re.I)
+  if match:
+   amount=match.group(1)
+   value=Decimal(amount.replace('.','').replace(',','.') if ',' in amount else amount)
+   return {'status':'concluida','valor_parcela':float(value),'message':'Valor da parcela informado pelo chat.'}
+  if ended and cpf_sent:return {'status':'revisao','message':'Chat encerrado sem valor de parcela reconhecido.'}
+  return None
  saldo=re.search(r'(?:valor\s+(?:do\s+)?saldo|saldo\s*(?:para\s*)?(?:de\s*)?(?:quitação|liquidação)(?:\s*(?:hoje|atual))?)\s*[:\-]?\s*R\$\s*((?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}|\d+\.\d{2})(?!\d|[.,]\d)',text,re.I)
  parcelas=re.search(r'(?:total|quantidade|número)\s*(?:de\s*)?parcelas\s*[:\-]?\s*(\d+)',text,re.I)
  if saldo and parcelas:
@@ -69,7 +77,7 @@ async def start_chat(chat, client, timeout):
  await chat.get_by_role('button',name='Enviar',exact=True).click(timeout=5000)
  await wait_menu(chat,CONSIGNADO,timeout,registration=True)
 
-async def run(client,timeout=60000,on_progress=None):
+async def run_once(client,timeout=60000,on_progress=None,kind="saldo"):
  from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
  progress=0;stage='Iniciar navegador';browser=None;context=None
  async def emit(percent,label):
@@ -115,12 +123,12 @@ async def run(client,timeout=60000,on_progress=None):
      if not history_opened and await history.is_visible():
       await history.click(timeout=5000);history_opened=True
       continue # Read the newly visible final message before deciding.
-    result=parse_response(text,ended=ended and time.monotonic()-(end_seen or 0)>=5,cpf_sent=True)
+    result=parse_response(text,ended=ended and time.monotonic()-(end_seen or 0)>=5,cpf_sent=True,kind=kind)
     if result:return await finish(result)
-    button=chat.get_by_role('button',name=re.compile(r'^Saldo\s+Liquidação$',re.I))
+    button=chat.get_by_role('button',name=re.compile(r'^Valor\s+de\s+Parcela$' if kind=='parcela' else r'^Saldo\s+Liquidação$',re.I))
     if not selected_saldo and await button.is_visible():
      await button.click();selected_saldo=True;deadline=time.monotonic()+timeout/1000
-     await emit(85,'Saldo de liquidação solicitado; aguardando valores')
+     await emit(85,'Valor de parcela solicitado; aguardando resposta' if kind=='parcela' else 'Saldo de liquidação solicitado; aguardando valores')
     await asyncio.sleep(.5)
    raise RobotError('Não houve resposta final reconhecida após o envio. Não é possível classificar como não cliente.')
   except PlaywrightTimeout:
@@ -137,3 +145,37 @@ async def run(client,timeout=60000,on_progress=None):
     except Exception:pass
 
 
+
+async def run(client,timeout=60000,on_progress=None,on_checkpoint=None):
+ """Two independent sessions, one job. Persist the balance before the second call."""
+ async def progress(percent,label):
+  if on_progress:
+   result=on_progress(percent,label)
+   if inspect.isawaitable(result):await result
+ async def first_progress(percent,label):await progress(percent//2,'1/2 Saldo: '+label)
+ async def second_progress(percent,label):await progress(50+percent//2,'2/2 Parcela: '+label)
+ first=await run_once(client,timeout,first_progress,kind='saldo')
+ combined={k:v for k,v in first.items() if k not in ('progress','stage')}
+ combined.update(resultado_saldo=first,progress=first.get('progress',0)//2,stage='1/2 Saldo: '+first.get('stage',''))
+ if first['status']!='concluida':
+  # Do not start another session after an inconclusive or blocked first call.
+  if first['status']=='nao_cliente':combined.update(progress=100,stage='Não é cliente')
+  return combined
+ combined.update(status='processando',progress=50,stage='Saldo salvo; iniciando consulta da parcela')
+ if on_checkpoint:
+  try:
+   result=on_checkpoint(combined.copy())
+   if inspect.isawaitable(result):await result
+  except Exception:
+   combined.update(status='revisao',message='Saldo obtido; não foi possível confirmar o salvamento parcial. A segunda consulta não foi iniciada.')
+   return combined
+ try:
+  second=await run_once(client,timeout,second_progress,kind='parcela')
+ except Exception:
+  second={'status':'erro','progress':0,'stage':'Iniciar consulta da parcela','message':'Falha interna na segunda consulta; saldo preservado.'}
+ combined.update(resultado_parcela=second,progress=50+second.get('progress',0)//2,stage='2/2 Parcela: '+second.get('stage',''))
+ if second['status']=='concluida':
+  combined.update(valor_parcela=second['valor_parcela'],status='concluida',progress=100,stage='Saldo e parcela consultados',message='Saldo, total de parcelas e valor da parcela informados pelo chat.')
+ else:
+  combined.update(status='revisao',message='Saldo preservado. Consulta da parcela: '+second.get('message','sem resultado conclusivo.'))
+ return combined

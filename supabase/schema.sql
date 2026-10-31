@@ -10,7 +10,7 @@ cpf text not null check(cpf ~ '^[0-9]{11}$'), telefone text not null check(telef
 progress integer not null default 0 check(progress between 0 and 100),
 stage text not null default 'Aguardando na fila',
 status text not null default 'aguardando' check(status in ('aguardando','processando','concluida','nao_localizado','nao_cliente','erro','revisao')),
-saldo_liquidacao numeric(14,2), total_parcelas integer, message text,
+valor_parcela numeric(14,2) check(valor_parcela >= 0), resultado_saldo jsonb, resultado_parcela jsonb, saldo_liquidacao numeric(14,2), total_parcelas integer, message text,
 created_at timestamptz not null default now(), consultado_em timestamptz,
 locked_at timestamptz, attempts integer not null default 0);
 create index consulta_jobs_owner on public.consulta_jobs(user_id,created_at desc);

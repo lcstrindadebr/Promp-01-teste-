@@ -21,7 +21,10 @@ const response=(data,status=200)=>({ok:status<400,status,text:async()=>JSON.stri
  assert(t.get('#rows').innerHTML.includes('value="70"'));assert(t.get('#rows').innerHTML.includes('70%'));assert(t.get('#rows').innerHTML.includes('CPF enviado'));
  vm.runInContext("records=[{id:'job',nome:'CLIENTE',cpf:'00123456789',status:'Não é cliente',progress:100,stage:'Não é cliente',date:'2026-10-30T20:00:00Z'}];render()",t.ctx);
  assert(t.get('#rows').innerHTML.includes('value="100"'));assert(t.get('#rows').innerHTML.includes('Não é cliente'));
+ vm.runInContext("records=[{id:'job',nome:'CLIENTE',status:'Revisão',saldo:1234.56,parcelas:24,valorParcela:123.4,date:'2026-10-30T20:00:00Z'}];render()",t.ctx);
+ assert(t.get('#rows').innerHTML.includes('123,40'));assert(t.get('#rows').innerHTML.includes('1.234,56'));
  const rows=vm.runInContext('csvParse("nome;cpf;telefone\\nCliente;00123456789;11999999999")',t.ctx);assert.equal(rows[1][1],'00123456789');
  const model=fs.readFileSync('dist/modelo-importacao.csv','utf8');assert(model.includes('nome;cpf;telefone'));
+ assert(fs.readFileSync('dist/index.html','utf8').includes('href="modelo-importacao.csv" download'));
  assert(!fs.readFileSync('dist/index.html','utf8').includes('id="mode"'));console.log('PASS: login gate, login failure, logout, revoked session, authenticated-only requests, CSV and no mode selector');
 })().catch(e=>{console.error(e);process.exitCode=1});

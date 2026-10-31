@@ -25,7 +25,7 @@ async function sbRequest(path,options={}){
 }
 async function loadCloud(){
  if(!authenticated||loadingCloud)return;loadingCloud=true;const epoch=authEpoch;
- try{const data=await sbRequest('/rest/v1/consulta_jobs?select=*&order=created_at.desc&limit=1000');if(epoch!==authEpoch)return;records=data.map(r=>({...r,date:r.consultado_em||r.created_at,status:statusNames[r.status]||r.status,saldo:r.saldo_liquidacao==null?null:Number(r.saldo_liquidacao),parcelas:r.total_parcelas}));render()}catch(e){if(authenticated)toast(e.message)}finally{loadingCloud=false}
+ try{const data=await sbRequest('/rest/v1/consulta_jobs?select=*&order=created_at.desc&limit=1000');if(epoch!==authEpoch)return;records=data.map(r=>({...r,date:r.consultado_em||r.created_at,status:statusNames[r.status]||r.status,saldo:r.saldo_liquidacao==null?null:Number(r.saldo_liquidacao),parcelas:r.total_parcelas,valorParcela:r.valor_parcela==null?null:Number(r.valor_parcela)}));render()}catch(e){if(authenticated)toast(e.message)}finally{loadingCloud=false}
 }
 async function add(items){
  if(!authenticated)throw Error('Entre na sua conta.');if(!items.length)throw Error('Selecione registros válidos.');

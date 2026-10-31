@@ -32,7 +32,10 @@ def process(job):
     finally:queue.task_done()
   writer=asyncio.create_task(flush())
   try:
-   result=await run(job,on_progress=report)
+   async def checkpoint(data):
+    await queue.join()
+    await asyncio.to_thread(request,'consulta_jobs?id=eq.'+job['id'],data,'PATCH',10)
+   result=await run(job,on_progress=report,on_checkpoint=checkpoint)
    await queue.join() # Finish progress writes before saving the final result.
    return result
   finally:

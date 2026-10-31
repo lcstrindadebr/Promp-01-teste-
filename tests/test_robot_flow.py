@@ -77,7 +77,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
   fake=types.ModuleType('playwright.async_api');fake.async_playwright=lambda:engine;fake.TimeoutError=Timeout
   async def progress(percent,stage):events.append((percent,stage))
   with patch.dict(sys.modules,{'playwright':types.ModuleType('playwright'),'playwright.async_api':fake}):
-   result=await robot.run({'nome':'CLIENTE TESTE','cpf':'00123456789','telefone':'11999999999'},on_progress=progress)
+   result=await robot.run_once({'nome':'CLIENTE TESTE','cpf':'00123456789','telefone':'11999999999'},on_progress=progress)
   return result,actions,events
  async def test_complete_negative_flow_and_format(self):
   result,actions,events=await self.execute();self.assertEqual(result['status'],'nao_cliente');self.assertEqual(result['progress'],100)
