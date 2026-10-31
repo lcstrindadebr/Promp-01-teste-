@@ -4,7 +4,7 @@ const storageKey='apoiarcred-auth:'+sb.url;
 let session=null,authenticated=false,refreshing=null,loadingCloud=false,authEpoch=0;
 const statusNames={aguardando:'Aguardando',processando:'Processando',concluida:'Concluída',nao_localizado:'Não é cliente',nao_cliente:'Não é cliente',erro:'Erro',revisao:'Revisão'};
 function showLogin(message=''){
- authenticated=false;session=null;authEpoch++;records=[];pending=[];
+ authenticated=false;session=null;authEpoch++;records=[];pending=[];campaigns=[];activeCampaign=null;retryingCampaign=false;$('#campaignName').value='';navigate("home");
  $('#consultationLogPanel').open=false;sessionStorage.removeItem(storageKey);$('#appShell').hidden=true;$('#loginPage').hidden=false;
  $('#loginError').textContent=message;$('#preview').classList.add('hide');$('#file').value='';$('#import').disabled=true;render();
 }
@@ -23,13 +23,27 @@ async function sbRequest(path,options={}){
  if(!authenticated)throw Error('Entre na sua conta.');await refreshSession();
  try{return await raw(path,{...options,headers:{...options.headers,Authorization:'Bearer '+session.access_token}})}catch(e){if(e.status===401)showLogin('Sessão expirada. Entre novamente.');throw e}
 }
+async function fetchAll(path){
+ const rows=[];for(let offset=0;;offset+=1000){const page=await sbRequest(path+'&limit=1000&offset='+offset);rows.push(...page);if(page.length<1000)break;}
+ return [...new Map(rows.map(row=>[row.id,row])).values()];
+}
+async function createCampaign(name,items){
+ if(!authenticated)throw Error('Entre na sua conta.');
+ if(!name.trim()||name.trim().length>160||!items.length)throw Error('Informe o nome e selecione clientes válidos.');
+ const id=await sbRequest('/rest/v1/rpc/create_consulta_campaign',{method:'POST',body:JSON.stringify({p_nome:name.trim(),p_items:items.map(r=>({nome:r.nome,cpf:r.cpf,telefone:r.telefone}))})});
+ await loadCloud();return id;
+}
+async function retryCampaign(id){
+ if(!authenticated)throw Error('Entre na sua conta.');
+ return await sbRequest('/rest/v1/rpc/retry_consulta_campaign',{method:'POST',body:JSON.stringify({p_campaign_id:id})});
+}
 async function loadCloud(){
  if(!authenticated||loadingCloud)return;loadingCloud=true;const epoch=authEpoch;
- try{const data=await sbRequest('/rest/v1/consulta_jobs?select=*&order=created_at.desc&limit=1000');if(epoch!==authEpoch)return;records=data.map(r=>({...r,date:r.consultado_em||r.created_at,status:statusNames[r.status]||r.status,saldo:r.saldo_liquidacao==null?null:Number(r.saldo_liquidacao),parcelas:r.total_parcelas,valorParcela:r.valor_parcela==null?null:Number(r.valor_parcela)}));render()}catch(e){if(authenticated)toast(e.message)}finally{loadingCloud=false}
+ try{const [data,lots]=await Promise.all([fetchAll('/rest/v1/consulta_jobs?select=*&order=created_at.desc,id.desc'),fetchAll('/rest/v1/consulta_lotes?select=id,nome,tipo,created_at&tipo=eq.campanha&order=created_at.desc,id.desc')]);if(epoch!==authEpoch)return;if(!campaigns.length&&lots.length&&!$('#campaignName').value&&!pending.length)$('#newCampaignPanel').open=false;campaigns=lots;records=data.map(r=>({...r,date:r.consultado_em||r.created_at,status:statusNames[r.status]||r.status,saldo:r.saldo_liquidacao==null?null:Number(r.saldo_liquidacao),parcelas:r.total_parcelas,valorParcela:r.valor_parcela==null?null:Number(r.valor_parcela)}));render()}catch(e){if(authenticated)toast(e.message)}finally{loadingCloud=false}
 }
 async function add(items){
- if(!authenticated)throw Error('Entre na sua conta.');if(!items.length)throw Error('Selecione registros válidos.');
- const batches=await sbRequest('/rest/v1/consulta_lotes',{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify({nome:items.length===1?'Consulta individual':'Importação CSV · '+items.length+' clientes'})});
+ if(!authenticated)throw Error('Entre na sua conta.');if(items.length!==1)throw Error('Use Campanhas para importar consultas em lote.');
+ const batches=await sbRequest('/rest/v1/consulta_lotes',{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify({nome:'Consulta individual',tipo:'individual'})});
  await sbRequest('/rest/v1/consulta_jobs',{method:'POST',body:JSON.stringify(items.map(r=>({nome:r.nome,cpf:r.cpf,telefone:r.telefone,lote_id:batches[0].id,user_id:session.user.id})))});
  toast(items.length+' consulta(s) salva(s) na fila.');await loadCloud();
 }

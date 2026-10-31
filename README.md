@@ -188,3 +188,41 @@ Etapas e mensagens técnicas ficam em **Configurações → Log de consultas**,
 recolhido por padrão. Esse log mostra o último estado salvo de cada consulta e
 os detalhes dos resultados de saldo/parcela, sem exigir nova coluna no banco.
 A lista principal e o CSV de resultados usam mensagens resumidas.
+
+### Consulta individual e campanhas
+
+- **Consulta individual:** formulário de um cliente e a mesma tabela de resultados,
+  com saldo, total de parcelas, valor da parcela e progresso.
+- **Campanhas:** informe um nome, baixe o modelo padrão e importe o CSV. O nome e
+  os clientes são salvos juntos; uma falha na importação não cria campanha vazia.
+  Cada campanha admite até 1.000 clientes. CPFs repetidos são indicados na prévia.
+- Selecione uma campanha para ver seus resultados e o relatório: consultas
+  solicitadas, clientes identificados, não clientes, erros, revisões e pendências.
+  O relatório é atualizado enquanto o robô trabalha e fica finalizado quando
+  não existem registros na fila/em processamento. Clientes com resposta parcial
+  podem estar também na contagem de revisão. A exportação da campanha é separada
+  da exportação individual, com opção adicional de baixar o relatório resumido.
+- **Nova tentativa: erros e revisão:** recoloca somente esses registros na fila,
+  dentro da mesma campanha. Não duplica o total solicitado e não altera consultas
+  concluídas, não clientes ou em andamento. Os resultados dos registros reenviados
+  são limpos para não misturar respostas de tentativas diferentes.
+- As importações CSV antigas passam a aparecer em Campanhas, mantendo o histórico.
+  Consultas individuais antigas continuam na aba individual.
+- A logo anexada fica em `dist/logo-apoiarcred.png`, tanto no login quanto no menu.
+  A instalação não depende do endereço externo da imagem.
+
+O Supabase original já recebeu `upgrade_campanhas.sql`. Para outro projeto,
+execute esse arquivo no SQL Editor após as migrações anteriores e antes de
+atualizar o painel. Instalações novas usam o schema completo. A função pública
+que solicita nova tentativa executa como usuário; a escrita fica em um auxiliar
+no schema privado, limitado ao dono da campanha e aos status erro/revisão.
+Nenhuma permissão geral de edição de resultados é concedida ao painel.
+
+Atualize pelo menu **1 — Atualizar**. O instalador valida a coluna `tipo` antes de
+copiar o painel. Não é necessário mudar as chaves ou reinstalar o robô.
+
+Validação desta mudança: testes do painel (`node tests/test_frontend.cjs` e
+`node tests/test_campaigns.cjs`), suíte Python e teste transacional no Supabase de
+criação atômica, isolamento por conta, escopo da nova tentativa e totais estáveis.
+Os dados usados para testar o banco foram desfeitos na mesma transação; nenhuma
+consulta real ao banco Digi+ foi disparada por esses testes.

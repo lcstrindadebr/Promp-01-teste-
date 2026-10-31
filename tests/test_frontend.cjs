@@ -1,6 +1,6 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 function setup(stored){
- const nodes=new Map();function element(){return {value:'',textContent:'',innerHTML:'',hidden:false,disabled:false,classList:{add(){},remove(){},toggle(){}},querySelector(){return element()}}}
+ const nodes=new Map();function element(){return {value:'',textContent:'',innerHTML:'',hidden:false,disabled:false,style:{},classList:{add(){},remove(){},toggle(){}},querySelector(){return element()}}}
  const get=s=>{if(!nodes.has(s))nodes.set(s,element());return nodes.get(s)};get('#appShell').hidden=true;
  const data=new Map(stored||[]),storage={getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)};
  const calls=[];let handler=async()=>({ok:true,status:200,text:async()=>JSON.stringify([])});
@@ -9,7 +9,8 @@ function setup(stored){
  return {ctx,get,calls,handler:f=>handler=f};
 }
 const response=(data,status=200)=>({ok:status<400,status,text:async()=>JSON.stringify(data)});
-(async()=>{
+module.exports={setup,response};
+if(require.main===module)(async()=>{
  const t=setup();assert.equal(t.calls.length,0,'No data request before login');assert.equal(t.get('#appShell').hidden,true);
  await assert.rejects(vm.runInContext('add([{nome:"X",cpf:"00000000000",telefone:"11999999999"}])',t.ctx),/Entre/);
  t.handler(async u=>u.includes('/token?')?response({access_token:'test',refresh_token:'test',expires_in:3600,user:{id:'user1',email:'test@example.com'}}):response([]));
