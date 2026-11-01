@@ -15,7 +15,7 @@ cd "$REPO"
 python3 - <<'PY'
 import ast
 from pathlib import Path
-for p in [Path('vps/worker.py'),Path('vps/robot.py'),Path('vps/chat_browser.py'),Path('vps/diagnose.py')]:
+for p in [Path('vps/worker.py'),Path('vps/robot.py'),Path('vps/chat_browser.py'),Path('vps/diagnose.py'),Path('vps/monitor.py')]:
  ast.parse(p.read_text())
 assert Path('dist/index.html').is_file()
 PY
@@ -44,7 +44,11 @@ PLAYWRIGHT_BROWSERS_PATH="$APP/browsers" "$APP/.venv/bin/playwright" install --w
 chmod -R a+rX "$APP/browsers"
 STAGE='atualização do serviço'
 install -m 644 "$REPO/deploy/apoiarcred-robo.service" /etc/systemd/system/apoiarcred-robo.service
+install -m 644 "$REPO/deploy/apoiarcred-monitor.service" /etc/systemd/system/apoiarcred-monitor.service
 systemctl daemon-reload
+systemctl enable apoiarcred-monitor
+systemctl restart apoiarcred-monitor
+systemctl is-active --quiet apoiarcred-monitor
 nginx -t
 # Não ligar um worker que estava parado manualmente.
 if (( WAS_ACTIVE )); then

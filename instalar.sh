@@ -35,6 +35,7 @@ case "$OPTION" in
         # O helper valida a conexão antes de alterar os arquivos.
         if printf '%s\n%s\n%s\n' "$SB_URL" "$PUBLIC_KEY" "$SECRET_KEY" | python3 "$SOURCE/scripts/configure_supabase.py" --app "$APP"; then
             unset PUBLIC_KEY SECRET_KEY
+            if systemctl is-enabled --quiet apoiarcred-monitor 2>/dev/null; then systemctl restart apoiarcred-monitor; fi
             if (( WAS_ACTIVE )); then systemctl start apoiarcred-robo; fi
             printf '\nConexão atualizada no painel e no robô. Recarregue o navegador e entre novamente.\n'
         else

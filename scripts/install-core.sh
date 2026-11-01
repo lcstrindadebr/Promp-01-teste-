@@ -196,7 +196,11 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 EOF
+install -m 644 "$SOURCE/deploy/apoiarcred-monitor.service" /etc/systemd/system/apoiarcred-monitor.service
 systemctl daemon-reload
+systemctl enable apoiarcred-monitor
+systemctl restart apoiarcred-monitor
+systemctl is-active --quiet apoiarcred-monitor
 systemctl enable apoiarcred-robo
 systemctl restart apoiarcred-robo
 systemctl is-active --quiet apoiarcred-robo

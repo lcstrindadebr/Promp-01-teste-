@@ -11,11 +11,12 @@ class UpdateTests(unittest.TestCase):
    (origin/'scripts').mkdir();(origin/'scripts/update-core.sh').write_text('echo OLD_UPDATER; exit 55\n');(origin/'README.md').write_text('initial');git('add','.');git('commit','-m','initial')
    subprocess.run(['/usr/bin/git','clone',str(origin),str(repo)],env=env,check=True,capture_output=True)
    def replace_paths(s):return s.replace('/opt/apoiarcred-src',str(repo)).replace('/opt/apoiarcred',str(app)).replace('/run/lock/apoiarcred-instalar.lock',str(base/'lock')).replace('/var/tmp/apoiarcred-update.',str(base/'backup.')).replace('/etc/systemd/system',str(units))
-   for f in ['scripts/update-core.sh','scripts/configure_supabase.py','deploy/apoiarcred-robo.service']:
+   for f in ['scripts/update-core.sh','scripts/configure_supabase.py','deploy/apoiarcred-robo.service','deploy/apoiarcred-monitor.service']:
     p=origin/f;p.parent.mkdir(exist_ok=True);p.write_text(replace_paths((ROOT/f).read_text()))
    (origin/'dist').mkdir();(origin/'vps').mkdir()
    (origin/'dist/index.html').write_text('NEW PANEL');(origin/'dist/supabase-config.js').write_text('new repo config')
    (origin/'vps/robot.py').write_text('# NEW ROBOT');(origin/'vps/worker.py').write_text('# NEW WORKER');(origin/'vps/requirements.txt').write_text('')
+   (origin/'vps/monitor.py').write_text('# NEW MONITOR')
    (origin/'vps/chat_browser.py').write_text('# NEW NAVIGATION');(origin/'vps/diagnose.py').write_text('# NEW DIAGNOSTIC')
    git('add','.');git('commit','-m','new version')
    (repo/'atualizar.sh').write_text(replace_paths((ROOT/'atualizar.sh').read_text()))
@@ -34,5 +35,5 @@ class UpdateTests(unittest.TestCase):
    executable(bin/'systemctl',f'echo "$*" >> "{base}/service.log"\nexit 0\n');executable(bin/'nginx','exit 0\n')
    run=subprocess.run(['bash',str(launcher)],env={**env,'PATH':str(bin)+':'+env['PATH']},capture_output=True,text=True)
    self.assertEqual(run.returncode,0,run.stdout+run.stderr);self.assertEqual((app/'dist/index.html').read_text(),'NEW PANEL');self.assertIn('NEW ROBOT',(app/'vps/robot.py').read_text());self.assertTrue((app/'vps/chat_browser.py').exists());self.assertTrue((app/'vps/diagnose.py').exists());self.assertEqual((app/'.env').read_text(),original_env)
-   self.assertIn('sb_publishable_custom',(app/'dist/supabase-config.js').read_text());self.assertNotIn('sb_secret',(app/'dist/supabase-config.js').read_text());self.assertTrue((units/'apoiarcred-robo.service').exists());self.assertIn('daemon-reload',(base/'service.log').read_text())
+   self.assertIn('sb_publishable_custom',(app/'dist/supabase-config.js').read_text());self.assertNotIn('sb_secret',(app/'dist/supabase-config.js').read_text());self.assertTrue((units/'apoiarcred-robo.service').exists());self.assertTrue((units/'apoiarcred-monitor.service').exists());self.assertTrue((app/'vps/monitor.py').exists());self.assertIn('restart apoiarcred-monitor',(base/'service.log').read_text());self.assertIn('daemon-reload',(base/'service.log').read_text())
 if __name__=='__main__':unittest.main()

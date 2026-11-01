@@ -260,3 +260,20 @@ A central agora identifica o serviço antes de iniciar consultas individuais ou 
 O identificador `digimais_saldo_parcela` é salvo nos lotes e consultas; os registros anteriores recebem esse valor. Histórico, campanhas e exportações identificam o serviço. A fila e o worker Digi+ só aceitam o serviço implementado. A RPC anterior permanece compatível. Para habilitar um serviço futuro, será necessário adicionar suas regras, permissões e processamento, além de sua opção no catálogo.
 
 O Supabase original já recebeu a migração. Em outro projeto existente, execute `supabase/upgrade_servicos.sql` antes de atualizar. O auto instalador distribui o painel, o novo CSS e a proteção de roteamento do worker. Execute a opção 1 e recarregue a página com Ctrl + F5.
+
+### Monitoramento da VPS
+
+Em **Configurações → Recursos da VPS**, acompanhe CPU, RAM utilizada/disponível, swap, disco, tempo ligada e estado do serviço do robô. O coletor independente `apoiarcred-monitor` envia uma coleta a cada 5 segundos. A interface consulta os dados enquanto Configurações estiver aberta e a página visível. Após 20 segundos sem coleta recente, sinaliza dados desatualizados. Serviço ativo e modo de consultas habilitado são indicadores separados.
+
+A opção **1 — Atualizar** instala e inicia o coletor automaticamente. Ele usa a conexão existente com Supabase e não abre portas nem altera Nginx. Trocar o Supabase pelo instalador também reinicia o monitor. O projeto original já recebeu a tabela; em outro projeto, execute `supabase/upgrade_monitoramento.sql` antes de atualizar. Instalação nova usa o schema completo.
+
+O Supabase mantém apenas a última coleta agregada, sem histórico crescente, nomes de processos, comandos, credenciais ou dados de clientes. As contas autenticadas do sistema interno podem ler as métricas; apenas a chave de serviço da VPS pode gravar. Este MVP monitora uma VPS por projeto Supabase. Dois coletores no mesmo projeto disputariam o registro `principal`.
+
+Se os dados não aparecerem, verifique:
+
+```bash
+systemctl status apoiarcred-monitor
+journalctl -u apoiarcred-monitor -n 50 --no-pager
+```
+
+O coletor usa apenas a biblioteca padrão Python e `/proc` do Linux. O serviço tem limite de memória de 64 MB e cota de CPU de 10% de um núcleo. As métricas representam o total da VPS. Se a máquina cair, o painel sinalizará dados antigos; não substitui alertas externos de disponibilidade.
