@@ -364,3 +364,15 @@ versão somente quando o conteúdo da senha muda. Senha em branco preserva a ant
 a mesma senha não incrementa a versão. Registros anteriores começam em versão zero
 e data desconhecida; não reconstruímos histórico anterior. Edições diretas no Vault
 não passam por esse controle: use o formulário do sistema para alterar.
+
+### Novas tentativas de login TJBA
+
+O robô tenta autenticar até três vezes no mesmo navegador, contexto e proxy,
+com pausa de dois segundos e limite total de 90 segundos para a autenticação.
+Repete apenas retorno simples ao formulário, campos limpos ou timeout transitório.
+Senha inválida permite uma segunda tentativa com as mesmas credenciais, fechando somente
+o aviso informativo OK. Se persistir na segunda tentativa, interrompe.
+Outros avisos do portal, CAPTCHA, bloqueio, confirmação e cadastro interrompem
+as tentativas. O log técnico mostra o número da tentativa; o painel mantém Consultando.
+Após esgotar as tentativas, a autenticação fica pausada até salvar o acesso novamente
+ou reiniciar o serviço. As consultas de CPF não são repetidas por essa lógica.

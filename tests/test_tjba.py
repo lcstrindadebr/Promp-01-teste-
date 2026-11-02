@@ -154,3 +154,36 @@ class LoginNoticeTests(unittest.IsolatedAsyncioTestCase):
    with self.assertRaises(tjba.Review) as result:await tjba.login(page,{'username':'TEST','password':'FAKE'})
   self.assertIn('limpos',result.exception.message)
   self.assertNotIn(('click','#Entrar'),page.events)
+
+class LoginRetryTests(unittest.IsolatedAsyncioTestCase):
+ async def test_retry_then_success_same_page(self):
+  page=object();failure=tjba.Review('sessao_expirada','form',{'retryable_login':True})
+  with patch.object(tjba,'login',new=AsyncMock(side_effect=[failure,None])) as login, patch.object(tjba,'challenge',new=AsyncMock()), patch.object(tjba,'inspect_login_notice',new=AsyncMock()), patch.object(tjba.asyncio,'sleep',new=AsyncMock()):
+   await tjba.login_with_retries(page,{'password':'fake'})
+   self.assertEqual(login.await_count,2)
+   self.assertTrue(all(c.args[0] is page for c in login.await_args_list))
+ async def test_stops_at_three(self):
+  with patch.object(tjba,'login',new=AsyncMock(side_effect=TimeoutError())) as login, patch.object(tjba,'challenge',new=AsyncMock()), patch.object(tjba,'inspect_login_notice',new=AsyncMock()), patch.object(tjba.asyncio,'sleep',new=AsyncMock()):
+   with self.assertRaises(TimeoutError):await tjba.login_with_retries(object(),{})
+   self.assertEqual(login.await_count,3)
+ async def test_explicit_rejection_never_retries(self):
+  with patch.object(tjba,'login',new=AsyncMock(side_effect=tjba.Review('sessao_expirada','Senha inválida'))) as login:
+   with self.assertRaises(tjba.Review):await tjba.login_with_retries(object(),{})
+   self.assertEqual(login.await_count,1)
+ async def test_timeout_with_challenge_stops_before_retry(self):
+  with patch.object(tjba,'login',new=AsyncMock(side_effect=TimeoutError())) as login, patch.object(tjba,'challenge',new=AsyncMock(side_effect=tjba.Review('sessao_expirada','Verificação humana'))):
+   with self.assertRaises(tjba.Review):await tjba.login_with_retries(object(),{})
+   self.assertEqual(login.await_count,1)
+
+class InvalidPasswordRetryTests(unittest.IsolatedAsyncioTestCase):
+ async def test_invalid_password_repeated_once(self):
+  page=MagicMock();button=MagicMock();button.is_visible=AsyncMock(return_value=True);button.click=AsyncMock();page.locator.return_value=button
+  error=tjba.Review('sessao_expirada','Senha inválida',{'invalid_password':True})
+  with patch.object(tjba,'login',new=AsyncMock(side_effect=error)) as login,patch.object(tjba,'challenge',new=AsyncMock()),patch.object(tjba.asyncio,'sleep',new=AsyncMock()):
+   with self.assertRaises(tjba.Review):await tjba.login_with_retries(page,{})
+   self.assertEqual(login.await_count,2);button.click.assert_awaited_once()
+ async def test_invalid_password_second_attempt_succeeds(self):
+  page=MagicMock();button=MagicMock();button.is_visible=AsyncMock(return_value=False);page.locator.return_value=button
+  error=tjba.Review('sessao_expirada','Senha inválida',{'invalid_password':True})
+  with patch.object(tjba,'login',new=AsyncMock(side_effect=[error,None])) as login,patch.object(tjba,'challenge',new=AsyncMock()),patch.object(tjba.asyncio,'sleep',new=AsyncMock()):
+   await tjba.login_with_retries(page,{});self.assertEqual(login.await_count,2)

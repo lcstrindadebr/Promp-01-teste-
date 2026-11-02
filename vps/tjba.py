@@ -87,7 +87,7 @@ async def inspect_login_notice(page):
    if kind=='cadastro':message='O portal solicitou complementação de cadastro. Conclua essa etapa manualmente no portal.'
    elif kind=='confirmacao':message='O portal solicitou confirmação adicional de login. '+login_notice(text)
    else:message=login_notice(text)
-   raise Review('sessao_expirada',message,{'aviso_login':kind})
+   raise Review('sessao_expirada',message,{'aviso_login':kind,'invalid_password':kind=='mensagem' and message=='O portal informou usuário ou senha inválidos.'})
 
 async def login(page,credentials,on_step=None):
  await report_step(on_step,12,'Abrir página pública de login ConsigX')
@@ -108,7 +108,7 @@ async def login(page,credentials,on_step=None):
    await dismiss_cookies(page)
    await challenge(page)
    if await page.locator('#txtLogin').input_value()!=credentials['username'] or await page.locator('#txtSenha').input_value()!=credentials['password']:
-    raise Review('sessao_expirada','Os campos de login foram alterados ou limpos pelo portal antes do envio. Nenhuma senha foi registrada no log.')
+    raise Review('sessao_expirada','Os campos de login foram alterados ou limpos pelo portal antes do envio. Nenhuma senha foi registrada no log.',{'retryable_login':True})
    # The validated success flow navigates to LoginSelecao.aspx.
    async with page.expect_navigation(wait_until='domcontentloaded',timeout=25000):
     await page.locator('#Entrar').click()
@@ -123,7 +123,7 @@ async def login(page,credentials,on_step=None):
    grid=page.locator('#gvOrgao')
    if not await grid.is_visible() and await page.locator('#txtSenha').is_visible():
     await challenge(page)
-    raise Review('sessao_expirada','O portal voltou ao formulário de login. Autenticação não confirmada; confira o acesso no portal antes de repetir. Nenhuma consulta de CPF foi feita.')
+    raise Review('sessao_expirada','O portal voltou ao formulário de login. Autenticação não confirmada; confira o acesso no portal antes de repetir. Nenhuma consulta de CPF foi feita.',{'retryable_login':True})
    await grid.wait_for(state='visible',timeout=12000)
    await report_step(on_step,23,'Localizar botão do convênio TJBA')
    target=grid.locator('tr').filter(has_text=re.compile(r'TRIBUNAL\s+JUSTI[ÇC]A\s+DA\s+BAHIA',re.I))
@@ -145,6 +145,34 @@ async def login(page,credentials,on_step=None):
  await page.locator(CPF).wait_for(state='visible',timeout=12000)
  await assert_convenio(page)
  await report_step(on_step,32,'Login e convênio TJBA confirmados')
+async def login_with_retries(page,credentials,on_step=None):
+ # Keep one browser/context/proxy and its cookies throughout all attempts.
+ # Retry only a plain return to the form, cleared fields or a transient timeout.
+ async with asyncio.timeout(90):
+  for attempt in range(1,4):
+   async def progress(percent,label):
+    await report_step(on_step,percent,f'{label} · login {attempt}/3')
+   try:
+    await login(page,credentials,on_step=progress)
+    return
+   except Exception as exc:
+    invalid=isinstance(exc,Review) and exc.details.get('invalid_password') is True
+    if invalid:
+     if attempt>=2:raise
+     await challenge(page)
+     button=page.locator('#ucAjaxModalPopup1_btnConfirmarPopup')
+     if await button.is_visible():await button.click(timeout=5000)
+     await report_step(on_step,22,'Repetir login após aviso de senha inválida · tentativa 2/3')
+     await asyncio.sleep(2)
+     continue
+    retryable=(isinstance(exc,Review) and exc.details.get('retryable_login') is True) or type(exc).__name__=='TimeoutError'
+    if not retryable or attempt==3:raise
+    # A timeout does not authorize ignoring a challenge or portal warning.
+    await challenge(page)
+    await inspect_login_notice(page)
+    await report_step(on_step,22,f'Aguardar nova tentativa de login {attempt+1}/3')
+    await asyncio.sleep(2)
+
 async def prepare(page):
  await dismiss_cookies(page)
  if not await page.locator(CPF).is_visible() or not await page.locator(SEARCH).is_visible():
@@ -271,7 +299,7 @@ class Session:
     await report(10,'Criar contexto do navegador TJBA')
     self.context=await self.browser.new_context(accept_downloads=False,locale='pt-BR');self.page=await self.context.new_page();self.page.set_default_timeout(12000)
     await install_handlers(self.page)
-    try:await login(self.page,credentials,on_step=report)
+    try:await login_with_retries(self.page,credentials,on_step=report)
     except Exception:self.blocked=identity;raise
     self.identity=identity
    raw=await consult(self.page,job['cpf'],on_step=report);await report(90,'Salvar margens TJBA')
