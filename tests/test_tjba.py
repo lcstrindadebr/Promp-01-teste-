@@ -95,7 +95,7 @@ class LoginFlowTests(unittest.IsolatedAsyncioTestCase):
   self.assertEqual(page.state,'form');self.assertEqual(page.events[0],('goto',tjba.BASE+'/'))
   self.assertLess(page.events.index(('click','#entendi-cookies')),page.events.index(('click','#Entrar')))
   self.assertLess(page.events.index(('click','[id^="gvOrgao_imgEntrar_"]')),page.events.index(('goto',tjba.BASE+tjba.PATH)))
-  self.assertEqual(progress,[12,15,18,22,28,32])
+  self.assertEqual(progress,[12,15,18,22,23,24,25,28,32])
  async def test_failure_keeps_stage_and_percent_without_leaking_exception_text(self):
   session=tjba.Session();session.identity=('u','rev');session.browser=MagicMock();session.browser.close=AsyncMock();session.page=MagicMock();session.page.is_closed.return_value=False;session.page.url=tjba.BASE+tjba.PATH+'?password=SECRET'
   async def broken(page,cpf,on_step=None):
@@ -105,3 +105,33 @@ class LoginFlowTests(unittest.IsolatedAsyncioTestCase):
  def test_chromium_transport_is_not_digimais_specific(self):
   self.assertNotIn('--disable-http2',tjba.CHROMIUM_ARGS)
   self.assertEqual(tjba.failure_details(RuntimeError("Executable doesn't exist. SECRET"))['codigo'],'CHROMIUM_AUSENTE')
+
+class LoginOutcomeTests(unittest.IsolatedAsyncioTestCase):
+ async def test_rejected_login_does_not_wait_for_grid(self):
+  original=FakeLoginLocator.click
+  async def rejected(loc,**kwargs):
+   if loc.selector=='#Entrar':loc.page.state='login'
+   else:await original(loc,**kwargs)
+  page=FakeLoginPage()
+  with patch.object(FakeLoginLocator,'click',rejected):
+   with self.assertRaises(tjba.Review) as error:await tjba.login(page,{'username':'TEST','password':'FAKE'})
+  self.assertIn('Autenticação não confirmada',error.exception.message)
+  self.assertNotIn(('goto',tjba.BASE+tjba.PATH),page.events)
+ async def test_login_directly_to_agreement(self):
+  original=FakeLoginLocator.click
+  async def direct(loc,**kwargs):
+   if loc.selector=='#Entrar':loc.page.state='initial';loc.page.authenticated=True
+   else:await original(loc,**kwargs)
+  page=FakeLoginPage()
+  with patch.object(FakeLoginLocator,'click',direct):await tjba.login(page,{'username':'TEST','password':'FAKE'})
+  self.assertEqual(page.state,'form')
+  self.assertNotIn(('click','[id^="gvOrgao_imgEntrar_"]'),page.events)
+ async def test_agreement_does_not_require_document_navigation(self):
+  page=FakeLoginPage();calls=[]
+  def expect(**kwargs):
+   calls.append(page.state)
+   if page.state=='grid':raise AssertionError('Do not require document navigation for agreement selection')
+   return FakeNavigation(page)
+  page.expect_navigation=expect
+  await tjba.login(page,{'username':'TEST','password':'FAKE'})
+  self.assertEqual(calls,['login']);self.assertEqual(page.state,'form')

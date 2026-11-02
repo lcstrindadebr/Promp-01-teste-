@@ -84,15 +84,30 @@ async def login(page,credentials,on_step=None):
    async with page.expect_navigation(wait_until='domcontentloaded',timeout=25000):
     await page.locator('#Entrar').click()
    await challenge(page);await dismiss_cookies(page)
-  await report_step(on_step,22,'Selecionar convênio TJBA')
-  grid=page.locator('#gvOrgao')
-  await grid.wait_for(state='visible',timeout=12000)
-  target=grid.locator('tr').filter(has_text=re.compile(r'TRIBUNAL JUSTICA DA BAHIA',re.I))
-  if await target.count()!=1:raise Review('sessao_expirada','Convênio TJBA não localizado de forma inequívoca.')
-  entry=target.locator('[id^="gvOrgao_imgEntrar_"]')
-  if await entry.count()!=1:raise Review('sessao_expirada','Botão de entrada no convênio TJBA não reconhecido.')
-  async with page.expect_navigation(wait_until='domcontentloaded',timeout=20000):await entry.click()
-  await assert_convenio(page)
+  await report_step(on_step,22,'Confirmar resposta do login ConsigX')
+  # Login navigation may land directly in an already selected agreement, or
+  # return to the login form. Neither case should wait for a nonexistent grid.
+  if await page.locator('#descricaoOrgaoLabel').is_visible():
+   await assert_convenio(page)
+  else:
+   grid=page.locator('#gvOrgao')
+   if not await grid.is_visible() and await page.locator('#txtSenha').is_visible():
+    await challenge(page)
+    raise Review('sessao_expirada','O portal voltou ao formulário de login. Autenticação não confirmada; confira o acesso no portal antes de repetir. Nenhuma consulta de CPF foi feita.')
+   await grid.wait_for(state='visible',timeout=12000)
+   await report_step(on_step,23,'Localizar botão do convênio TJBA')
+   target=grid.locator('tr').filter(has_text=re.compile(r'TRIBUNAL\s+JUSTI[ÇC]A\s+DA\s+BAHIA',re.I))
+   if await target.count()!=1:raise Review('sessao_expirada','Convênio TJBA não localizado de forma inequívoca.')
+   entry=target.locator('[id^="gvOrgao_imgEntrar_"]')
+   if await entry.count()!=1:raise Review('sessao_expirada','Botão de entrada no convênio TJBA não reconhecido.')
+   await dismiss_cookies(page)
+   await report_step(on_step,24,'Acionar entrada no convênio TJBA')
+   await entry.click(timeout=10000,no_wait_after=True)
+   await report_step(on_step,25,'Confirmar cabeçalho do convênio TJBA')
+   # Wait for the actual success condition, including partial postbacks.
+   # A full document navigation is not required for a successful selection.
+   await page.locator('#descricaoOrgaoLabel').wait_for(state='visible',timeout=20000)
+   await assert_convenio(page)
  await report_step(on_step,28,'Abrir formulário de consulta TJBA')
  await page.goto(BASE+PATH,wait_until='domcontentloaded',timeout=20000)
  await dismiss_cookies(page);await challenge(page)
