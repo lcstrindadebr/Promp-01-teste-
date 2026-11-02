@@ -106,6 +106,8 @@ async def login(page,credentials,on_step=None):
    await report_step(on_step,18,'Enviar login ao ConsigX')
    await page.locator('#txtLogin').fill(credentials['username']);await page.locator('#txtSenha').fill(credentials['password'])
    await dismiss_cookies(page)
+   show_password=page.locator('#chkMostrarSenha')
+   if await show_password.is_visible():await show_password.check(timeout=5000)
    await challenge(page)
    if await page.locator('#txtLogin').input_value()!=credentials['username'] or await page.locator('#txtSenha').input_value()!=credentials['password']:
     raise Review('sessao_expirada','Os campos de login foram alterados ou limpos pelo portal antes do envio. Nenhuma senha foi registrada no log.',{'retryable_login':True})

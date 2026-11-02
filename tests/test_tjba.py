@@ -60,13 +60,14 @@ class FakeLoginLocator:
  def first(self):return self
  async def is_visible(self):
   p=self.page;s=self.selector
-  return (s=='#entendi-cookies' and p.cookie) or (p.state=='login' and s in ('#txtLogin','#txtSenha','#Entrar')) or (p.state=='grid' and s in ('#gvOrgao','#gvOrgao tr','[id^="gvOrgao_imgEntrar_"]')) or (p.state in ('initial','form') and s=='#descricaoOrgaoLabel') or (p.state=='form' and s in (tjba.CPF,tjba.SEARCH))
+  return (s=='#entendi-cookies' and p.cookie) or (p.state=='login' and s in ('#txtLogin','#txtSenha','#Entrar','#chkMostrarSenha')) or (p.state=='grid' and s in ('#gvOrgao','#gvOrgao tr','[id^="gvOrgao_imgEntrar_"]')) or (p.state in ('initial','form') and s=='#descricaoOrgaoLabel') or (p.state=='form' and s in (tjba.CPF,tjba.SEARCH))
  async def wait_for(self,**kwargs):
   if not await self.is_visible():raise TimeoutError('expected control missing')
  async def count(self):return 1 if await self.is_visible() else 0
  def locator(self,selector):return FakeLoginLocator(self.page, '#gvOrgao tr' if self.selector=='#gvOrgao' and selector=='tr' else selector)
  def filter(self,**kwargs):return self
  async def inner_text(self):return 'TRIBUNAL JUSTICA DA BAHIA'
+ async def check(self,**kwargs):self.page.events.append(('check',self.selector))
  async def input_value(self):return getattr(self.page,'values',{}).get(self.selector,'')
  async def fill(self,value):
   if not hasattr(self.page,'values'):self.page.values={}
@@ -187,3 +188,12 @@ class InvalidPasswordRetryTests(unittest.IsolatedAsyncioTestCase):
   error=tjba.Review('sessao_expirada','Senha inválida',{'invalid_password':True})
   with patch.object(tjba,'login',new=AsyncMock(side_effect=[error,None])) as login,patch.object(tjba,'challenge',new=AsyncMock()),patch.object(tjba.asyncio,'sleep',new=AsyncMock()):
    await tjba.login_with_retries(page,{});self.assertEqual(login.await_count,2)
+
+class ShowPasswordTests(unittest.IsolatedAsyncioTestCase):
+ async def test_show_password_checked_after_fill_before_submit(self):
+  page=FakeLoginPage()
+  await tjba.login(page,{'username':'TEST','password':'FAKE'})
+  check=page.events.index(('check','#chkMostrarSenha'))
+  self.assertLess(page.events.index(('fill','#txtSenha')),check)
+  self.assertLess(check,page.events.index(('click','#Entrar')))
+  self.assertEqual(page.values['#txtSenha'],'FAKE')
