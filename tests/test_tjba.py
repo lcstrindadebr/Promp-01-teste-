@@ -1,0 +1,51 @@
+import asyncio,importlib.util,sys,unittest
+from pathlib import Path
+from unittest.mock import AsyncMock,MagicMock,patch
+ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/'vps'));import tjba
+class ParseTests(unittest.TestCase):
+ def test_decimal_values(self):
+  for raw,want in [('R$ 1.234,56','1234.56'),('0,00','0.00'),('-10,25','-10.25'),('-R$ 28,85','-28.85'),('(15,50)','-15.50'),('1.234','1234.00'),('',''),('—','')]:self.assertEqual(tjba.parse_brl(raw),want or None)
+ def test_available_header_not_fixed_index(self):
+  self.assertEqual(tjba.available_index(['Serviço','Margem Disponível (R$)','Margem Total']),1)
+  with self.assertRaises(tjba.Review):tjba.available_index(['Serviço','Total','Utilizada'])
+ def test_only_one_verified_active(self):
+  self.assertEqual(tjba.active_index(['Matrícula','Situação'],[['001','Inativo'],['002','Ativo']]),1)
+  self.assertIsNone(tjba.active_index(['Matrícula','Situação'],[['001','Ativo'],['002','Ativo']]))
+  self.assertIsNone(tjba.active_index(['Matrícula','Outro'],[['001','Ativo']]))
+ def test_cpf_and_status(self):
+  self.assertEqual(tjba.normalize_cpf('123'), '00000000123')
+  result=tjba.job_result({'status':'consultado','emprestimo_disponivel':'0.00','cartao_disponivel':'-10.25','matricula':'00001'})
+  self.assertEqual(result['emprestimo_disponivel'],'0.00');self.assertNotIn('saldo_liquidacao',result)
+  self.assertEqual(tjba.job_result({'status':'revisao_matricula'})['status'],'revisao')
+class SessionTests(unittest.IsolatedAsyncioTestCase):
+ async def test_disabled_never_opens_browser(self):
+  s=tjba.Session();r=await s.run({'cpf':'123','user_id':'u'},{'enabled':False},AsyncMock())
+  self.assertEqual(r['status'],'revisao');self.assertIsNone(s.browser)
+ async def test_same_session_for_three_cpfs_and_isolated_error(self):
+  s=tjba.Session();s.identity=('u','rev');s.browser=MagicMock();s.browser.close=AsyncMock();s.page=MagicMock();s.page.is_closed.return_value=False
+  with patch.object(tjba,'consult',new_callable=AsyncMock) as consult:
+   consult.side_effect=[{'status':'consultado','emprestimo_disponivel':'0.00','cartao_disponivel':'-1.00'},tjba.Review('revisao_matricula','Revisar'),{'status':'nao_encontrado'}]
+   result=[]
+   for cpf in ('1','2','3'):result.append(await s.run({'cpf':cpf,'user_id':'u'},{'enabled':True,'revision':'rev'},AsyncMock()))
+   self.assertEqual([r['status'] for r in result],['concluida','revisao','nao_encontrado']);self.assertEqual(consult.await_count,3);s.browser.close.assert_not_called()
+ async def test_expiration_blocks_repeated_login_until_new_revision(self):
+  s=tjba.Session();s.identity=('u','rev');s.browser=MagicMock();s.browser.close=AsyncMock();s.page=MagicMock();s.page.is_closed.return_value=False
+  with patch.object(tjba,'consult',new_callable=AsyncMock,side_effect=tjba.Review('sessao_expirada','Sessão expirada')) as consult:
+   a=await s.run({'cpf':'1','user_id':'u'},{'enabled':True,'revision':'rev'},AsyncMock())
+   b=await s.run({'cpf':'2','user_id':'u'},{'enabled':True,'revision':'rev'},AsyncMock())
+   self.assertEqual(a['tjba_status'],'sessao_expirada');self.assertEqual(b['tjba_status'],'sessao_expirada');self.assertEqual(consult.await_count,1)
+class WorkerRouteTests(unittest.IsolatedAsyncioTestCase):
+ async def test_tjba_progress_uses_tjba_table_and_credentials_stay_worker_only(self):
+  import importlib.util,os
+  with patch.dict(os.environ,{'SUPABASE_URL':'https://test.invalid','SUPABASE_SERVICE_ROLE_KEY':'sb_secret_fake','ROBOT_MODE':'live'}):
+   spec=importlib.util.spec_from_file_location('worker_tjba_test',ROOT/'vps/worker.py');worker=importlib.util.module_from_spec(spec);spec.loader.exec_module(worker)
+  calls=[]
+  def request(path,payload=None,method='POST',timeout=30):
+   calls.append((path,payload,method))
+   if path=='rpc/get_tjba_credentials':return {'enabled':True,'revision':'rev','username':'TESTE','password':'FAKE'}
+  class Adapter:
+   async def run(self,job,credentials,on_progress):
+    await on_progress(35,'Consultar');return {'status':'concluida','emprestimo_disponivel':'0.00'}
+  with patch.object(worker,'request',side_effect=request):
+   result=await worker.process_tjba({'id':'j','user_id':'u','cpf':'123'},Adapter())
+  self.assertEqual(result['status'],'concluida');self.assertTrue(any(p=='tjba_jobs?id=eq.j' for p,_,_ in calls));self.assertFalse(any('consulta_jobs' in p for p,_,_ in calls));self.assertNotIn('FAKE',str(result))

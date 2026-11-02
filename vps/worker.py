@@ -45,19 +45,53 @@ def process(job):
    except asyncio.CancelledError:pass
  return asyncio.run(execute())
 
-def main():
- while True:
-  try:
-   jobs=request('rpc/claim_consulta_job',{})
-   if not jobs:time.sleep(3);continue
-   job=jobs[0]
-   try:result=process(job)
-   except Exception:result={'status':'erro','message':'Falha interna no robô. Verificar a instalação e conectividade da VPS.'}
-   result['consultado_em']=datetime.now(timezone.utc).isoformat()
-   # Retry saving this result, not the bank consultation.
-   while True:
-    try:request('consulta_jobs?id=eq.'+job['id'],result,method='PATCH');break
-    except Exception:print('Falha ao salvar resultado; tentando novamente.',flush=True);time.sleep(10)
-  except Exception:
-   print('Fila indisponível; nova tentativa em 10 segundos.',flush=True);time.sleep(10)
+async def process_tjba(job,adapter):
+ from tjba import job_result
+ if MODE!='live':return job_result({'status':'sessao_expirada','observacoes':'Robô desativado. Ative somente após homologação.'})
+ credentials=await asyncio.to_thread(request,'rpc/get_tjba_credentials',{'p_user_id':job['user_id']})
+ queue=asyncio.Queue(maxsize=1)
+ async def report(percent,stage):
+  if queue.full():queue.get_nowait();queue.task_done()
+  queue.put_nowait({'progress':percent,'stage':stage})
+ async def flush():
+  while True:
+   data=await queue.get()
+   try:await asyncio.to_thread(request,'tjba_jobs?id=eq.'+job['id'],data,'PATCH',4)
+   except Exception:print('Falha ao salvar progresso TJBA.',flush=True)
+   finally:queue.task_done()
+ writer=asyncio.create_task(flush())
+ try:
+  result=await adapter.run(job,credentials,report);await queue.join();return result
+ finally:
+  credentials=None;writer.cancel()
+  try:await writer
+  except asyncio.CancelledError:pass
+
+async def main_async():
+ from tjba import Session
+ adapter=Session();last_queue="tjba"
+ try:
+  while True:
+   try:
+    queues=['digimais','tjba'] if last_queue=='tjba' else ['tjba','digimais']
+    jobs=[]
+    for queue_name in queues:
+     jobs=await asyncio.to_thread(request,'rpc/claim_tjba_job' if queue_name=='tjba' else 'rpc/claim_consulta_job',{})
+     if jobs:last_queue=queue_name;break
+    if not jobs:await adapter.close_idle();await asyncio.sleep(3);continue
+    job=jobs[0]
+    try:
+     if job.get('servico')=='tjba_margem':result=await process_tjba(job,adapter)
+     else:
+      await adapter.close();result=await asyncio.to_thread(process,job)
+    except Exception:result={'status':'erro','message':'Falha interna no robô. Verificar a instalação e conectividade da VPS.'}
+    result['consultado_em']=datetime.now(timezone.utc).isoformat()
+    while True:
+     try:await asyncio.to_thread(request,('tjba_jobs' if job.get('servico')=='tjba_margem' else 'consulta_jobs')+'?id=eq.'+job['id'],result,'PATCH');break
+     except Exception:print('Falha ao salvar resultado; tentando novamente.',flush=True);await asyncio.sleep(10)
+   except Exception:
+    print('Fila indisponível; nova tentativa em 10 segundos.',flush=True);await asyncio.sleep(10)
+ finally:await adapter.close()
+
+def main():asyncio.run(main_async())
 if __name__=='__main__':main()

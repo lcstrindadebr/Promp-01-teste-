@@ -255,9 +255,9 @@ Validação: `node tests/test_import_formats.cjs` testa arquivos reais nos quatr
 
 ### Tipos de higienização
 
-A central agora identifica o serviço antes de iniciar consultas individuais ou campanhas. **Digi+ · Saldo devedor e parcela** está disponível. **Consulta de margem** aparece como próxima integração, desabilitada: ainda será necessário definir e integrar o banco/convênio e seu robô. Não são geradas consultas de margem fictícias.
+A central agora identifica o serviço antes de iniciar consultas individuais ou campanhas. **Digi+ · Saldo devedor e parcela** está disponível. **Consulta de margem → TJBA** está integrada em homologação, com acesso configurado por conta. Outros bancos e convênios poderão ser adicionados ao catálogo.
 
-O identificador `digimais_saldo_parcela` é salvo nos lotes e consultas; os registros anteriores recebem esse valor. Histórico, campanhas e exportações identificam o serviço. A fila e o worker Digi+ só aceitam o serviço implementado. A RPC anterior permanece compatível. Para habilitar um serviço futuro, será necessário adicionar suas regras, permissões e processamento, além de sua opção no catálogo.
+O identificador `digimais_saldo_parcela` é salvo nos lotes e consultas; os registros anteriores recebem esse valor. Histórico, campanhas e exportações identificam o serviço. Cada serviço usa sua fila correspondente no mesmo worker serial. A RPC anterior permanece compatível. Para habilitar um serviço futuro, será necessário adicionar suas regras, permissões e processamento, além de sua opção no catálogo.
 
 O Supabase original já recebeu a migração. Em outro projeto existente, execute `supabase/upgrade_servicos.sql` antes de atualizar. O auto instalador distribui o painel, o novo CSS e a proteção de roteamento do worker. Execute a opção 1 e recarregue a página com Ctrl + F5.
 
@@ -277,3 +277,42 @@ journalctl -u apoiarcred-monitor -n 50 --no-pager
 ```
 
 O coletor usa apenas a biblioteca padrão Python e `/proc` do Linux. O serviço tem limite de memória de 64 MB e cota de CPU de 10% de um núcleo. As métricas representam o total da VPS. Se a máquina cair, o painel sinalizará dados antigos; não substitui alertas externos de disponibilidade.
+
+### TJBA · Consulta de margem
+
+Selecione **Consulta de margem → TJBA** no tipo de higienização. O CPF é obrigatório; nome e telefone são opcionais. Aceita consulta individual e campanhas com Excel, CSV ou TSV. O botão de modelo baixa `modelo-tjba.csv` quando TJBA está selecionado. Substitua o CPF de exemplo. Zeros à esquerda são completados até 11 dígitos.
+
+Os resultados mostram nome retornado pelo portal, CPF, matrícula, tipo de servidor, situação, margem **disponível** de empréstimo, margem **disponível** de cartão, data, status e observações. Ausência de valor é `null`, exibido como `—`; valores zero e negativos são preservados. A simulação Amigoz se aplica apenas aos resultados Digi+. Histórico, filtros, exportação, exclusão e nova tentativa da campanha usam o serviço correspondente.
+
+Em **Configurações → Acesso ao portal TJBA**, informe usuário e senha do portal e salve. A senha é cifrada no Supabase Vault e não volta para o navegador; o robô na VPS é o único consumidor da leitura do segredo. Cada conta usa suas próprias credenciais. Senha vazia mantém o segredo existente; trocar o usuário exige informar a nova senha. O campo de senha é limpo depois de enviar. **A habilitação vem desmarcada**: ative depois de homologar o fluxo com CPFs autorizados. Nunca coloque credenciais no código, no GitHub, em capturas ou nos logs.
+
+O worker usa a mesma infraestrutura, processando um CPF por vez, alternando as filas Digi+ e TJBA quando ambas têm consultas. A integração do banco é aditiva: `tjba_lotes`, `tjba_jobs` e `consulta_tjba_historico`, com RLS por conta. As tabelas e RPCs existentes do Digi+ permanecem preservadas. Resultados TJBA são gravados como `NUMERIC(14,2)`; CPF e matrícula são texto. O histórico mantém resultados anteriores nas novas tentativas de campanha e é removido junto da consulta/campanha quando você confirmar a exclusão.
+
+A sessão do navegador TJBA é reutilizada entre CPFs consecutivos da mesma conta e revisão das credenciais. Trocar conta, alterar credenciais, ficar ocioso por 120 segundos ou processar Digi+ fecha essa sessão. Não são salvos cookies nem estado de navegador em disco. Falha de autenticação/expiração pausa novas tentativas de login daquela revisão; valide o acesso e salve novamente as configurações para liberar uma tentativa. CAPTCHA, MFA ou mudança de fluxo retornam revisão; não são contornados.
+
+**Validação realizada em 02/11/2026:** login autorizado no navegador, seleção do convênio pela tabela `#gvOrgao`, confirmação pelo cabeçalho `#descricaoOrgaoLabel`, primeira e segunda consulta na mesma sessão, botão `#body_voltarButton`, dados do servidor e as duas margens. Um caso retornou margem negativa, preservada. A coluna correta é “Margem Disponível (R$)”; não é margem total. O campo `#body_cpf_nascimentoTextBox` contém o CPF retornado nessa tela, apesar do nome. Nenhum CPF real ou credencial é incluído no repositório.
+
+**Limites:** esses testes foram interativos no navegador. O worker autônomo ainda precisa de homologação na sua VPS. Casos reais de múltiplas matrículas, CPF não encontrado, CAPTCHA e sessão expirada não foram fornecidos nesta validação; há testes automatizados de parsing/isolamento/sessão, e o robô retorna revisão se não conseguir confirmar a estrutura. Múltiplas matrículas só permitem seleção quando existe uma única situação ativa verificável e a ação Selecionar é reconhecida. Não há clique em Reservar Margem, propostas ou operações financeiras. Sem integração com Google Sheets.
+
+O projeto Supabase original já recebeu `upgrade_tjba.sql` e `upgrade_tjba_privacy.sql`. Em outro projeto existente, execute os dois arquivos, nessa ordem, uma única vez, antes de atualizar pela opção 1. Instalação nova usa `supabase/schema.sql`. O instalador distribui `vps/tjba.py`, o roteamento do worker e as telas; não precisa de nova dependência Python.
+
+Rotas Supabase (sempre com autenticação da conta; a chave de serviço só fica na VPS):
+
+| Operação | Rota |
+| --- | --- |
+| Criar campanha TJBA | `POST /rest/v1/rpc/create_tjba_campaign` com `p_nome` e `p_items` |
+| Criar consulta individual | `POST /rest/v1/tjba_lotes` com tipo `individual`, depois `POST /rest/v1/tjba_jobs` com o lote e CPF |
+| Ler resultados | `GET /rest/v1/tjba_jobs?id=eq.ID` ou `lote_id=eq.ID` |
+| Ler histórico | `GET /rest/v1/consulta_tjba_historico?job_id=eq.ID` |
+| Nova tentativa da campanha | `POST /rest/v1/rpc/retry_tjba_campaign` com `p_campaign_id` |
+| Salvar acesso | `POST /rest/v1/rpc/save_tjba_credentials` com `p_username`, `p_password`, `p_enabled` |
+| Ver configuração sem senha | `POST /rest/v1/rpc/tjba_credentials_status` |
+| Buscar credencial / retirar da fila | `get_tjba_credentials` / `claim_tjba_job`: exclusivos do serviço na VPS |
+
+Exemplo **fictício** de resultado normalizado:
+
+```json
+{"cpf":"00123456789","status":"concluida","servico":"tjba_margem","tipo_higienizacao":"margem","provedor":"tjba","matricula":"000123","tipo_servidor":"ESTATUTARIO","situacao_atual":"Ativo - ATIVO","emprestimo_disponivel":"0.00","cartao_disponivel":"-10.25","tjba_status":"consultado"}
+```
+
+Testes: `python3 -m unittest discover -s tests -q`, `node tests/test_tjba_frontend.cjs` e regressões do painel. `tests/tjba_database.sql` verifica Vault, três CPFs sintéticos, isolamento entre contas, bloqueio de leitura de senha no navegador, zero/negativo, histórico, nova tentativa e exclusão em transação revertida. Nenhuma consulta de teste fica na fila.

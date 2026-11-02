@@ -3,6 +3,7 @@ let amigozCurrent=null,amigozBusy=false,amigozGeneration=0;
 const amigozRates=[3,3.25,3.5,3.75,3.98,4.5,4.8];
 const brl=v=>Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 function amigozAction(r){
+ if(r.servico==='tjba_margem')return '';
  const valid=r.saldo>0&&r.valorParcela>0&&!['Aguardando','Processando','Não é cliente'].includes(r.status);
  return valid?`<button data-simulate="${escapeHTML(r.id)}">Simular Amigoz</button>`:'<small class="muted">Simulação: aguarde saldo e parcela válidos.</small>';
 }

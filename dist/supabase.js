@@ -2,9 +2,9 @@
 const sb=window.SUPABASE_CONFIG;
 const storageKey='apoiarcred-auth:'+sb.url;
 let session=null,authenticated=false,refreshing=null,loadingCloud=false,authEpoch=0;
-const statusNames={aguardando:'Aguardando',processando:'Processando',concluida:'Concluída',nao_localizado:'Não é cliente',nao_cliente:'Não é cliente',erro:'Erro',revisao:'Revisão'};
+const statusNames={aguardando:'Aguardando',processando:'Processando',concluida:'Concluída',nao_localizado:'Não é cliente',nao_cliente:'Não é cliente',nao_encontrado:'Não encontrado',erro:'Erro',revisao:'Revisão'};
 function showLogin(message=''){
- authenticated=false;session=null;authEpoch++;importGeneration++;readingImport=false;importError='';if(typeof resetAmigoz==='function')resetAmigoz();if(typeof resetMonitoring==='function')resetMonitoring();records=[];pending=[];campaigns=[];activeCampaign=null;retryingCampaign=false;$('#campaignName').value='';navigate("home");
+ authenticated=false;session=null;authEpoch++;if(typeof resetTjbaSettings==='function')resetTjbaSettings();importGeneration++;readingImport=false;importError='';if(typeof resetAmigoz==='function')resetAmigoz();if(typeof resetMonitoring==='function')resetMonitoring();records=[];pending=[];campaigns=[];activeCampaign=null;retryingCampaign=false;$('#campaignName').value='';navigate("home");
  $('#consultationLogPanel').open=false;sessionStorage.removeItem(storageKey);$('#appShell').hidden=true;$('#loginPage').hidden=false;
  $('#loginError').textContent=message;$('#preview').classList.add('hide');$('#file').value='';$('#import').disabled=true;render();
 }
@@ -30,24 +30,25 @@ async function fetchAll(path){
 async function createCampaign(name,items){
  if(!authenticated)throw Error('Entre na sua conta.');
  if(!name.trim()||name.trim().length>160||!items.length)throw Error('Informe o nome e selecione clientes válidos.');
- const id=await sbRequest('/rest/v1/rpc/create_consulta_campaign',{method:'POST',body:JSON.stringify({p_nome:name.trim(),p_servico:selectedService(),p_items:items.map(r=>({nome:r.nome,cpf:r.cpf,telefone:r.telefone}))})});
+ const service=selectedService(),body={p_nome:name.trim(),p_items:items.map(r=>({nome:r.nome,cpf:r.cpf,telefone:r.telefone}))};if(service!=='tjba_margem')body.p_servico=service;
+ const id=await sbRequest('/rest/v1/rpc/'+(service==='tjba_margem'?'create_tjba_campaign':'create_consulta_campaign'),{method:'POST',body:JSON.stringify(body)});
  await loadCloud();return id;
 }
 async function retryCampaign(id){
  if(!authenticated)throw Error('Entre na sua conta.');
- return await sbRequest('/rest/v1/rpc/retry_consulta_campaign',{method:'POST',body:JSON.stringify({p_campaign_id:id})});
+ return await sbRequest('/rest/v1/rpc/'+(campaigns.find(c=>c.id===id)?.servico==='tjba_margem'?'retry_tjba_campaign':'retry_consulta_campaign'),{method:'POST',body:JSON.stringify({p_campaign_id:id})});
 }
 async function loadCloud(){
  if(!authenticated||loadingCloud)return;loadingCloud=true;const epoch=authEpoch;
- try{const [data,lots]=await Promise.all([fetchAll('/rest/v1/consulta_jobs?select=*&order=created_at.desc,id.desc'),fetchAll('/rest/v1/consulta_lotes?select=id,nome,tipo,servico,created_at&tipo=eq.campanha&order=created_at.desc,id.desc')]);if(epoch!==authEpoch)return;if(!campaigns.length&&lots.length&&!$('#campaignName').value&&!pending.length)$('#newCampaignPanel').open=false;campaigns=lots;records=data.map(r=>({...r,date:r.consultado_em||r.created_at,status:statusNames[r.status]||r.status,saldo:r.saldo_liquidacao==null?null:Number(r.saldo_liquidacao),parcelas:r.total_parcelas,valorParcela:r.valor_parcela==null?null:Number(r.valor_parcela)}));render()}catch(e){if(authenticated)toast(e.message)}finally{loadingCloud=false}
+ try{const [digiData,digiLots,tjbaData,tjbaLots]=await Promise.all([fetchAll('/rest/v1/consulta_jobs?select=*&order=created_at.desc,id.desc'),fetchAll('/rest/v1/consulta_lotes?select=id,nome,tipo,servico,created_at&tipo=eq.campanha&order=created_at.desc,id.desc'),fetchAll('/rest/v1/tjba_jobs?select=*&order=created_at.desc,id.desc'),fetchAll('/rest/v1/tjba_lotes?select=id,nome,tipo,servico,created_at&tipo=eq.campanha&order=created_at.desc,id.desc')]);const data=[...digiData,...tjbaData].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)),lots=[...digiLots,...tjbaLots].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));if(epoch!==authEpoch)return;if(!campaigns.length&&lots.length&&!$('#campaignName').value&&!pending.length)$('#newCampaignPanel').open=false;campaigns=lots;records=data.map(r=>({...r,date:r.consultado_em||r.created_at,status:statusNames[r.status]||r.status,saldo:r.saldo_liquidacao==null?null:Number(r.saldo_liquidacao),parcelas:r.total_parcelas,valorParcela:r.valor_parcela==null?null:Number(r.valor_parcela)}));render()}catch(e){if(authenticated)toast(e.message)}finally{loadingCloud=false}
 }
-async function add(items){
+async function add(items,service=selectedService()){
  if(!authenticated)throw Error('Entre na sua conta.');if(items.length!==1)throw Error('Use Campanhas para importar consultas em lote.');
- const servico=selectedService();const batches=await sbRequest('/rest/v1/consulta_lotes',{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify({nome:'Consulta individual',tipo:'individual',servico})});
- await sbRequest('/rest/v1/consulta_jobs',{method:'POST',body:JSON.stringify(items.map(r=>({nome:r.nome,cpf:r.cpf,telefone:r.telefone,servico,lote_id:batches[0].id,user_id:session.user.id})))});
+ const servico=service,tjba=servico==='tjba_margem';const batches=await sbRequest('/rest/v1/'+(tjba?'tjba_lotes':'consulta_lotes'),{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify({nome:'Consulta individual',tipo:'individual',servico})});
+ await sbRequest('/rest/v1/'+(tjba?'tjba_jobs':'consulta_jobs'),{method:'POST',body:JSON.stringify(items.map(r=>({nome:r.nome,cpf:r.cpf,telefone:r.telefone,...(tjba?{}:{servico}),lote_id:batches[0].id,user_id:session.user.id})))});
  toast(items.length+' consulta(s) salva(s) na fila.');await loadCloud();
 }
-function openPanel(){authenticated=true;$('#loginPage').hidden=true;$('#appShell').hidden=false;$('#accountEmail').textContent=session.user.email;$('#authState').textContent='Conectado como '+session.user.email;$('#password').value='';$('#loginError').textContent='';loadCloud();if(typeof loadAmigozSettings==='function')loadAmigozSettings()}
+function openPanel(){authenticated=true;$('#loginPage').hidden=true;$('#appShell').hidden=false;$('#accountEmail').textContent=session.user.email;$('#authState').textContent='Conectado como '+session.user.email;$('#password').value='';$('#loginError').textContent='';loadCloud();if(typeof loadAmigozSettings==='function')loadAmigozSettings();if(typeof loadTjbaSettings==='function')loadTjbaSettings()}
 $('#login').onsubmit=async e=>{
  e.preventDefault();const button=$('#loginSubmit');button.disabled=true;$('#loginError').textContent='Entrando…';
  try{const data=await raw('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email:$('#email').value.trim(),password:$('#password').value})});authEpoch++;saveSession(data);openPanel()}catch(e){showLogin(e.status===400?'E-mail ou senha inválidos. Confira também a confirmação da conta.':e.message)}finally{button.disabled=false}

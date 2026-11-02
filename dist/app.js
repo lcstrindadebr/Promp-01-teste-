@@ -1,6 +1,6 @@
 const $=s=>document.querySelector(s);
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const serviceCatalog={digimais_saldo_parcela:{label:'Digi+ · Saldo devedor e parcela',available:true},margem:{label:'Consulta de margem',available:false}};
+const serviceCatalog={digimais_saldo_parcela:{label:'Digi+ · Saldo devedor e parcela',available:true,categoria:'saldo_devedor',provedor:'digimais'},margem:{label:'Consulta de margem',available:false},tjba_margem:{label:'TJBA · Consulta de margem',available:true,categoria:'margem',provedor:'tjba'}};
 function selectedService(){const id=$('#serviceSelect').value||'digimais_saldo_parcela';if(!serviceCatalog[id]?.available)throw Error('Este tipo de higienização ainda não está disponível.');return id;}
 function serviceLabel(id){return serviceCatalog[id||'digimais_saldo_parcela']?.label||'Serviço não identificado';}
 let records=[],pending=[],campaigns=[],activeCampaign=null,currentPage="home",retryingCampaign=false;
@@ -23,23 +23,24 @@ function renderLogs(){
  }).join('\n\n')||'Nenhuma consulta registrada.';
 }
 function campaignRecords(id){return records.filter(r=>r.lote_id===id)}
-function individualRecords(){const ids=new Set(campaigns.map(c=>c.id));return records.filter(r=>!ids.has(r.lote_id))}
+function individualRecords(){const ids=new Set(campaigns.map(c=>c.id));return records.filter(r=>!ids.has(r.lote_id)&&(r.servico||'digimais_saldo_parcela')===selectedService())}
 function campaignStats(rows){
- return {total:rows.length,clients:rows.filter(r=>r.saldo!=null||r.valorParcela!=null||r.status==='Concluída').length,nonclients:rows.filter(r=>r.status==='Não é cliente').length,errors:rows.filter(r=>r.status==='Erro').length,review:rows.filter(r=>r.status==='Revisão').length,waiting:rows.filter(r=>['Aguardando','Processando'].includes(r.status)).length};
+ return {total:rows.length,clients:rows.filter(r=>r.saldo!=null||r.valorParcela!=null||r.emprestimo_disponivel!=null||r.cartao_disponivel!=null||r.matricula!=null||r.status==='Concluída').length,nonclients:rows.filter(r=>['Não é cliente','Não encontrado'].includes(r.status)).length,errors:rows.filter(r=>r.status==='Erro').length,review:rows.filter(r=>r.status==='Revisão').length,waiting:rows.filter(r=>['Aguardando','Processando'].includes(r.status)).length};
 }
 function rowsHTML(rows){return rows.map(r=>`<tr><td><b>${escapeHTML(r.nome)}</b><br><span class="muted">${escapeHTML(r.cpf)}</span></td><td><span class="pill ${r.status==='Concluída'?'ok':['Erro','Revisão'].includes(r.status)?'err':r.status==='Processando'?'run':''}">${escapeHTML(statusLabel(r.status))}</span><div class="progress-line"><progress max="100" value="${Math.max(0,Math.min(100,Number(r.progress)||(['Concluída','Não é cliente'].includes(r.status)?100:0)))}" aria-label="Progresso da consulta"></progress><small>${Math.max(0,Math.min(100,Number(r.progress)||(['Concluída','Não é cliente'].includes(r.status)?100:0)))}%</small></div>${resultMessage(r)?`<small class="muted">${escapeHTML(resultMessage(r))}</small>`:''}</td><td>${r.saldo==null?'—':r.saldo.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</td><td>${r.parcelas??'—'}</td><td>${r.valorParcela==null?'—':r.valorParcela.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</td><td><span class="service-tag">${escapeHTML(serviceLabel(r.servico))}</span><br><span class="muted">${new Date(r.date).toLocaleString('pt-BR')}</span></td><td>${['Erro','Revisão'].includes(r.status)?`<button data-retry="${r.id}">Tentar novamente</button>`:'—'}<br>${typeof amigozAction==='function'?amigozAction(r):''}<button class="danger" data-delete-job="${escapeHTML(r.id)}">Excluir</button></td></tr>`).join('')||'<tr><td colspan="7" class="empty">Nenhuma consulta encontrada.</td></tr>'}
 function renderCampaigns(){
  if(!campaigns.length)$('#newCampaignPanel').open=true;
- $('#campaignList').innerHTML=campaigns.map(c=>{const n=campaignStats(campaignRecords(c.id));return `<button class="campaign-item ${activeCampaign===c.id?'selected':''}" data-campaign="${escapeHTML(c.id)}"><b>${escapeHTML(c.nome)}</b><span class="campaign-service">${escapeHTML(serviceLabel(c.servico))}</span><small>${n.total} consultas · ${n.waiting?'Consultando...':'Finalizada'} · ${new Date(c.created_at).toLocaleDateString('pt-BR')}</small></button>`}).join('')||'<p class="muted">Crie sua primeira campanha usando a planilha padrão.</p>';
- const c=campaigns.find(c=>c.id===activeCampaign);$('#campaignDetail').classList.toggle('hide',!c);if(!c)return;
+ $('#campaignList').innerHTML=campaigns.filter(c=>(c.servico||'digimais_saldo_parcela')===selectedService()).map(c=>{const n=campaignStats(campaignRecords(c.id));return `<button class="campaign-item ${activeCampaign===c.id?'selected':''}" data-campaign="${escapeHTML(c.id)}"><b>${escapeHTML(c.nome)}</b><span class="campaign-service">${escapeHTML(serviceLabel(c.servico))}</span><small>${n.total} consultas · ${n.waiting?'Consultando...':'Finalizada'} · ${new Date(c.created_at).toLocaleDateString('pt-BR')}</small></button>`}).join('')||'<p class="muted">Crie sua primeira campanha usando a planilha padrão.</p>';
+ const c=campaigns.find(c=>c.id===activeCampaign);if(typeof setTableHead==='function'&&c)setTableHead(c.servico,'campaignHead');$('#campaignDetail').classList.toggle('hide',!c);if(!c)return;
  const rows=campaignRecords(c.id),n=campaignStats(rows);
  $('#campaignTitle').textContent=c.nome;$('#campaignState').textContent=serviceLabel(c.servico)+' · '+(n.waiting?'Consultando...':'Campanha finalizada');
- $('#campaignReport').innerHTML=[['Consultas solicitadas',n.total],['Clientes identificados',n.clients],['Não são clientes',n.nonclients],['Erros',n.errors],['Solicitam revisão',n.review],['Na fila / consultando',n.waiting]].map(([label,value])=>`<div class="stat"><label>${label}</label><strong>${value}</strong></div>`).join('');
+ $('#campaignReport').innerHTML=[['Consultas solicitadas',n.total],[c.servico==='tjba_margem'?'CPFs localizados':'Clientes identificados',n.clients],[c.servico==='tjba_margem'?'Não encontrados':'Não são clientes',n.nonclients],['Erros',n.errors],['Solicitam revisão',n.review],['Na fila / consultando',n.waiting]].map(([label,value])=>`<div class="stat"><label>${label}</label><strong>${value}</strong></div>`).join('');
  $('#retryCampaign').disabled=retryingCampaign||!(n.errors+n.review);$('#retryCampaign').textContent=`Nova tentativa: erros e revisão (${n.errors+n.review})`;
  $('#campaignRows').innerHTML=rowsHTML(rows).replace(/<button data-retry="[^"]+">Tentar novamente<\/button>/g,'Use o botão da campanha');
 }
 function render(){
  if(typeof refreshAmigoz==='function')refreshAmigoz();
+ if(typeof setTableHead==='function')setTableHead(selectedService(),'individualHead');
  renderLogs();renderCampaigns();
  const rows=individualRecords(),q=$('#search').value.toLowerCase(),filter=$('#filter').value;
  $('#total').textContent=rows.length;
@@ -47,11 +48,16 @@ function render(){
  $('#done').textContent=rows.filter(r=>r.status==='Concluída').length;
  $('#errors').textContent=rows.filter(r=>['Erro','Revisão'].includes(r.status)).length;
  $('.modeNotice').textContent='Preencha os dados para consultar uma pessoa. Para uma lista de clientes, use Campanhas.';
- $('#rows').innerHTML=rowsHTML(rows.filter(r=>(!filter||r.status===filter)&&`${r.nome} ${r.cpf}`.toLowerCase().includes(q)));
+ $('#rows').innerHTML=rowsHTML(rows.filter(r=>(!filter||r.status===filter||(filter.startsWith('tjba:')&&r.tjba_status===filter.slice(5)))&&`${r.nome} ${r.cpf}`.toLowerCase().includes(q)));
 }
 
 const digits=s=>String(s).replace(/\D/g,'');
-function validate(r){r.nome=r.nome.trim();r.cpf=digits(r.cpf);r.telefone=digits(r.telefone);if(!r.nome||r.nome.length>160||r.cpf.length!==11||!/^\d{10,13}$/.test(r.telefone))throw Error('Informe nome, CPF com 11 dígitos e telefone com DDD.');return r}
+function validate(r,service=selectedService()){
+ const tjba=service==='tjba_margem';r.nome=(r.nome||'').trim();r.cpf=digits(r.cpf);r.telefone=digits(r.telefone||'');
+ if(tjba&&r.cpf.length>0&&r.cpf.length<11)r.cpf=r.cpf.padStart(11,'0');
+ if(tjba&&!r.nome)r.nome='CPF '+r.cpf;
+ if(!r.nome||r.nome.length>160||r.cpf.length!==11||(!tjba&&!/^\d{10,13}$/.test(r.telefone))||(tjba&&r.telefone&&!/^\d{10,13}$/.test(r.telefone)))throw Error(tjba?'Informe CPF com até 11 dígitos; nome e telefone são opcionais.':'Informe nome, CPF com 11 dígitos e telefone com DDD.');return r;
+}
 function csvParse(text){
  const first=text.split(/\r?\n/)[0],sep=first.includes('\t')?'\t':first.includes(';')?';':',';let rows=[],row=[],value='',quoted=false;
  for(let i=0;i<text.length;i++){const c=text[i];if(c==='"'){if(quoted&&text[i+1]==='"'){value+='"';i++}else quoted=!quoted}else if(c===sep&&!quoted){row.push(value);value=''}else if(c==='\n'&&!quoted){row.push(value.replace(/\r$/,''));rows.push(row);row=[];value=''}else value+=c}
@@ -91,7 +97,7 @@ $('#file').onchange=async e=>{
  }
  if(generation!==importGeneration)return;
  if(!rows.length)throw Error('Arquivo vazio. Preencha o modelo com os dados dos clientes.');
- const headers=rows.shift().map(importHeader),missing=['nome','cpf','telefone'].filter(h=>!headers.includes(h));
+ const headers=rows.shift().map(importHeader),missing=(selectedService()==='tjba_margem'?['cpf']:['nome','cpf','telefone']).filter(h=>!headers.includes(h));
  if(missing.length)throw Error('Colunas ausentes: '+missing.join(', ')+'. Use o modelo padrão e salve como CSV UTF-8.');
  if(new Set(headers).size!==headers.length)throw Error('Há títulos de colunas repetidos. Mantenha uma coluna nome, cpf e telefone.');
  if(rows.length>1000)throw Error('Envie até 1.000 registros por campanha.');
@@ -99,11 +105,12 @@ $('#file').onchange=async e=>{
  const errors=[],seen=new Set(),valid=[];
  rows.forEach((row,i)=>{try{
  const r=Object.fromEntries(headers.map((h,j)=>[h,(row[j]||'').trim()]));
- if(r.nome.toUpperCase()==='NOME COMPLETO DO CLIENTE'&&digits(r.cpf)==='00000000000')throw Error('Substitua a linha de exemplo pelos dados de um cliente.');
- if(!r.nome||r.nome.length>160)throw Error('Nome ausente ou acima de 160 caracteres.');
+ if((r.nome||'').toUpperCase()==='NOME COMPLETO DO CLIENTE'&&digits(r.cpf)==='00000000000')throw Error('Substitua a linha de exemplo pelos dados de um cliente.');
+ if(selectedService()!=='tjba_margem'&&(!r.nome||r.nome.length>160))throw Error('Nome ausente ou acima de 160 caracteres.');
  if(/^\d{1,11}$/.test(r.cpf))r.cpf=r.cpf.padStart(11,'0');
  if(!/^\d{11}$/.test(digits(r.cpf)))throw Error('CPF deve ter 11 dígitos. Preserve os zeros à esquerda.');
- if(!/^\d{10,13}$/.test(digits(r.telefone)))throw Error('Telefone deve conter DDD e 10 a 13 dígitos.');
+ if((selectedService()!=='tjba_margem'||r.telefone)&&!/^\d{10,13}$/.test(digits(r.telefone)))throw Error('Telefone deve conter DDD e 10 a 13 dígitos.');
+ if(selectedService()==='tjba_margem'&&/^0+$/.test(digits(r.cpf)))throw Error('Substitua o CPF de exemplo.');
  validate(r);if(seen.has(r.cpf))throw Error('CPF duplicado nesta planilha.');seen.add(r.cpf);valid.push(r);
  }catch(error){errors.push('Linha '+(i+2)+': '+error.message);}});
  pending=valid;$('#preview').textContent=`${pending.length} válidos · ${errors.length} inválidos\n`+errors.slice(0,30).join('\n')+(errors.length>30?'\nMais erros: revise as demais linhas.':'');
@@ -126,7 +133,7 @@ $('#exportCampaign').onclick=()=>exportResults(campaignRecords(activeCampaign),'
 $('#exportCampaignReport').onclick=()=>{
  const c=campaigns.find(c=>c.id===activeCampaign);if(!c)return;const n=campaignStats(campaignRecords(c.id));
  const safe=value=>'"'+String(value).replaceAll('"','""').replace(/^[=+@\-]/,"'$&")+'"';
- download('campanha-relatorio.csv',[['campanha','solicitadas','clientes','nao_clientes','erros','revisao','pendentes'],[c.nome,n.total,n.clients,n.nonclients,n.errors,n.review,n.waiting]].map(row=>row.map(safe).join(';')).join('\r\n'));
+ download('campanha-relatorio.csv',[['campanha','solicitadas',c.servico==='tjba_margem'?'cpfs_localizados':'clientes',c.servico==='tjba_margem'?'nao_encontrados':'nao_clientes','erros','revisao','pendentes'],[c.nome,n.total,n.clients,n.nonclients,n.errors,n.review,n.waiting]].map(row=>row.map(safe).join(';')).join('\r\n'));
 };
 $('#campaignList').onclick=e=>{const button=e.target.closest('[data-campaign]');if(!button)return;activeCampaign=button.dataset.campaign;renderCampaigns()};
 $('#retryCampaign').onclick=async()=>{
@@ -134,7 +141,7 @@ $('#retryCampaign').onclick=async()=>{
  try{const count=await retryCampaign(activeCampaign);toast(count+' consulta(s) reenviada(s) para a fila.');await loadCloud()}catch(e){toast(e.message)}finally{retryingCampaign=false;renderCampaigns()}
 };
 
-$('#rows').onclick=async e=>{const id=e.target.dataset.retry;if(!id)return;const r=records.find(r=>r.id===id);if(!r)return;e.target.disabled=true;try{await add([{nome:r.nome,cpf:r.cpf,telefone:r.telefone}])}catch(err){toast(err.message)}finally{if(e.target.isConnected)e.target.disabled=false}};
+$('#rows').onclick=async e=>{const id=e.target.dataset.retry;if(!id)return;const r=records.find(r=>r.id===id);if(!r)return;e.target.disabled=true;try{await add([{nome:r.nome,cpf:r.cpf,telefone:r.telefone}],r.servico||'digimais_saldo_parcela')}catch(err){toast(err.message)}finally{if(e.target.isConnected)e.target.disabled=false}};
 $('#search').oninput=render;$('#filter').onchange=render;
 function navigate(page){
  currentPage=page;if(typeof tickMonitoring==='function')tickMonitoring();$('#serviceContext').classList.toggle('hide',page==='settings');
