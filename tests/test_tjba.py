@@ -49,3 +49,59 @@ class WorkerRouteTests(unittest.IsolatedAsyncioTestCase):
   with patch.object(worker,'request',side_effect=request):
    result=await worker.process_tjba({'id':'j','user_id':'u','cpf':'123'},Adapter())
   self.assertEqual(result['status'],'concluida');self.assertTrue(any(p=='tjba_jobs?id=eq.j' for p,_,_ in calls));self.assertFalse(any('consulta_jobs' in p for p,_,_ in calls));self.assertNotIn('FAKE',str(result))
+
+class FakeNavigation:
+ def __init__(self,page):self.page=page
+ async def __aenter__(self):return self
+ async def __aexit__(self,*args):return False
+class FakeLoginLocator:
+ def __init__(self,page,selector):self.page=page;self.selector=selector
+ @property
+ def first(self):return self
+ async def is_visible(self):
+  p=self.page;s=self.selector
+  return (s=='#entendi-cookies' and p.cookie) or (p.state=='login' and s in ('#txtLogin','#txtSenha','#Entrar')) or (p.state=='grid' and s in ('#gvOrgao','#gvOrgao tr','[id^="gvOrgao_imgEntrar_"]')) or (p.state in ('initial','form') and s=='#descricaoOrgaoLabel') or (p.state=='form' and s in (tjba.CPF,tjba.SEARCH))
+ async def wait_for(self,**kwargs):
+  if not await self.is_visible():raise TimeoutError('expected control missing')
+ async def count(self):return 1 if await self.is_visible() else 0
+ def locator(self,selector):return FakeLoginLocator(self.page, '#gvOrgao tr' if self.selector=='#gvOrgao' and selector=='tr' else selector)
+ def filter(self,**kwargs):return self
+ async def inner_text(self):return 'TRIBUNAL JUSTICA DA BAHIA'
+ async def fill(self,value):self.page.events.append(('fill',self.selector))
+ async def click(self,**kwargs):
+  self.page.events.append(('click',self.selector))
+  if self.selector=='#entendi-cookies':self.page.cookie=False
+  elif self.selector=='#Entrar':
+   if self.page.cookie:raise TimeoutError('cookie overlay intercepts action')
+   self.page.state='grid';self.page.url=tjba.BASE+'/LoginSelecao.aspx'
+  elif self.selector=='[id^="gvOrgao_imgEntrar_"]':self.page.state='initial';self.page.authenticated=True;self.page.url=tjba.BASE+'/Inicial/Inicial.aspx'
+class FakeLoginPage:
+ def __init__(self):self.state='blank';self.cookie=True;self.authenticated=False;self.events=[];self.url='about:blank'
+ async def goto(self,url,**kwargs):
+  self.events.append(('goto',url));self.url=url
+  if url==tjba.BASE+'/':self.state='login'
+  elif url==tjba.BASE+tjba.PATH:
+   if not self.authenticated:raise AssertionError('Protected route before login')
+   self.state='form'
+  return type('Response',(),{'status':200})()
+ def locator(self,selector):return FakeLoginLocator(self,selector)
+ def expect_navigation(self,**kwargs):return FakeNavigation(self)
+ async def wait_for_load_state(self,*args):pass
+class LoginFlowTests(unittest.IsolatedAsyncioTestCase):
+ async def test_public_login_cookie_convenio_then_protected_route(self):
+  page=FakeLoginPage();progress=[]
+  async def report(p,label):progress.append(p)
+  await tjba.login(page,{'username':'TEST','password':'FAKE'},on_step=report)
+  self.assertEqual(page.state,'form');self.assertEqual(page.events[0],('goto',tjba.BASE+'/'))
+  self.assertLess(page.events.index(('click','#entendi-cookies')),page.events.index(('click','#Entrar')))
+  self.assertLess(page.events.index(('click','[id^="gvOrgao_imgEntrar_"]')),page.events.index(('goto',tjba.BASE+tjba.PATH)))
+  self.assertEqual(progress,[12,15,18,22,28,32])
+ async def test_failure_keeps_stage_and_percent_without_leaking_exception_text(self):
+  session=tjba.Session();session.identity=('u','rev');session.browser=MagicMock();session.browser.close=AsyncMock();session.page=MagicMock();session.page.is_closed.return_value=False;session.page.url=tjba.BASE+tjba.PATH+'?password=SECRET'
+  async def broken(page,cpf,on_step=None):
+   await on_step(45,'Preencher CPF no formulário TJBA');raise TimeoutError('SECRET CPF=123 token=hidden net::ERR_CONNECTION_CLOSED')
+  with patch.object(tjba,'consult',side_effect=broken):result=await session.run({'user_id':'u','cpf':'123'},{'enabled':True,'revision':'rev'},AsyncMock())
+  self.assertEqual(result['progress'],45);self.assertIn('Preencher CPF',result['stage']);self.assertNotIn('SECRET',str(result));self.assertNotIn('token=',str(result));self.assertEqual(result['resultado_tjba']['diagnostico']['codigo'],'ERR_CONNECTION_CLOSED');self.assertEqual(result['resultado_tjba']['diagnostico']['rota'],tjba.PATH)
+ def test_chromium_transport_is_not_digimais_specific(self):
+  self.assertNotIn('--disable-http2',tjba.CHROMIUM_ARGS)
+  self.assertEqual(tjba.failure_details(RuntimeError("Executable doesn't exist. SECRET"))['codigo'],'CHROMIUM_AUSENTE')

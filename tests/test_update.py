@@ -18,6 +18,7 @@ class UpdateTests(unittest.TestCase):
    (origin/'vps/robot.py').write_text('# NEW ROBOT');(origin/'vps/worker.py').write_text('# NEW WORKER');(origin/'vps/requirements.txt').write_text('')
    (origin/'vps/monitor.py').write_text('# NEW MONITOR')
    (origin/'vps/tjba.py').write_text('# NEW TJBA')
+   (origin/'vps/diagnose_tjba.py').write_text('# NEW TJBA DIAG')
    (origin/'vps/chat_browser.py').write_text('# NEW NAVIGATION');(origin/'vps/diagnose.py').write_text('# NEW DIAGNOSTIC')
    git('add','.');git('commit','-m','new version')
    (repo/'atualizar.sh').write_text(replace_paths((ROOT/'atualizar.sh').read_text()))

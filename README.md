@@ -316,3 +316,13 @@ Exemplo **fictício** de resultado normalizado:
 ```
 
 Testes: `python3 -m unittest discover -s tests -q`, `node tests/test_tjba_frontend.cjs` e regressões do painel. `tests/tjba_database.sql` verifica Vault, três CPFs sintéticos, isolamento entre contas, bloqueio de leitura de senha no navegador, zero/negativo, histórico, nova tentativa e exclusão em transação revertida. Nenhuma consulta de teste fica na fila.
+
+### Correção do acesso TJBA e diagnóstico por etapa
+
+O robô inicia pela página pública `/`, aguarda a navegação do login, seleciona o convênio e somente depois abre `/Margem/ConsultaMargem.aspx`. O transporte Chromium do ConsigX usa a configuração padrão, sem herdar os ajustes HTTP/2 específicos do Digi+. O aviso de cookies conhecido é fechado antes das ações e por um handler persistente.
+
+O log em Configurações distingue: carregar Playwright (5%), iniciar Chromium (8%), criar contexto (10%), abrir login (12%), identificar formulário (15%), enviar login (18%), selecionar convênio (22%) e abrir consulta (28%). Durante a execução, a tela principal continua mostrando apenas “Consultando...”. Em falhas, a porcentagem e a etapa efetivamente atingidas são preservadas. O diagnóstico guarda somente tipo de exceção, código de rede aprovado e rota conhecida sem parâmetros; não copia a exceção bruta, senha, cookies ou tokens.
+
+Para falhas antes da consulta, atualize pela opção 1 e use **4 — Diagnosticar ambiente TJBA**. O comando testa DNS, TLS, inicialização do Chromium e a página pública como usuário do serviço, **sem fazer login e sem enviar CPF**. Um diagnóstico aprovado confirma o ambiente e a abertura do formulário, mas não comprova a autenticação nem a consulta completa. Confira também `journalctl -u apoiarcred-robo -n 80 --no-pager` e o log por CPF em Configurações.
+
+A revisão foi conferida com teste interativo de um terceiro CPF autorizado; o portal retornou ambas as margens. A execução autônoma da VPS ainda depende do teste local e do novo log por etapa para identificar qualquer divergência do ambiente. Casos de login, ordem das rotas, aviso de cookies e preservação segura do erro têm testes automatizados com páginas simuladas; não são apresentados como login real executado pelo worker na VPS.

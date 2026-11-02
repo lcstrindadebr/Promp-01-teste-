@@ -7,6 +7,8 @@ from datetime import datetime,timezone
 from urllib.parse import urlsplit
 BASE='https://govbahia.consigx.com.br'
 PATH='/Margem/ConsultaMargem.aspx'
+# ConsigX uses the default Chromium HTTPS transport, independent of Digi+ workarounds.
+CHROMIUM_ARGS=('--disable-dev-shm-usage',)
 CPF='#body_cpfTextBox';RESULT_CPF='#body_cpf_nascimentoTextBox';SEARCH='#body_pesquisarButton';GRID='#body_servidorGridView'
 FIELDS={'motivo_situacao':'#body_txtMotivo','matricula':'#body_matriculaTextBox','tipo_servidor':'#body_categoriaTextBox','situacao_atual':'#body_txtSituacao'}
 ROWS={'emprestimo_disponivel':'#body_rptMargens1_headerservico1_0','cartao_disponivel':'#body_rptMargens1_headerservico1_1'}
@@ -52,25 +54,53 @@ async def assert_convenio(page):
 async def challenge(page):
  for selector in ['#txtCaptcha','iframe[src*="recaptcha"]','iframe[src*="hcaptcha"]']:
   if await page.locator(selector).first.is_visible():raise Review('sessao_expirada','O portal exige verificação humana. Retome a autenticação autorizada antes de consultar.')
-async def login(page,credentials):
- await page.goto(BASE+PATH,wait_until='domcontentloaded',timeout=25000)
- if await page.locator(CPF).is_visible():await assert_convenio(page);return
- await challenge(page)
- if urlsplit(page.url).hostname!='govbahia.consigx.com.br':raise Review('sessao_expirada','O portal redirecionou a autenticação; validar o fluxo.')
- if not await page.locator('#txtLogin').is_visible() or not await page.locator('#txtSenha').is_visible():raise Review('sessao_expirada','Tela de autenticação não reconhecida; validar o fluxo do portal.')
- await page.locator('#txtLogin').fill(credentials['username']);await page.locator('#txtSenha').fill(credentials['password'])
- await page.locator('#Entrar').click();await page.wait_for_load_state('domcontentloaded');await challenge(page)
- # Verified agreement selection grid. Match the row text, not its changing position.
- if await page.locator('#gvOrgao').is_visible():
-  target=page.locator('#gvOrgao tr').filter(has_text=re.compile(r'TRIBUNAL JUSTICA DA BAHIA',re.I))
+async def report_step(callback,percent,label):
+ if callback:await callback(percent,label)
+async def dismiss_cookies(page):
+ button=page.locator('#entendi-cookies')
+ if await button.is_visible():await button.click(timeout=5000)
+async def install_handlers(page):
+ async def dismiss(target):await target.click(timeout=5000)
+ await page.add_locator_handler(page.locator('#entendi-cookies'),dismiss)
+async def login(page,credentials,on_step=None):
+ await report_step(on_step,12,'Abrir página pública de login ConsigX')
+ response=await page.goto(BASE+'/',wait_until='domcontentloaded',timeout=30000)
+ if response and response.status>=400:raise Review('sessao_expirada',f'Entrada do portal retornou HTTP {response.status}. Nenhuma credencial foi enviada.')
+ await challenge(page);await dismiss_cookies(page)
+ if urlsplit(page.url).hostname!='govbahia.consigx.com.br':raise Review('sessao_expirada','O portal redirecionou a autenticação para outro domínio.')
+ # A reused, authenticated browser may already have the agreement selected.
+ if await page.locator('#descricaoOrgaoLabel').is_visible():
+  await assert_convenio(page)
+ else:
+  await report_step(on_step,15,'Identificar formulário de login')
+  if not await page.locator('#gvOrgao').is_visible():
+   await page.locator('#txtLogin').wait_for(state='visible',timeout=12000)
+   await page.locator('#txtSenha').wait_for(state='visible',timeout=12000)
+   await report_step(on_step,18,'Enviar login ao ConsigX')
+   await page.locator('#txtLogin').fill(credentials['username']);await page.locator('#txtSenha').fill(credentials['password'])
+   await challenge(page)
+   # The validated success flow navigates to LoginSelecao.aspx.
+   async with page.expect_navigation(wait_until='domcontentloaded',timeout=25000):
+    await page.locator('#Entrar').click()
+   await challenge(page);await dismiss_cookies(page)
+  await report_step(on_step,22,'Selecionar convênio TJBA')
+  grid=page.locator('#gvOrgao')
+  await grid.wait_for(state='visible',timeout=12000)
+  target=grid.locator('tr').filter(has_text=re.compile(r'TRIBUNAL JUSTICA DA BAHIA',re.I))
   if await target.count()!=1:raise Review('sessao_expirada','Convênio TJBA não localizado de forma inequívoca.')
   entry=target.locator('[id^="gvOrgao_imgEntrar_"]')
   if await entry.count()!=1:raise Review('sessao_expirada','Botão de entrada no convênio TJBA não reconhecido.')
-  await entry.click();await page.wait_for_load_state('domcontentloaded')
- if not await page.locator(CPF).is_visible() or not await page.locator(SEARCH).is_visible():await page.goto(BASE+PATH,wait_until='domcontentloaded',timeout=20000)
- if not await page.locator(CPF).is_visible():raise Review('sessao_expirada','Login ou seleção do convênio requer validação. Confira as credenciais e o acesso TJBA.')
+  async with page.expect_navigation(wait_until='domcontentloaded',timeout=20000):await entry.click()
+  await assert_convenio(page)
+ await report_step(on_step,28,'Abrir formulário de consulta TJBA')
+ await page.goto(BASE+PATH,wait_until='domcontentloaded',timeout=20000)
+ await dismiss_cookies(page);await challenge(page)
+ await page.locator(SEARCH).wait_for(state='visible',timeout=12000)
+ await page.locator(CPF).wait_for(state='visible',timeout=12000)
  await assert_convenio(page)
+ await report_step(on_step,32,'Login e convênio TJBA confirmados')
 async def prepare(page):
+ await dismiss_cookies(page)
  if not await page.locator(CPF).is_visible() or not await page.locator(SEARCH).is_visible():
   back=page.locator('#body_voltarButton')
   if await back.is_visible():await back.click();await page.locator(SEARCH).wait_for(state='visible',timeout=12000)
@@ -104,8 +134,10 @@ async def read_margin(page,selector):
  if not cells or expected not in norm(cells[0]):raise Review('revisao_margens','A verba da linha de margem não corresponde ao resultado esperado.')
  try:return parse_brl(cells[index])
  except ValueError:raise Review('revisao_margens','Não foi possível interpretar o valor da margem disponível.') from None
-async def consult(page,cpf):
+async def consult(page,cpf,on_step=None):
+ await report_step(on_step,35,'Preparar formulário TJBA')
  await prepare(page)
+ await report_step(on_step,40,'Selecionar verba de empréstimo')
  verba=page.locator('#body_servicoDropDownList')
  if await verba.is_visible():
   labels=await verba.locator('option').all_inner_texts();matches=[label for label in labels if norm(label).startswith('emprestimo')]
@@ -113,7 +145,9 @@ async def consult(page,cpf):
   await verba.select_option(label=matches[0]);await page.wait_for_load_state('domcontentloaded')
  matricula=page.locator('#body_matriculaTextBox')
  if await matricula.is_visible():await matricula.fill('')
+ await report_step(on_step,45,'Preencher CPF no formulário TJBA')
  await page.locator(CPF).fill(normalize_cpf(cpf))
+ await report_step(on_step,50,'Enviar pesquisa e aguardar retorno ConsigX')
  # Wait for an actual postback response, never accept old details from a previous CPF.
  try:
   async with page.expect_response(lambda r: r.request.method=='POST' and urlsplit(r.url).hostname=='govbahia.consigx.com.br',timeout=20000) as pending:
@@ -132,8 +166,10 @@ async def consult(page,cpf):
  text=norm(await page.locator('body').inner_text())
  if re.search(r'servidor nao encontrado|nenhum servidor encontrado|cpf nao encontrado',text):return {'status':'nao_encontrado','observacoes':'O portal informou que não encontrou esse CPF no convênio.'}
  await assert_convenio(page)
+ await report_step(on_step,65,'Verificar vínculo e matrícula retornados')
  vinculos=await choose_matricula(page)
  await page.locator(ROWS['emprestimo_disponivel']).wait_for(state='visible',timeout=12000)
+ await report_step(on_step,78,'Ler margens disponíveis e confirmar CPF')
  fields={k:await value(page,s) for k,s in FIELDS.items()}
  margins={k:await read_margin(page,s) for k,s in ROWS.items()}
  if not fields['matricula'] or not fields['situacao_atual']:raise Review('revisao_matricula','Resultado sem matrícula ou situação verificável.')
@@ -145,8 +181,18 @@ def job_result(raw):
  status=raw['status'];result=dict(status='concluida' if status=='consultado' else 'nao_encontrado' if status=='nao_encontrado' else 'erro' if status=='erro' else 'revisao',tjba_status=status,resultado_tjba=raw,matricula=raw.get('matricula'),tipo_servidor=raw.get('tipo_servidor'),situacao_atual=raw.get('situacao_atual'),emprestimo_disponivel=raw.get('emprestimo_disponivel'),cartao_disponivel=raw.get('cartao_disponivel'),message=raw.get('observacoes'),progress=100,stage='Consulta TJBA finalizada')
  if raw.get('nome'):result['nome']=str(raw['nome'])[:160]
  return result
+def failure_details(exc,page=None):
+ # Inspect arbitrary exception text only for approved markers; never copy the text/trace.
+ text=str(exc);codes=list(dict.fromkeys(re.findall(r'ERR_[A-Z0-9_]+',text)))
+ code='CHROMIUM_AUSENTE' if 'Executable doesn' in text or 'playwright install' in text else 'NAVEGADOR_ENCERRADO' if re.search(r'target.*closed|browser.*closed|page.*closed',text,re.I) else ','.join(codes) if codes else 'SEM_CODIGO_REDE'
+ route=None
+ try:
+  path=urlsplit(str(page.url)).path if page else ''
+  if path in ('/','/LoginSelecao.aspx','/Inicial/Inicial.aspx',PATH,'/Margem/ConsultaMargemDados.aspx'):route=path
+ except Exception:pass
+ return {'tipo':type(exc).__name__,'codigo':code,'rota':route}
 class Session:
- """One live browser per worker; reuse only for the same owner and credential revision."""
+ """One live browser per worker; owner-scoped session and bounded login retries."""
  def __init__(self):self.pw=None;self.browser=None;self.context=None;self.page=None;self.identity=None;self.blocked=None;self.last_used=0
  async def close(self):
   if self.browser:
@@ -160,25 +206,39 @@ class Session:
   if self.browser and time.monotonic()-self.last_used>120:await self.close()
  async def run(self,job,credentials,on_progress):
   base=dict(cpf=normalize_cpf(job['cpf']),tipo_higienizacao='margem',provedor='tjba',data_consulta=datetime.now(timezone.utc).isoformat())
-  if not credentials or not credentials.get('enabled'):return job_result(dict(base,status='sessao_expirada',observacoes='Configure o acesso TJBA e habilite a integração após homologação em Configurações.'))
+  percent=0;stage='Preparar execução TJBA'
+  async def report(p,label):
+   nonlocal percent,stage
+   percent=p;stage=label;await on_progress(p,label)
+  def failed(raw):
+   result=job_result(raw);result['progress']=percent;result['stage']='Falha TJBA | '+stage;return result
+  if not credentials or not credentials.get('enabled'):return failed(dict(base,status='sessao_expirada',observacoes='Configure o acesso TJBA e habilite a integração em Configurações.'))
   identity=(job['user_id'],credentials['revision'])
-  if identity==self.blocked:return job_result(dict(base,status='sessao_expirada',observacoes='Autenticação pausada após falha. Valide o acesso e salve novamente as credenciais antes de tentar.'))
+  if identity==self.blocked:return failed(dict(base,status='sessao_expirada',observacoes='Autenticação pausada após falha. Valide o acesso e salve novamente as configurações.'))
   try:
-   await on_progress(10,'Abrir consulta TJBA')
    if self.identity!=identity or not self.page or self.page.is_closed():
-    await self.close()
+    await self.close();await report(5,'Carregar Playwright do robô TJBA')
     from playwright.async_api import async_playwright
-    from chat_browser import CHROMIUM_ARGS
-    self.pw=await async_playwright().start();self.browser=await self.pw.chromium.launch(headless=True,args=CHROMIUM_ARGS)
-    self.context=await self.browser.new_context(accept_downloads=False);self.page=await self.context.new_page();self.page.set_default_timeout(12000)
-    try:await login(self.page,credentials)
+    self.pw=await async_playwright().start()
+    await report(8,'Iniciar Chromium na VPS')
+    self.browser=await self.pw.chromium.launch(headless=True,args=list(CHROMIUM_ARGS))
+    await report(10,'Criar contexto do navegador TJBA')
+    self.context=await self.browser.new_context(accept_downloads=False,locale='pt-BR');self.page=await self.context.new_page();self.page.set_default_timeout(12000)
+    await install_handlers(self.page)
+    try:await login(self.page,credentials,on_step=report)
     except Exception:self.blocked=identity;raise
     self.identity=identity
-   await on_progress(35,'Pesquisar CPF no TJBA');raw=await consult(self.page,job['cpf']);await on_progress(90,'Salvar margens TJBA')
+   raw=await consult(self.page,job['cpf'],on_step=report);await report(90,'Salvar margens TJBA')
    return job_result(dict(base,**raw))
   except Review as e:
+   raw=dict(base,status=e.status,observacoes=e.message,diagnostico={'etapa':stage},**e.details)
    if e.status=='sessao_expirada':self.blocked=identity;await self.close()
-   return job_result(dict(base,status=e.status,observacoes=e.message,**e.details))
-  except Exception:
-   await self.close();return job_result(dict(base,status='erro',observacoes='Falha ou tempo excedido no portal TJBA. Validar o fluxo antes de repetir.'))
+   return failed(raw)
+  except Exception as exc:
+   diagnostic=failure_details(exc,self.page);diagnostic['etapa']=stage
+   message=f"Falha em {stage}. Tipo: {diagnostic['tipo']}; código: {diagnostic['codigo']}."
+   if diagnostic['codigo']=='CHROMIUM_AUSENTE':message+=' Execute Atualizar no instalador para instalar o Chromium.'
+   elif diagnostic['codigo']=='NAVEGADOR_ENCERRADO':message+=' Confira a RAM e os logs do serviço na VPS.'
+   raw=dict(base,status='erro',observacoes=message,diagnostico=diagnostic)
+   await self.close();return failed(raw)
   finally:self.last_used=time.monotonic()
