@@ -63,6 +63,32 @@ async def dismiss_cookies(page):
 async def install_handlers(page):
  async def dismiss(target):await target.click(timeout=5000)
  await page.add_locator_handler(page.locator('#entendi-cookies'),dismiss)
+def login_notice(text):
+ value=norm(text)
+ for pattern,message in [
+  (r'(usuario|login|senha).*(invalid|incorret)|invalid.*(usuario|senha)', 'O portal informou usuário ou senha inválidos.'),
+  (r'(ja.*(logado|conectado)|sessao.*(ativa|aberta)|acesso simultaneo)', 'O portal informou sessão já ativa ou acesso simultâneo.'),
+  (r'(bloquead|suspens)', 'O portal informou bloqueio ou suspensão do acesso.'),
+  (r'(senha.*(expir|venc)|alter.*senha|trocar.*senha)', 'O portal solicitou alteração de senha.'),
+  (r'(cookie)', 'O portal exibiu uma mensagem relacionada a cookies.'),
+  (r'(ip.*(autoriz|permit|restri)|acesso.*(negado|restrito))', 'O portal informou restrição de acesso ou de IP.')]:
+  if re.search(pattern,value):return message
+ return 'O portal exibiu uma mensagem de login não reconhecida; requer inspeção manual.'
+
+async def inspect_login_notice(page):
+ # Only inspect known login modal text; never return raw content or field values.
+ for selector,kind in [('#ucAjaxModalPopup1_PanelPopup','mensagem'),
+                       ('#ucAjaxModalPopupConfirmacao1_PanelPopup','confirmacao'),
+                       ('#ucComplementoCadastro_PanelPopup','cadastro'),
+                       ('#ucComplementoCadastroPadrao_PanelPopup','cadastro')]:
+  loc=page.locator(selector)
+  if await loc.is_visible():
+   text=await loc.inner_text()
+   if kind=='cadastro':message='O portal solicitou complementação de cadastro. Conclua essa etapa manualmente no portal.'
+   elif kind=='confirmacao':message='O portal solicitou confirmação adicional de login. '+login_notice(text)
+   else:message=login_notice(text)
+   raise Review('sessao_expirada',message,{'aviso_login':kind})
+
 async def login(page,credentials,on_step=None):
  await report_step(on_step,12,'Abrir página pública de login ConsigX')
  response=await page.goto(BASE+'/',wait_until='domcontentloaded',timeout=30000)
@@ -79,12 +105,16 @@ async def login(page,credentials,on_step=None):
    await page.locator('#txtSenha').wait_for(state='visible',timeout=12000)
    await report_step(on_step,18,'Enviar login ao ConsigX')
    await page.locator('#txtLogin').fill(credentials['username']);await page.locator('#txtSenha').fill(credentials['password'])
+   await dismiss_cookies(page)
    await challenge(page)
+   if await page.locator('#txtLogin').input_value()!=credentials['username'] or await page.locator('#txtSenha').input_value()!=credentials['password']:
+    raise Review('sessao_expirada','Os campos de login foram alterados ou limpos pelo portal antes do envio. Nenhuma senha foi registrada no log.')
    # The validated success flow navigates to LoginSelecao.aspx.
    async with page.expect_navigation(wait_until='domcontentloaded',timeout=25000):
     await page.locator('#Entrar').click()
    await challenge(page);await dismiss_cookies(page)
   await report_step(on_step,22,'Confirmar resposta do login ConsigX')
+  await inspect_login_notice(page)
   # Login navigation may land directly in an already selected agreement, or
   # return to the login form. Neither case should wait for a nonexistent grid.
   if await page.locator('#descricaoOrgaoLabel').is_visible():

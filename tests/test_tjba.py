@@ -67,7 +67,10 @@ class FakeLoginLocator:
  def locator(self,selector):return FakeLoginLocator(self.page, '#gvOrgao tr' if self.selector=='#gvOrgao' and selector=='tr' else selector)
  def filter(self,**kwargs):return self
  async def inner_text(self):return 'TRIBUNAL JUSTICA DA BAHIA'
- async def fill(self,value):self.page.events.append(('fill',self.selector))
+ async def input_value(self):return getattr(self.page,'values',{}).get(self.selector,'')
+ async def fill(self,value):
+  if not hasattr(self.page,'values'):self.page.values={}
+  self.page.values[self.selector]=value;self.page.events.append(('fill',self.selector))
  async def click(self,**kwargs):
   self.page.events.append(('click',self.selector))
   if self.selector=='#entendi-cookies':self.page.cookie=False
@@ -135,3 +138,19 @@ class LoginOutcomeTests(unittest.IsolatedAsyncioTestCase):
   page.expect_navigation=expect
   await tjba.login(page,{'username':'TEST','password':'FAKE'})
   self.assertEqual(calls,['login']);self.assertEqual(page.state,'form')
+
+class LoginNoticeTests(unittest.IsolatedAsyncioTestCase):
+ def test_classification_does_not_return_raw_secrets(self):
+  self.assertEqual(tjba.login_notice('Senha incorreta SECRET'), 'O portal informou usuário ou senha inválidos.')
+  self.assertIn('sessão já ativa',tjba.login_notice('Usuário já conectado SECRET'))
+  self.assertNotIn('SECRET',tjba.login_notice('Mensagem desconhecida SECRET'))
+ async def test_confirmation_is_not_accepted(self):
+  page=MagicMock();loc=MagicMock();loc.is_visible=AsyncMock(return_value=True);loc.inner_text=AsyncMock(return_value='Usuário já conectado SECRET');page.locator.return_value=loc
+  with self.assertRaises(tjba.Review) as result:await tjba.inspect_login_notice(page)
+  self.assertNotIn('SECRET',result.exception.message);loc.click.assert_not_called()
+ async def test_cleared_password_stops_before_submit(self):
+  page=FakeLoginPage()
+  with patch.object(FakeLoginLocator,'input_value',new=AsyncMock(return_value='')):
+   with self.assertRaises(tjba.Review) as result:await tjba.login(page,{'username':'TEST','password':'FAKE'})
+  self.assertIn('limpos',result.exception.message)
+  self.assertNotIn(('click','#Entrar'),page.events)
