@@ -123,7 +123,8 @@ async def inspect_login_notice(page,credentials=None):
    useful=re.sub(r'(?im)^\s*(OK|Confirmar|Cancelar)\s*$','',text).strip()
    if kind!='cadastro' and not useful:continue
    if kind=='confirmacao' and is_disconnect_confirmation(useful):
-    await loc.locator('#ucAjaxModalPopupConfirmacao1_btnConfirmarPopup').click(timeout=10000,no_wait_after=True)
+    # Keyboard activation targets the actual submit control despite visual overlap.
+    await loc.locator('#ucAjaxModalPopupConfirmacao1_btnConfirmarPopup').press('Enter',timeout=10000,no_wait_after=True)
     await page.locator('#gvOrgao:visible, #descricaoOrgaoLabel:visible').first.wait_for(state='visible',timeout=20000)
     return
    if kind=='cadastro':message='O portal solicitou complementação de cadastro. Conclua essa etapa manualmente no portal.'

@@ -381,3 +381,13 @@ O aviso exato “Usuário já logado, deseja desconectar seu usuário dos outros
 é confirmado automaticamente conforme autorização do operador. Isso encerra outras
 sessões desse mesmo usuário no ConsigX. O robô aguarda a lista de convênios ou
 o cabeçalho do convênio após confirmar; outras confirmações permanecem manuais.
+
+### Confirmação com elementos sobrepostos no ConsigX
+
+Para o aviso autorizado de desconexão de outros terminais, o robô ativa o botão
+`ucAjaxModalPopupConfirmacao1_btnConfirmarPopup` com Enter, evitando que a sobreposição
+visual do formulário de login intercepte o clique. A ação ocorre apenas após conferir
+o texto específico do aviso. Depois exige a lista de convênios ou o cabeçalho TJBA;
+a presença de formulários de cadastro no documento não equivale a um cadastro ativo.
+Essa adaptação não corrige os scripts do portal: valide uma consulta individual após
+atualizar pela opção 1 do instalador.

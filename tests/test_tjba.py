@@ -218,10 +218,10 @@ class DisconnectConfirmationTests(unittest.IsolatedAsyncioTestCase):
   self.assertTrue(tjba.is_disconnect_confirmation('Usuário já logado, deseja desconectar seu usuário dos outros terminais?\nConfirmar\nCancelar'))
   for text in ['Confirmar alteração de senha','Usuário já logado','Deseja confirmar reserva?','Usuário já logado, deseja desconectar todos os usuários?']:
    self.assertFalse(tjba.is_disconnect_confirmation(text))
- async def test_clicks_confirm_and_waits_for_authenticated_state(self):
+ async def test_keyboard_confirm_with_overlay_and_waits_for_authenticated_state(self):
   page=MagicMock();message=MagicMock();message.is_visible=AsyncMock(return_value=False)
   confirm=MagicMock();confirm.is_visible=AsyncMock(return_value=True);confirm.inner_text=AsyncMock(return_value='Usuário já logado, deseja desconectar seu usuário dos outros terminais?')
-  button=MagicMock();button.click=AsyncMock();confirm.locator.return_value=button
+  button=MagicMock();button.click=AsyncMock(side_effect=TimeoutError('overlay intercepts pointer'));button.press=AsyncMock();confirm.locator.return_value=button
   destination=MagicMock();destination.first.wait_for=AsyncMock()
   def locate(selector):
    if selector=='#ucAjaxModalPopupConfirmacao1_PanelPopup':return confirm
@@ -230,7 +230,7 @@ class DisconnectConfirmationTests(unittest.IsolatedAsyncioTestCase):
   page.locator.side_effect=locate
   await tjba.inspect_login_notice(page,{})
   confirm.locator.assert_called_once_with('#ucAjaxModalPopupConfirmacao1_btnConfirmarPopup')
-  button.click.assert_awaited_once();destination.first.wait_for.assert_awaited_once()
+  button.press.assert_awaited_once_with('Enter',timeout=10000,no_wait_after=True);button.click.assert_not_awaited();destination.first.wait_for.assert_awaited_once()
 
 class RegistrationRenderingTests(unittest.IsolatedAsyncioTestCase):
  async def test_registration_in_document_does_not_block_login(self):
