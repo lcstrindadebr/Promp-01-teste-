@@ -6,3 +6,6 @@ __pycache__/
 node_modules/
 artifacts/
 *.db
+
+tjba-proxy.json
+.tjba-proxy-*

@@ -326,3 +326,24 @@ O log em Configurações distingue: carregar Playwright (5%), iniciar Chromium (
 Para falhas antes da consulta, atualize pela opção 1 e use **4 — Diagnosticar ambiente TJBA**. O comando testa DNS, TLS, inicialização do Chromium e a página pública como usuário do serviço, **sem fazer login e sem enviar CPF**. Um diagnóstico aprovado confirma o ambiente e a abertura do formulário, mas não comprova a autenticação nem a consulta completa. Confira também `journalctl -u apoiarcred-robo -n 80 --no-pager` e o log por CPF em Configurações.
 
 A revisão foi conferida com teste interativo de um terceiro CPF autorizado; o portal retornou ambas as margens. A execução autônoma da VPS ainda depende do teste local e do novo log por etapa para identificar qualquer divergência do ambiente. Casos de login, ordem das rotas, aviso de cookies e preservação segura do erro têm testes automatizados com páginas simuladas; não são apresentados como login real executado pelo worker na VPS.
+
+
+### Proxy privado exclusivo do TJBA
+
+Atualize pela opção 1 e reabra `bash /opt/apoiarcred-src/instalar.sh`.
+A opção **5 — Configurar ou remover proxy TJBA** solicita endereço completo
+(`http://HOST:PORTA`), usuário e senha oculta. Use um proxy HTTP/HTTPS com suporte
+CONNECT. As credenciais ficam somente em `/opt/apoiarcred/tjba-proxy.json`,
+com dono root, grupo apoiarcred e permissão 640; nunca no frontend ou GitHub.
+O arquivo é preservado nas atualizações. Não inclua esse arquivo em commits.
+A opção 5 reinicia o robô se estiver ativo: configure quando não houver consulta em execução.
+
+Execute a opção **4** após configurar. Ela usa o mesmo proxy do robô e verifica
+HTTPS e os campos de login sem enviar credenciais do portal ou CPF. Nesse modo,
+não testa a rota direta ao ConsigX, pois ela pode estar indisponível.
+Só considere homologado após uma consulta individual real concluir e salvar os resultados.
+
+O proxy afeta exclusivamente o navegador TJBA. Digi+, Supabase, SSH e site mantêm
+suas conexões. A validação TLS continua habilitada. Configuração inválida gera erro;
+não há tentativa automática pela conexão direta. Para voltar ao acesso direto,
+use a opção 5 e escolha remover. A senha do proxy é diferente da senha do portal.

@@ -2,6 +2,7 @@
 Never reserve margin, make proposals, save browser state or log portal content/secrets.
 """
 import asyncio,re,time,unicodedata
+from tjba_proxy import launch_options
 from decimal import Decimal,InvalidOperation
 from datetime import datetime,timezone
 from urllib.parse import urlsplit
@@ -221,7 +222,7 @@ class Session:
     from playwright.async_api import async_playwright
     self.pw=await async_playwright().start()
     await report(8,'Iniciar Chromium na VPS')
-    self.browser=await self.pw.chromium.launch(headless=True,args=list(CHROMIUM_ARGS))
+    self.browser=await self.pw.chromium.launch(headless=True,args=list(CHROMIUM_ARGS),**launch_options())
     await report(10,'Criar contexto do navegador TJBA')
     self.context=await self.browser.new_context(accept_downloads=False,locale='pt-BR');self.page=await self.context.new_page();self.page.set_default_timeout(12000)
     await install_handlers(self.page)
