@@ -84,6 +84,13 @@ def safe_login_text(text,credentials=None):
  text=re.sub(r'(?i)(senha|password|token|secret)\s*[:=]\s*\S+',r'\1: [oculto]',text)
  return ' '.join(text.split())[:300]
 
+def is_disconnect_confirmation(text):
+ value=norm(text)
+ value=re.sub(r'[^a-z0-9 ]',' ',value)
+ value=' '.join(value.split())
+ value=re.sub(r' (confirmar|cancelar)( (confirmar|cancelar))*$','',value)
+ return value=='usuario ja logado deseja desconectar seu usuario dos outros terminais'
+
 async def inspect_login_notice(page,credentials=None):
  # Only inspect known login modal text; never return raw content or field values.
  for selector,kind in [('#ucAjaxModalPopup1_PanelPopup','mensagem'),
@@ -95,6 +102,10 @@ async def inspect_login_notice(page,credentials=None):
    text=await loc.inner_text()
    useful=re.sub(r'(?im)^\s*(OK|Confirmar|Cancelar)\s*$','',text).strip()
    if kind!='cadastro' and not useful:continue
+   if kind=='confirmacao' and is_disconnect_confirmation(useful):
+    await loc.locator('#ucAjaxModalPopupConfirmacao1_btnConfirmarPopup').click(timeout=10000,no_wait_after=True)
+    await page.locator('#gvOrgao:visible, #descricaoOrgaoLabel:visible').first.wait_for(state='visible',timeout=20000)
+    return
    if kind=='cadastro':message='O portal solicitou complementação de cadastro. Conclua essa etapa manualmente no portal.'
    elif kind=='confirmacao':message='O portal solicitou confirmação adicional de login. '+login_notice(text)
    else:message=login_notice(text)

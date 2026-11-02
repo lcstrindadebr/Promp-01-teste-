@@ -210,3 +210,22 @@ class LoginDiagnosticTests(unittest.IsolatedAsyncioTestCase):
  async def test_empty_popup_is_ignored(self):
   page=MagicMock();loc=MagicMock();loc.is_visible=AsyncMock(side_effect=[True,False,False,False]);loc.inner_text=AsyncMock(return_value='OK');page.locator.return_value=loc
   await tjba.inspect_login_notice(page,{})
+
+class DisconnectConfirmationTests(unittest.IsolatedAsyncioTestCase):
+ def test_only_specific_confirmation_allowed(self):
+  self.assertTrue(tjba.is_disconnect_confirmation('Usuário já logado, deseja desconectar seu usuário dos outros terminais?\nConfirmar\nCancelar'))
+  for text in ['Confirmar alteração de senha','Usuário já logado','Deseja confirmar reserva?','Usuário já logado, deseja desconectar todos os usuários?']:
+   self.assertFalse(tjba.is_disconnect_confirmation(text))
+ async def test_clicks_confirm_and_waits_for_authenticated_state(self):
+  page=MagicMock();message=MagicMock();message.is_visible=AsyncMock(return_value=False)
+  confirm=MagicMock();confirm.is_visible=AsyncMock(return_value=True);confirm.inner_text=AsyncMock(return_value='Usuário já logado, deseja desconectar seu usuário dos outros terminais?')
+  button=MagicMock();button.click=AsyncMock();confirm.locator.return_value=button
+  destination=MagicMock();destination.first.wait_for=AsyncMock()
+  def locate(selector):
+   if selector=='#ucAjaxModalPopupConfirmacao1_PanelPopup':return confirm
+   if selector=='#gvOrgao:visible, #descricaoOrgaoLabel:visible':return destination
+   return message
+  page.locator.side_effect=locate
+  await tjba.inspect_login_notice(page,{})
+  confirm.locator.assert_called_once_with('#ucAjaxModalPopupConfirmacao1_btnConfirmarPopup')
+  button.click.assert_awaited_once();destination.first.wait_for.assert_awaited_once()

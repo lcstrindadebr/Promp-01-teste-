@@ -376,3 +376,8 @@ Outros avisos do portal, CAPTCHA, bloqueio, confirmação e cadastro interrompem
 as tentativas. O log técnico mostra o número da tentativa; o painel mantém Consultando.
 Após esgotar as tentativas, a autenticação fica pausada até salvar o acesso novamente
 ou reiniciar o serviço. As consultas de CPF não são repetidas por essa lógica.
+
+O aviso exato “Usuário já logado, deseja desconectar seu usuário dos outros terminais?”
+é confirmado automaticamente conforme autorização do operador. Isso encerra outras
+sessões desse mesmo usuário no ConsigX. O robô aguarda a lista de convênios ou
+o cabeçalho do convênio após confirmar; outras confirmações permanecem manuais.
