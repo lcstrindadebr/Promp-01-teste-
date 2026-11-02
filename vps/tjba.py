@@ -91,6 +91,25 @@ def is_disconnect_confirmation(text):
  value=re.sub(r' (confirmar|cancelar)( (confirmar|cancelar))*$','',value)
  return value=='usuario ja logado deseja desconectar seu usuario dos outros terminais'
 
+async def active_registration_modal(loc):
+ # ASP.NET renders these forms in the document even when they are not open.
+ # Require an actual foreground dialog layer, not just nonzero dimensions.
+ return await loc.evaluate("""el => {
+  const r=el.getBoundingClientRect();
+  if (!r.width || !r.height) return false;
+  let layer=false;
+  for(let n=el;n;n=n.parentElement){
+   const s=getComputedStyle(n);
+   if(s.display==='none'||s.visibility==='hidden'||Number(s.opacity)===0) return false;
+   if(n.getAttribute('aria-modal')==='true'||
+      (['absolute','fixed'].includes(s.position)&&parseInt(s.zIndex,10)>0)) layer=true;
+  }
+  const x=Math.min(innerWidth-1,Math.max(0,r.left+r.width/2));
+  const y=Math.min(innerHeight-1,Math.max(0,r.top+Math.min(r.height/2,100)));
+  const hit=document.elementFromPoint(x,y);
+  return layer && !!hit && el.contains(hit);
+ }""")
+
 async def inspect_login_notice(page,credentials=None):
  # Only inspect known login modal text; never return raw content or field values.
  for selector,kind in [('#ucAjaxModalPopup1_PanelPopup','mensagem'),
@@ -99,6 +118,7 @@ async def inspect_login_notice(page,credentials=None):
                        ('#ucComplementoCadastroPadrao_PanelPopup','cadastro')]:
   loc=page.locator(selector)
   if await loc.is_visible():
+   if kind=='cadastro' and not await active_registration_modal(loc):continue
    text=await loc.inner_text()
    useful=re.sub(r'(?im)^\s*(OK|Confirmar|Cancelar)\s*$','',text).strip()
    if kind!='cadastro' and not useful:continue

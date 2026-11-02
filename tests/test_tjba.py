@@ -229,3 +229,19 @@ class DisconnectConfirmationTests(unittest.IsolatedAsyncioTestCase):
   await tjba.inspect_login_notice(page,{})
   confirm.locator.assert_called_once_with('#ucAjaxModalPopupConfirmacao1_btnConfirmarPopup')
   button.click.assert_awaited_once();destination.first.wait_for.assert_awaited_once()
+
+class RegistrationRenderingTests(unittest.IsolatedAsyncioTestCase):
+ async def test_registration_in_document_does_not_block_login(self):
+  page=MagicMock();inactive=MagicMock();inactive.is_visible=AsyncMock(return_value=False)
+  registration=MagicMock();registration.is_visible=AsyncMock(return_value=True);registration.inner_text=AsyncMock(return_value='COMPLETE SEU CADASTRO')
+  page.locator.side_effect=lambda s:registration if 'Cadastro' in s else inactive
+  with patch.object(tjba,'active_registration_modal',new=AsyncMock(return_value=False)):
+   await tjba.inspect_login_notice(page,{})
+  registration.inner_text.assert_not_awaited()
+ async def test_real_foreground_registration_remains_review(self):
+  page=MagicMock();inactive=MagicMock();inactive.is_visible=AsyncMock(return_value=False)
+  registration=MagicMock();registration.is_visible=AsyncMock(return_value=True);registration.inner_text=AsyncMock(return_value='COMPLETE SEU CADASTRO')
+  page.locator.side_effect=lambda s:registration if 'Cadastro' in s else inactive
+  with patch.object(tjba,'active_registration_modal',new=AsyncMock(return_value=True)):
+   with self.assertRaises(tjba.Review) as result:await tjba.inspect_login_notice(page,{})
+  self.assertIn('complementação',result.exception.message)
