@@ -90,6 +90,11 @@ class FakeLoginPage:
   return type('Response',(),{'status':200})()
  def locator(self,selector):return FakeLoginLocator(self,selector)
  def expect_navigation(self,**kwargs):return FakeNavigation(self)
+ def expect_response(self,*args,**kwargs):
+  response=MagicMock();response.finished=AsyncMock()
+  context=FakeNavigation(self)
+  async def value():return response
+  context.value=value();return context
  async def wait_for_load_state(self,*args):pass
 class LoginFlowTests(unittest.IsolatedAsyncioTestCase):
  async def test_public_login_cookie_convenio_then_protected_route(self):
@@ -138,7 +143,7 @@ class LoginOutcomeTests(unittest.IsolatedAsyncioTestCase):
    return FakeNavigation(page)
   page.expect_navigation=expect
   await tjba.login(page,{'username':'TEST','password':'FAKE'})
-  self.assertEqual(calls,['login']);self.assertEqual(page.state,'form')
+  self.assertEqual(calls,[]);self.assertEqual(page.state,'form')
 
 class LoginNoticeTests(unittest.IsolatedAsyncioTestCase):
  def test_classification_does_not_return_raw_secrets(self):
@@ -197,3 +202,11 @@ class ShowPasswordTests(unittest.IsolatedAsyncioTestCase):
   self.assertLess(page.events.index(('fill','#txtSenha')),check)
   self.assertLess(check,page.events.index(('click','#Entrar')))
   self.assertEqual(page.values['#txtSenha'],'FAKE')
+
+class LoginDiagnosticTests(unittest.IsolatedAsyncioTestCase):
+ def test_redaction(self):
+  text=tjba.safe_login_text('Erro MinhaSenha USER senha: abc 000.430.645-74 email@site.com https://site/x?token=xyz',{'username':'USER','password':'MinhaSenha'})
+  for value in ['MinhaSenha','USER','abc','430','email@','xyz']:self.assertNotIn(value,text)
+ async def test_empty_popup_is_ignored(self):
+  page=MagicMock();loc=MagicMock();loc.is_visible=AsyncMock(side_effect=[True,False,False,False]);loc.inner_text=AsyncMock(return_value='OK');page.locator.return_value=loc
+  await tjba.inspect_login_notice(page,{})

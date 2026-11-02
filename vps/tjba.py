@@ -75,7 +75,16 @@ def login_notice(text):
   if re.search(pattern,value):return message
  return 'O portal exibiu uma mensagem de login não reconhecida; requer inspeção manual.'
 
-async def inspect_login_notice(page):
+def safe_login_text(text,credentials=None):
+ for value in (credentials or {}).values():
+  if isinstance(value,str) and value:text=re.sub(re.escape(value),'[oculto]',text,flags=re.I)
+ text=re.sub(r'https?://\S+','[endereço omitido]',text)
+ text=re.sub(r'[\w.+-]+@[\w.-]+','[email omitido]',text)
+ text=re.sub(r'\d[\d. /()-]{3,}\d','[número omitido]',text)
+ text=re.sub(r'(?i)(senha|password|token|secret)\s*[:=]\s*\S+',r'\1: [oculto]',text)
+ return ' '.join(text.split())[:300]
+
+async def inspect_login_notice(page,credentials=None):
  # Only inspect known login modal text; never return raw content or field values.
  for selector,kind in [('#ucAjaxModalPopup1_PanelPopup','mensagem'),
                        ('#ucAjaxModalPopupConfirmacao1_PanelPopup','confirmacao'),
@@ -84,10 +93,14 @@ async def inspect_login_notice(page):
   loc=page.locator(selector)
   if await loc.is_visible():
    text=await loc.inner_text()
+   useful=re.sub(r'(?im)^\s*(OK|Confirmar|Cancelar)\s*$','',text).strip()
+   if kind!='cadastro' and not useful:continue
    if kind=='cadastro':message='O portal solicitou complementação de cadastro. Conclua essa etapa manualmente no portal.'
    elif kind=='confirmacao':message='O portal solicitou confirmação adicional de login. '+login_notice(text)
    else:message=login_notice(text)
-   raise Review('sessao_expirada',message,{'aviso_login':kind,'invalid_password':kind=='mensagem' and message=='O portal informou usuário ou senha inválidos.'})
+   invalid=kind=='mensagem' and message=='O portal informou usuário ou senha inválidos.'
+   if 'não reconhecida' in message and credentials is not None:message+=' Mensagem do portal: '+safe_login_text(useful,credentials)
+   raise Review('sessao_expirada',message,{'aviso_login':kind,'invalid_password':invalid})
 
 async def login(page,credentials,on_step=None):
  await report_step(on_step,12,'Abrir página pública de login ConsigX')
@@ -112,11 +125,14 @@ async def login(page,credentials,on_step=None):
    if await page.locator('#txtLogin').input_value()!=credentials['username'] or await page.locator('#txtSenha').input_value()!=credentials['password']:
     raise Review('sessao_expirada','Os campos de login foram alterados ou limpos pelo portal antes do envio. Nenhuma senha foi registrada no log.',{'retryable_login':True})
    # The validated success flow navigates to LoginSelecao.aspx.
-   async with page.expect_navigation(wait_until='domcontentloaded',timeout=25000):
-    await page.locator('#Entrar').click()
+   async with page.expect_response(lambda r: r.request.method=='POST' and urlsplit(r.url).hostname=='govbahia.consigx.com.br' and urlsplit(r.url).path in ('/','/Default.aspx'),timeout=25000) as submitted:
+    await page.locator('#Entrar').click(no_wait_after=True)
+   response=await submitted.value
+   await response.finished()
+   await page.wait_for_load_state('domcontentloaded')
    await challenge(page);await dismiss_cookies(page)
   await report_step(on_step,22,'Confirmar resposta do login ConsigX')
-  await inspect_login_notice(page)
+  await inspect_login_notice(page,credentials)
   # Login navigation may land directly in an already selected agreement, or
   # return to the login form. Neither case should wait for a nonexistent grid.
   if await page.locator('#descricaoOrgaoLabel').is_visible():
@@ -171,7 +187,7 @@ async def login_with_retries(page,credentials,on_step=None):
     if not retryable or attempt==3:raise
     # A timeout does not authorize ignoring a challenge or portal warning.
     await challenge(page)
-    await inspect_login_notice(page)
+    await inspect_login_notice(page,credentials)
     await report_step(on_step,22,f'Aguardar nova tentativa de login {attempt+1}/3')
     await asyncio.sleep(2)
 
