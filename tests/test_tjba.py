@@ -63,6 +63,8 @@ class FakeLoginLocator:
   return (s=='#entendi-cookies' and p.cookie) or (p.state=='login' and s in ('#txtLogin','#txtSenha','#Entrar','#chkMostrarSenha')) or (p.state=='grid' and s in ('#gvOrgao','#gvOrgao tr','[id^="gvOrgao_imgEntrar_"]')) or (p.state in ('initial','form') and s=='#descricaoOrgaoLabel') or (p.state=='form' and s in (tjba.CPF,tjba.SEARCH))
  async def wait_for(self,**kwargs):
   if not await self.is_visible():raise TimeoutError('expected control missing')
+ async def all(self):return [self]
+ async def all_inner_texts(self):return ['TRIBUNAL JUSTICA DA BAHIA']
  async def count(self):return 1 if await self.is_visible() else 0
  def locator(self,selector):return FakeLoginLocator(self.page, '#gvOrgao tr' if self.selector=='#gvOrgao' and selector=='tr' else selector)
  def filter(self,**kwargs):return self
@@ -273,3 +275,21 @@ class DefaultVerbaTests(unittest.IsolatedAsyncioTestCase):
    with self.assertRaisesRegex(RuntimeError,'stop-before-submit'):await tjba.consult(page,'123')
   cpf.fill.assert_awaited_once_with('00000000123')
   self.assertNotIn('#body_servicoDropDownList',selectors)
+
+class MultiConvenioTests(unittest.IsolatedAsyncioTestCase):
+ async def test_wrong_agreement_never_accepted(self):
+  page=MagicMock();label=MagicMock();label.count=AsyncMock(return_value=1);label.inner_text=AsyncMock(return_value='TRIBUNAL JUSTICA DA BAHIA');page.locator.return_value=label
+  await tjba.assert_convenio(page,'tjba')
+  for convenio in ['dpeba','embasa','saeb','suprev']:
+   with self.assertRaises(tjba.Review):await tjba.assert_convenio(page,convenio)
+ async def test_verified_active_image_button_with_missing_beneficiary_cell(self):
+  page=MagicMock();table=MagicMock();table.is_visible=AsyncMock(return_value=True);page.locator.return_value=table
+  rowset=MagicMock();header=MagicMock();header.all_inner_texts=AsyncMock(return_value=['Nome','CPF','Cód. Cliente','Matrícula','Beneficiário','Situação','Selecionar']);rowset.first.locator.return_value=header
+  rows=[];buttons=[]
+  for status in ['Suspenso','Ativo']:
+   row=MagicMock();cells=MagicMock();cells.all_inner_texts=AsyncMock(return_value=['TEST','00000000191','100','00001',status,'']);button=MagicMock();button.count=AsyncMock(return_value=1);button.click=AsyncMock();buttons.append(button)
+   row.locator.side_effect=lambda selector,c=cells,b=button:c if selector=='td' else b
+   rows.append(row)
+  rowset.all=AsyncMock(return_value=[MagicMock(),*rows]);table.locator.return_value=rowset
+  await tjba.choose_matricula(page)
+  buttons[0].click.assert_not_awaited();buttons[1].click.assert_awaited_once()

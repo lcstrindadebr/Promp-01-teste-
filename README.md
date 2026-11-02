@@ -399,3 +399,22 @@ as linhas de empréstimo e cartão em Detalhes da Margem. O robô preserva a sel
 padrão e lê a coluna Margem Disponível de cada linha; não utiliza o valor isolado
 do cabeçalho para representar as duas margens. Isso remove a troca de verba que
 parava nos 40%. Outros convênios ainda exigem validação própria.
+
+### Convênios ConsigX
+
+Selecione ConsigX — Consulta de margem e escolha TJBA, DPEBA, EMBASA, SAEB
+ou SUPREV no campo Convênio. A escolha vale para a consulta individual ou nova
+campanha; cada campanha mantém seu convênio em novas tentativas. Consultas antigas
+são TJBA. O mesmo login e proxy privado são utilizados, mas ao mudar de convênio
+o robô cria uma sessão com verificação do cabeçalho do órgão escolhido.
+
+Resultados, lista de campanhas e exportação identificam o convênio. Os quatro
+convênios além do TJBA estão disponíveis para homologação: ainda não tiveram suas
+margens validadas com CPFs reais nesta integração. Diferenças de estrutura resultam
+em revisão, nunca em margem zero presumida. Em instalações com outro Supabase,
+aplique também `supabase/upgrade_consigx.sql` antes de atualizar o painel. No projeto
+original essa atualização do banco já foi aplicada. Instalações novas usam schema.sql.
+
+Quando há múltiplas matrículas, o robô só seleciona se houver uma única situação
+ativa identificável. Usa o botão de imagem Selecionar da linha ativa. Se houver
+mais de uma ativa, ou nenhuma verificável, solicita revisão com os vínculos retornados.

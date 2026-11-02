@@ -13,6 +13,7 @@ CHROMIUM_ARGS=('--disable-dev-shm-usage',)
 CPF='#body_cpfTextBox';RESULT_CPF='#body_cpf_nascimentoTextBox';SEARCH='#body_pesquisarButton';GRID='#body_servidorGridView'
 FIELDS={'motivo_situacao':'#body_txtMotivo','matricula':'#body_matriculaTextBox','tipo_servidor':'#body_categoriaTextBox','situacao_atual':'#body_txtSituacao'}
 ROWS={'emprestimo_disponivel':'#body_rptMargens1_headerservico1_0','cartao_disponivel':'#body_rptMargens1_headerservico1_1'}
+CONVENIOS={'tjba':'TRIBUNAL JUSTICA DA BAHIA','dpeba':'DEFENSORIA PUBLICA DO ESTADO DA BAHIA','embasa':'EMPRESA BAIANA DE AGUAS E SANEAMENTO - EMBASA','saeb':'GOVERNO ESTADO DA BAHIA','suprev':'SUPERINTENDENCIA DE PREVIDENCIA'}
 class Review(Exception):
  def __init__(self,status,message,details=None):self.status=status;self.message=message;self.details=details or {};super().__init__(message)
 def norm(text):return ' '.join(unicodedata.normalize('NFKD',str(text)).encode('ascii','ignore').decode().lower().split())
@@ -47,10 +48,10 @@ async def value(page,selector):
  tag=await loc.evaluate('el=>el.tagName.toLowerCase()')
  text=await loc.input_value() if tag in ('input','textarea','select') else await loc.inner_text()
  return text.strip() or None
-async def assert_convenio(page):
+async def assert_convenio(page,convenio='tjba'):
  # Verified on 2026-11-02: the selected agreement is this exact header label.
  label=page.locator('#descricaoOrgaoLabel')
- if await label.count()==1 and norm(await label.inner_text())=='tribunal justica da bahia':return
+ if await label.count()==1 and norm(await label.inner_text())==norm(CONVENIOS[convenio]):return
  raise Review('sessao_expirada','O convênio TJBA selecionado não pôde ser confirmado pelo cabeçalho do portal.')
 async def challenge(page):
  for selector in ['#txtCaptcha','iframe[src*="recaptcha"]','iframe[src*="hcaptcha"]']:
@@ -134,7 +135,7 @@ async def inspect_login_notice(page,credentials=None):
    if 'não reconhecida' in message and credentials is not None:message+=' Mensagem do portal: '+safe_login_text(useful,credentials)
    raise Review('sessao_expirada',message,{'aviso_login':kind,'invalid_password':invalid})
 
-async def login(page,credentials,on_step=None):
+async def login(page,credentials,on_step=None,convenio='tjba'):
  await report_step(on_step,12,'Abrir página pública de login ConsigX')
  response=await page.goto(BASE+'/',wait_until='domcontentloaded',timeout=30000)
  if response and response.status>=400:raise Review('sessao_expirada',f'Entrada do portal retornou HTTP {response.status}. Nenhuma credencial foi enviada.')
@@ -142,7 +143,7 @@ async def login(page,credentials,on_step=None):
  if urlsplit(page.url).hostname!='govbahia.consigx.com.br':raise Review('sessao_expirada','O portal redirecionou a autenticação para outro domínio.')
  # A reused, authenticated browser may already have the agreement selected.
  if await page.locator('#descricaoOrgaoLabel').is_visible():
-  await assert_convenio(page)
+  await assert_convenio(page,convenio)
  else:
   await report_step(on_step,15,'Identificar formulário de login')
   if not await page.locator('#gvOrgao').is_visible():
@@ -172,7 +173,7 @@ async def login(page,credentials,on_step=None):
   # Login navigation may land directly in an already selected agreement, or
   # return to the login form. Neither case should wait for a nonexistent grid.
   if await page.locator('#descricaoOrgaoLabel').is_visible():
-   await assert_convenio(page)
+   await assert_convenio(page,convenio)
   else:
    grid=page.locator('#gvOrgao')
    if not await grid.is_visible() and await page.locator('#txtSenha').is_visible():
@@ -180,7 +181,10 @@ async def login(page,credentials,on_step=None):
     raise Review('sessao_expirada','O portal voltou ao formulário de login. Autenticação não confirmada; confira o acesso no portal antes de repetir. Nenhuma consulta de CPF foi feita.',{'retryable_login':True})
    await grid.wait_for(state='visible',timeout=12000)
    await report_step(on_step,23,'Localizar botão do convênio TJBA')
-   target=grid.locator('tr').filter(has_text=re.compile(r'TRIBUNAL\s+JUSTI[ÇC]A\s+DA\s+BAHIA',re.I))
+   candidates=await grid.locator('tr').all()
+   targets=[row for row in candidates if norm((await row.locator('td').all_inner_texts() or [''])[0])==norm(CONVENIOS[convenio])]
+   if len(targets)!=1:raise Review('sessao_expirada','Convênio escolhido não localizado de forma inequívoca.')
+   target=targets[0]
    if await target.count()!=1:raise Review('sessao_expirada','Convênio TJBA não localizado de forma inequívoca.')
    entry=target.locator('[id^="gvOrgao_imgEntrar_"]')
    if await entry.count()!=1:raise Review('sessao_expirada','Botão de entrada no convênio TJBA não reconhecido.')
@@ -191,15 +195,15 @@ async def login(page,credentials,on_step=None):
    # Wait for the actual success condition, including partial postbacks.
    # A full document navigation is not required for a successful selection.
    await page.locator('#descricaoOrgaoLabel').wait_for(state='visible',timeout=20000)
-   await assert_convenio(page)
+   await assert_convenio(page,convenio)
  await report_step(on_step,28,'Abrir formulário de consulta TJBA')
  await page.goto(BASE+PATH,wait_until='domcontentloaded',timeout=20000)
  await dismiss_cookies(page);await challenge(page)
  await page.locator(SEARCH).wait_for(state='visible',timeout=12000)
  await page.locator(CPF).wait_for(state='visible',timeout=12000)
- await assert_convenio(page)
+ await assert_convenio(page,convenio)
  await report_step(on_step,32,'Login e convênio TJBA confirmados')
-async def login_with_retries(page,credentials,on_step=None):
+async def login_with_retries(page,credentials,on_step=None,convenio='tjba'):
  # Keep one browser/context/proxy and its cookies throughout all attempts.
  # Retry only a plain return to the form, cleared fields or a transient timeout.
  async with asyncio.timeout(90):
@@ -207,7 +211,7 @@ async def login_with_retries(page,credentials,on_step=None):
    async def progress(percent,label):
     await report_step(on_step,percent,f'{label} · login {attempt}/3')
    try:
-    await login(page,credentials,on_step=progress)
+    await login(page,credentials,on_step=progress,**({'convenio':convenio} if convenio!='tjba' else {}))
     return
    except Exception as exc:
     invalid=isinstance(exc,Review) and exc.details.get('invalid_password') is True
@@ -227,14 +231,14 @@ async def login_with_retries(page,credentials,on_step=None):
     await report_step(on_step,22,f'Aguardar nova tentativa de login {attempt+1}/3')
     await asyncio.sleep(2)
 
-async def prepare(page):
+async def prepare(page,convenio='tjba'):
  await dismiss_cookies(page)
  if not await page.locator(CPF).is_visible() or not await page.locator(SEARCH).is_visible():
   back=page.locator('#body_voltarButton')
   if await back.is_visible():await back.click();await page.locator(SEARCH).wait_for(state='visible',timeout=12000)
   else:await page.goto(BASE+PATH,wait_until='domcontentloaded',timeout=20000)
  if not await page.locator(CPF).is_visible() or not await page.locator(SEARCH).is_visible():raise Review('sessao_expirada','A sessão do portal expirou ou o formulário não está disponível.')
- await assert_convenio(page)
+ await assert_convenio(page,convenio)
 async def choose_matricula(page):
  table=page.locator(GRID)
  if not await table.is_visible():return []
@@ -242,10 +246,12 @@ async def choose_matricula(page):
  rowlocs=await table.locator('tr').all();rows=[];locs=[]
  for row in rowlocs[1:]:
   cells=await row.locator('td').all_inner_texts()
-  if cells:rows.append(cells);locs.append(row)
+  if cells:
+   if len(cells)==len(headers)-1 and any(norm(h)=='beneficiario' for h in headers):cells.insert(next(i for i,h in enumerate(headers) if norm(h)=='beneficiario'),'')
+   rows.append(cells);locs.append(row)
  idx=active_index(headers,rows)
  if idx is None:raise Review('revisao_matricula','Matrículas encontradas sem uma única situação ativa verificável.',{'vinculos':[{'colunas':headers,'valores':r} for r in rows]})
- actions=locs[idx].get_by_role('link',name=re.compile(r'^selecionar$',re.I))
+ actions=locs[idx].locator('[id^="body_servidorGridView_selectImageButton_"]')
  if await actions.count()!=1:raise Review('revisao_matricula','Ação de seleção da matrícula ainda precisa ser validada.',{'vinculos':[{'colunas':headers,'valores':r} for r in rows]})
  await actions.click();return [{'matricula':r[headers.index(next(h for h in headers if norm(h)=='matricula'))] if any(norm(h)=='matricula' for h in headers) else None,'situacao':r[next(i for i,h in enumerate(headers) if norm(h) in ('situacao','situacao atual','situacao do vinculo','status'))]} for r in rows]
 async def read_margin(page,selector):
@@ -262,9 +268,9 @@ async def read_margin(page,selector):
  if not cells or expected not in norm(cells[0]):raise Review('revisao_margens','A verba da linha de margem não corresponde ao resultado esperado.')
  try:return parse_brl(cells[index])
  except ValueError:raise Review('revisao_margens','Não foi possível interpretar o valor da margem disponível.') from None
-async def consult(page,cpf,on_step=None):
+async def consult(page,cpf,on_step=None,convenio='tjba'):
  await report_step(on_step,35,'Preparar formulário TJBA')
- await prepare(page)
+ await prepare(page,**({'convenio':convenio} if convenio!='tjba' else {}))
  # Live validated: default Cartão returns both loan and card detail rows.
  # Preserve the portal's selection; no dropdown interaction or reload needed.
  await report_step(on_step,40,'Preparar pesquisa por CPF')
@@ -290,7 +296,7 @@ async def consult(page,cpf,on_step=None):
  if await page.locator('#txtSenha').is_visible():raise Review('sessao_expirada','A sessão do portal expirou durante a consulta.')
  text=norm(await page.locator('body').inner_text())
  if re.search(r'servidor nao encontrado|nenhum servidor encontrado|cpf nao encontrado',text):return {'status':'nao_encontrado','observacoes':'O portal informou que não encontrou esse CPF no convênio.'}
- await assert_convenio(page)
+ await assert_convenio(page,convenio)
  await report_step(on_step,65,'Verificar vínculo e matrícula retornados')
  vinculos=await choose_matricula(page)
  await page.locator(ROWS['emprestimo_disponivel']).wait_for(state='visible',timeout=12000)
@@ -338,7 +344,10 @@ class Session:
   def failed(raw):
    result=job_result(raw);result['progress']=percent;result['stage']='Falha TJBA | '+stage;return result
   if not credentials or not credentials.get('enabled'):return failed(dict(base,status='sessao_expirada',observacoes='Configure o acesso TJBA e habilite a integração em Configurações.'))
-  identity=(job['user_id'],credentials['revision'])
+  convenio=job.get('convenio','tjba')
+  if convenio not in CONVENIOS:return failed(dict(base,status='revisao_margens',observacoes='Convênio não reconhecido.'))
+  base['convenio']=convenio
+  identity=(job['user_id'],credentials['revision'])+((convenio,) if convenio!='tjba' else ())
   if identity==self.blocked:return failed(dict(base,status='sessao_expirada',observacoes='Autenticação pausada após falha. Valide o acesso e salve novamente as configurações.'))
   try:
    if self.identity!=identity or not self.page or self.page.is_closed():
@@ -350,10 +359,10 @@ class Session:
     await report(10,'Criar contexto do navegador TJBA')
     self.context=await self.browser.new_context(accept_downloads=False,locale='pt-BR');self.page=await self.context.new_page();self.page.set_default_timeout(12000)
     await install_handlers(self.page)
-    try:await login_with_retries(self.page,credentials,on_step=report)
+    try:await login_with_retries(self.page,credentials,on_step=report,**({'convenio':convenio} if convenio!='tjba' else {}))
     except Exception:self.blocked=identity;raise
     self.identity=identity
-   raw=await consult(self.page,job['cpf'],on_step=report);await report(90,'Salvar margens TJBA')
+   raw=await consult(self.page,job['cpf'],on_step=report,**({'convenio':convenio} if convenio!='tjba' else {}));await report(90,'Salvar margens TJBA')
    return job_result(dict(base,**raw))
   except Review as e:
    raw=dict(base,status=e.status,observacoes=e.message,diagnostico={'etapa':stage},**e.details)
