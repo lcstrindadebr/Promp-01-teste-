@@ -67,6 +67,7 @@ class FakeLoginLocator:
  def locator(self,selector):return FakeLoginLocator(self.page, '#gvOrgao tr' if self.selector=='#gvOrgao' and selector=='tr' else selector)
  def filter(self,**kwargs):return self
  async def inner_text(self):return 'TRIBUNAL JUSTICA DA BAHIA'
+ async def press(self,key):self.page.events.append(('press',self.selector))
  async def check(self,**kwargs):self.page.events.append(('check',self.selector))
  async def input_value(self):return getattr(self.page,'values',{}).get(self.selector,'')
  async def fill(self,value):
@@ -96,6 +97,7 @@ class FakeLoginPage:
   async def value():return response
   context.value=value();return context
  async def wait_for_load_state(self,*args):pass
+ async def wait_for_function(self,*args,**kwargs):pass
 class LoginFlowTests(unittest.IsolatedAsyncioTestCase):
  async def test_public_login_cookie_convenio_then_protected_route(self):
   page=FakeLoginPage();progress=[]
@@ -158,7 +160,7 @@ class LoginNoticeTests(unittest.IsolatedAsyncioTestCase):
   page=FakeLoginPage()
   with patch.object(FakeLoginLocator,'input_value',new=AsyncMock(return_value='')):
    with self.assertRaises(tjba.Review) as result:await tjba.login(page,{'username':'TEST','password':'FAKE'})
-  self.assertIn('limpos',result.exception.message)
+  self.assertIn('não preservado',result.exception.message)
   self.assertNotIn(('click','#Entrar'),page.events)
 
 class LoginRetryTests(unittest.IsolatedAsyncioTestCase):
@@ -195,11 +197,11 @@ class InvalidPasswordRetryTests(unittest.IsolatedAsyncioTestCase):
    await tjba.login_with_retries(page,{});self.assertEqual(login.await_count,2)
 
 class ShowPasswordTests(unittest.IsolatedAsyncioTestCase):
- async def test_show_password_checked_after_fill_before_submit(self):
+ async def test_show_password_checked_before_fill_and_submit(self):
   page=FakeLoginPage()
   await tjba.login(page,{'username':'TEST','password':'FAKE'})
   check=page.events.index(('check','#chkMostrarSenha'))
-  self.assertLess(page.events.index(('fill','#txtSenha')),check)
+  self.assertLess(check,page.events.index(('fill','#txtSenha')))
   self.assertLess(check,page.events.index(('click','#Entrar')))
   self.assertEqual(page.values['#txtSenha'],'FAKE')
 
@@ -245,3 +247,14 @@ class RegistrationRenderingTests(unittest.IsolatedAsyncioTestCase):
   with patch.object(tjba,'active_registration_modal',new=AsyncMock(return_value=True)):
    with self.assertRaises(tjba.Review) as result:await tjba.inspect_login_notice(page,{})
   self.assertIn('complementação',result.exception.message)
+
+class ShowPasswordResetTests(unittest.IsolatedAsyncioTestCase):
+ async def test_toggle_clearing_password_does_not_break_submit(self):
+  original=FakeLoginLocator.check
+  async def clearing(loc,**kwargs):
+   loc.page.values={'#txtSenha':''}
+   await original(loc,**kwargs)
+  page=FakeLoginPage()
+  with patch.object(FakeLoginLocator,'check',clearing):await tjba.login(page,{'username':'TEST','password':'FAKE'})
+  self.assertEqual(page.state,'form')
+  self.assertLess(page.events.index(('press','#txtLogin')),page.events.index(('fill','#txtSenha')))
