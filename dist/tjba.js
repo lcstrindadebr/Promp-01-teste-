@@ -1,10 +1,11 @@
-// TJBA settings never read a password back; only the worker can decrypt it.
+// Browser reads only credential metadata; administrative inspection stays in SQL.
 let tjbaConfigured=false;
 const tjbaStatusLabels={consultado:'Consultado',nao_encontrado:'Não encontrado',revisao_matricula:'Revisão de matrícula',revisao_margens:'Revisão de margens',sessao_expirada:'Acesso ao portal',erro:'Erro'};
 function resetTjbaSettings(){tjbaConfigured=false;$('#tjbaUsername').value='';$('#tjbaPassword').value='';$('#tjbaEnabled').checked=false;$('#tjbaCredentialStatus').textContent='';$('#tjbaHistoryPanel').hidden=true;$('#tjbaHistoryRows').innerHTML='';}
 async function loadTjbaSettings(){
  const epoch=authEpoch;try{const info=await sbRequest('/rest/v1/rpc/tjba_credentials_status',{method:'POST',body:'{}'});if(epoch!==authEpoch)return;
  tjbaConfigured=Boolean(info.configured);$('#tjbaUsername').value=info.username||'';$('#tjbaEnabled').checked=Boolean(info.enabled);$('#tjbaCredentialStatus').textContent=info.configured?(info.enabled?'Acesso salvo · consultas habilitadas':'Acesso salvo · aguardando homologação'):'Cadastre seu acesso ao portal.';
+ if(info.configured)$('#tjbaCredentialStatus').textContent+=' · Versão da senha: '+(info.password_version??0)+(info.password_changed_at?' · Alterada em '+new Date(info.password_changed_at).toLocaleString('pt-BR'):' · Data de alteração anterior não registrada');
  }catch{if(epoch===authEpoch)$('#tjbaCredentialStatus').textContent='Não foi possível carregar o acesso TJBA. Verifique a atualização do banco.';}
 }
 $('#tjbaCredentials').onsubmit=async e=>{
@@ -12,7 +13,7 @@ $('#tjbaCredentials').onsubmit=async e=>{
  try{
  if(!username||(!tjbaConfigured&&!password))throw Error('missing');
  await sbRequest('/rest/v1/rpc/save_tjba_credentials',{method:'POST',body:JSON.stringify({p_username:username,p_password:password,p_enabled:enabled})});password='';
- if(epoch!==authEpoch)return;tjbaConfigured=true;$('#tjbaCredentialStatus').textContent=enabled?'Acesso salvo · consultas habilitadas':'Acesso salvo · aguardando homologação';
+ if(epoch!==authEpoch)return;tjbaConfigured=true;await loadTjbaSettings();
  }catch{if(epoch===authEpoch)$('#tjbaCredentialStatus').textContent='Não foi possível salvar. Confira usuário e senha; ao trocar o usuário, informe a senha novamente.';}
  finally{password='';if(epoch===authEpoch)$('#saveTjba').disabled=false;}
 };

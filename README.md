@@ -347,3 +347,20 @@ O proxy afeta exclusivamente o navegador TJBA. Digi+, Supabase, SSH e site mant�
 suas conexões. A validação TLS continua habilitada. Configuração inválida gera erro;
 não há tentativa automática pela conexão direta. Para voltar ao acesso direto,
 use a opção 5 e escolha remover. A senha do proxy é diferente da senha do portal.
+
+### Conferir credenciais TJBA no banco (administrador)
+
+No SQL Editor do Supabase, como postgres, execute:
+
+```sql
+select * from apoiarcred_private.tjba_credentials_admin;
+```
+
+A consulta exibe login e senha atual, versão da senha, data de alteração real e data
+do último salvamento. Não compartilhe o resultado. A view privada não é acessível
+pelo frontend nem pelos papéis anon/authenticated/service_role. O Vault mantém a
+senha criptografada em repouso. Alterações feitas pelo formulário incrementam a
+versão somente quando o conteúdo da senha muda. Senha em branco preserva a anterior;
+a mesma senha não incrementa a versão. Registros anteriores começam em versão zero
+e data desconhecida; não reconstruímos histórico anterior. Edições diretas no Vault
+não passam por esse controle: use o formulário do sistema para alterar.
