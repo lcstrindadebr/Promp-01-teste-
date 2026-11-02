@@ -258,3 +258,18 @@ class ShowPasswordResetTests(unittest.IsolatedAsyncioTestCase):
   with patch.object(FakeLoginLocator,'check',clearing):await tjba.login(page,{'username':'TEST','password':'FAKE'})
   self.assertEqual(page.state,'form')
   self.assertLess(page.events.index(('press','#txtLogin')),page.events.index(('fill','#txtSenha')))
+
+class DefaultVerbaTests(unittest.IsolatedAsyncioTestCase):
+ async def test_cpf_reached_without_touching_verba(self):
+  page=MagicMock();matricula=MagicMock();matricula.is_visible=AsyncMock(return_value=False)
+  cpf=MagicMock();cpf.fill=AsyncMock(side_effect=RuntimeError('stop-before-submit'))
+  selectors=[]
+  def locate(selector):
+   selectors.append(selector)
+   if selector=='#body_servicoDropDownList':raise AssertionError('Default verba must remain untouched')
+   return cpf if selector==tjba.CPF else matricula
+  page.locator.side_effect=locate
+  with patch.object(tjba,'prepare',new=AsyncMock()):
+   with self.assertRaisesRegex(RuntimeError,'stop-before-submit'):await tjba.consult(page,'123')
+  cpf.fill.assert_awaited_once_with('00000000123')
+  self.assertNotIn('#body_servicoDropDownList',selectors)

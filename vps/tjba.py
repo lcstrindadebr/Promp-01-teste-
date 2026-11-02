@@ -265,12 +265,9 @@ async def read_margin(page,selector):
 async def consult(page,cpf,on_step=None):
  await report_step(on_step,35,'Preparar formulário TJBA')
  await prepare(page)
- await report_step(on_step,40,'Selecionar verba de empréstimo')
- verba=page.locator('#body_servicoDropDownList')
- if await verba.is_visible():
-  labels=await verba.locator('option').all_inner_texts();matches=[label for label in labels if norm(label).startswith('emprestimo')]
-  if len(matches)!=1:raise Review('revisao_margens','Verba de empréstimo não identificada de forma inequívoca.')
-  await verba.select_option(label=matches[0]);await page.wait_for_load_state('domcontentloaded')
+ # Live validated: default Cartão returns both loan and card detail rows.
+ # Preserve the portal's selection; no dropdown interaction or reload needed.
+ await report_step(on_step,40,'Preparar pesquisa por CPF')
  matricula=page.locator('#body_matriculaTextBox')
  if await matricula.is_visible():await matricula.fill('')
  await report_step(on_step,45,'Preencher CPF no formulário TJBA')

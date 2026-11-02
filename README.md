@@ -391,3 +391,11 @@ o texto específico do aviso. Depois exige a lista de convênios ou o cabeçalho
 a presença de formulários de cadastro no documento não equivale a um cadastro ativo.
 Essa adaptação não corrige os scripts do portal: valide uma consulta individual após
 atualizar pela opção 1 do instalador.
+
+### Consulta TJBA mantendo a verba padrão
+
+Validado visualmente no portal: a consulta por CPF com Cartão selecionado retorna
+as linhas de empréstimo e cartão em Detalhes da Margem. O robô preserva a seleção
+padrão e lê a coluna Margem Disponível de cada linha; não utiliza o valor isolado
+do cabeçalho para representar as duas margens. Isso remove a troca de verba que
+parava nos 40%. Outros convênios ainda exigem validação própria.
