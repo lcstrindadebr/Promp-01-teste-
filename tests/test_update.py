@@ -11,7 +11,7 @@ class UpdateTests(unittest.TestCase):
    (origin/'scripts').mkdir();(origin/'scripts/update-core.sh').write_text('echo OLD_UPDATER; exit 55\n');(origin/'README.md').write_text('initial');git('add','.');git('commit','-m','initial')
    subprocess.run(['/usr/bin/git','clone',str(origin),str(repo)],env=env,check=True,capture_output=True)
    def replace_paths(s):return s.replace('/opt/apoiarcred-src',str(repo)).replace('/opt/apoiarcred',str(app)).replace('/run/lock/apoiarcred-instalar.lock',str(base/'lock')).replace('/var/tmp/apoiarcred-update.',str(base/'backup.')).replace('/etc/systemd/system',str(units))
-   for f in ['scripts/update-core.sh','scripts/configure_supabase.py','deploy/apoiarcred-robo.service','deploy/apoiarcred-monitor.service']:
+   for f in ['scripts/update-core.sh','scripts/configure_supabase.py','scripts/drain_queue.py','deploy/apoiarcred-robo.service','deploy/apoiarcred-monitor.service']:
     p=origin/f;p.parent.mkdir(exist_ok=True);p.write_text(replace_paths((ROOT/f).read_text()))
    (origin/'dist').mkdir();(origin/'vps').mkdir()
    (origin/'dist/index.html').write_text('NEW PANEL');(origin/'dist/supabase-config.js').write_text('new repo config')
@@ -33,7 +33,7 @@ class UpdateTests(unittest.TestCase):
    def executable(path,content):path.write_text('#!/bin/bash\n'+content);path.chmod(0o755)
    executable(app/'.venv/bin/python','exit 0\n');executable(app/'.venv/bin/pip','exit 0\n');executable(app/'.venv/bin/playwright','exit 0\n')
    executable(bin/'git',f'if [[ "$1 $2 $3" == "remote get-url origin" ]]; then echo https://github.com/lcstrindadebr/Promp-01-teste-.git; else exec /usr/bin/git "$@"; fi\n')
-   executable(bin/'python3','if [[ "$1" == - ]]; then cat >/dev/null; exit 0; fi\nif [[ "$*" == *--check-runtime* ]]; then exit 0; fi\nexec /usr/bin/python3 "$@"\n')
+   executable(bin/'python3','if [[ "$1" == - ]]; then cat >/dev/null; exit 0; fi\nif [[ "$*" == *--check-runtime* || "$*" == *drain_queue.py* ]]; then exit 0; fi\nexec /usr/bin/python3 "$@"\n')
    executable(bin/'systemctl',f'echo "$*" >> "{base}/service.log"\nexit 0\n');executable(bin/'nginx','exit 0\n')
    run=subprocess.run(['bash',str(launcher)],env={**env,'PATH':str(bin)+':'+env['PATH']},capture_output=True,text=True)
    self.assertEqual(run.returncode,0,run.stdout+run.stderr);self.assertEqual((app/'dist/index.html').read_text(),'NEW PANEL');self.assertIn('NEW ROBOT',(app/'vps/robot.py').read_text());self.assertTrue((app/'vps/chat_browser.py').exists());self.assertTrue((app/'vps/diagnose.py').exists());self.assertEqual((app/'.env').read_text(),original_env)

@@ -418,3 +418,71 @@ original essa atualização do banco já foi aplicada. Instalações novas usam 
 Quando há múltiplas matrículas, o robô só seleciona se houver uma única situação
 ativa identificável. Usa o botão de imagem Selecionar da linha ativa. Se houver
 mais de uma ativa, ou nenhuma verificável, solicita revisão com os vínculos retornados.
+
+### Dois executores Digi+ na mesma campanha
+
+A atualização inicia dois executores Digi+ por padrão dentro do serviço existente.
+Não execute dois serviços completos manualmente. Cada executor possui seu próprio
+navegador/chat. A arquitetura é:
+
+```mermaid
+flowchart TD
+  A[Campanha com CPFs únicos] --> B[Fila Supabase: reserva atômica]
+  B --> C[Executor Digi+ 1]
+  B --> D[Executor Digi+ 2]
+  C --> E[Resultados por consulta]
+  D --> E
+```
+
+A RPC `claim_consulta_job` reserva uma linha aguardando com `FOR UPDATE SKIP LOCKED`
+e a marca processando na mesma transação. O segundo executor recebe outra linha.
+O índice único `(lote_id, cpf)` impede CPF repetido na mesma campanha, inclusive
+por inserção direta. Resultados concluídos não entram na reserva; a nova tentativa
+da campanha continua restrita a erros/revisão, atualizando as mesmas linhas.
+
+Se salvar o resultado falhar, o executor mantém o trabalho e repete somente a gravação,
+sem consultar o banco novamente. Se o serviço cair durante uma consulta, o trabalho
+permanece processando: não é reenfileirado automaticamente, pois a consulta externa
+pode já ter ocorrido. É necessária conferência antes de qualquer reenvio. Não existe
+promessa de execução exatamente uma vez no portal externo após uma falha de processo.
+
+O CPF pode aparecer em campanhas diferentes para uma nova consulta intencional;
+o resultado histórico de outra campanha não é tratado como atualizado. A prevenção
+de repetição é por campanha. CPFs são armazenados com 11 dígitos, sem pontuação.
+
+O slot principal continua alternando Digi+ e ConsigX. O slot adicional processa
+somente Digi+. Assim há até dois navegadores no serviço; se o principal estiver
+no ConsigX, um Digi+ continua trabalhando. ConsigX mantém uma única sessão.
+
+Para voltar a um executor, adicione `DIGIMAIS_WORKERS=1` ao arquivo privado
+`/opt/apoiarcred/.env` e reinicie `systemctl restart apoiarcred-robo` quando não houver
+consultas em execução. Para dois, use `DIGIMAIS_WORKERS=2` ou remova essa variável.
+A opção 1 do auto instalador publica o novo worker e preserva o .env/proxy/SSL.
+No projeto Supabase original o índice já foi aplicado; outros projetos precisam
+executar `supabase/upgrade_digimais_concurrency.sql`. A migração não apaga duplicados:
+se houver registros antigos repetidos, resolva-os antes de criar o índice.
+
+Validação: teste automatizado executa os dois slots simultaneamente com CPFs distintos,
+simula falha ao salvar e confirma uma única execução por trabalho. Teste SQL verifica
+bloqueio de CPF duplicado em transação revertida. Velocidade e memória reais devem ser
+medidas numa campanha pequena na VPS; o limite externo do chat pode afetar o ganho.
+
+### Atualizar com uma campanha em andamento
+
+Use a opção 1 normalmente, sem parar o serviço manualmente. Antes de copiar o código,
+o instalador solicita uma pausa temporária na reserva de novos trabalhos pelo banco.
+As consultas já em execução continuam no código antigo até salvarem o resultado.
+Só quando não houver trabalhos processando ele para o serviço, aplica a atualização,
+libera a fila e inicia a nova versão. Os dois executores Digi+ pegam os CPFs restantes
+com status aguardando. Campanhas, resultados, progresso e contagens ficam no Supabase.
+A pausa de reserva também protege a sessão ConsigX enquanto o mesmo serviço é atualizado;
+a concorrência adicional continua exclusiva do Digi+.
+
+Se houver um trabalho antigo preso em processando, o instalador aguarda no máximo
+10 minutos e cancela a atualização, liberando a fila e mantendo o serviço em execução.
+Ele não transforma trabalhos incertos em aguardando nem repete consultas automaticamente.
+Se o terminal desaparecer durante a manutenção, a pausa expira em 30 minutos; use o
+instalador novamente para conferir o estado antes de retomar uma atualização incompleta.
+Essa proteção não cobre desligamento abrupto da VPS ou kill forçado. O helper usa
+um token de manutenção e bloqueio transacional compartilhado com as RPCs de reserva,
+para que uma nova consulta não comece entre a última verificação e o stop do serviço.

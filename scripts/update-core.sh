@@ -25,6 +25,9 @@ if [[ ! -f "$APP/supabase-public.json" ]]; then
 fi
 STAGE='validação do banco'
 python3 "$REPO/scripts/configure_supabase.py" --app "$APP" --check-runtime
+STAGE='aguardar consultas em andamento'
+python3 "$REPO/scripts/drain_queue.py" --app "$APP"
+trap 'python3 "$REPO/scripts/drain_queue.py" --app "$APP" --release || true' EXIT
 STAGE='aplicação da atualização'  
 BACKUP=$(mktemp -d /var/tmp/apoiarcred-update.XXXXXX)
 chmod 700 "$BACKUP"
@@ -50,6 +53,7 @@ systemctl enable apoiarcred-monitor
 systemctl restart apoiarcred-monitor
 systemctl is-active --quiet apoiarcred-monitor
 nginx -t
+python3 "$REPO/scripts/drain_queue.py" --app "$APP" --release
 # Não ligar um worker que estava parado manualmente.
 if (( WAS_ACTIVE )); then
     systemctl start apoiarcred-robo

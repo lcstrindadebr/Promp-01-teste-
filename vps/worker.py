@@ -67,7 +67,7 @@ async def process_tjba(job,adapter):
   try:await writer
   except asyncio.CancelledError:pass
 
-async def main_async():
+async def primary_loop():
  from tjba import Session
  adapter=Session();last_queue="tjba"
  try:
@@ -92,6 +92,42 @@ async def main_async():
    except Exception:
     print('Fila indisponível; nova tentativa em 10 segundos.',flush=True);await asyncio.sleep(10)
  finally:await adapter.close()
+
+async def digimais_loop():
+ """Second executor claims Digi+ only. No shared Playwright/browser state."""
+ while True:
+  try:
+   jobs=await asyncio.to_thread(request,'rpc/claim_consulta_job',{})
+   if not jobs:
+    await asyncio.sleep(3);continue
+   job=jobs[0]
+   try:result=await asyncio.to_thread(process,job)
+   except Exception:result={'status':'erro','message':'Falha interna no robô. Verificar a instalação e conectividade da VPS.'}
+   result['consultado_em']=datetime.now(timezone.utc).isoformat()
+   # Hold this slot until persistence succeeds. Never repeat the bank query.
+   while True:
+    try:
+     await asyncio.to_thread(request,'consulta_jobs?id=eq.'+job['id'],result,'PATCH');break
+    except Exception:
+     print('Falha ao salvar resultado Digi+; tentando somente a gravação.',flush=True)
+     await asyncio.sleep(10)
+  except Exception:
+   print('Fila Digi+ indisponível; nova tentativa em 10 segundos.',flush=True)
+   await asyncio.sleep(10)
+
+async def main_async():
+ workers=os.environ.get('DIGIMAIS_WORKERS','2')
+ if workers not in ('1','2'):raise ValueError('DIGIMAIS_WORKERS deve ser 1 ou 2.')
+ print('Executores Digi+: '+workers+'; ConsigX permanece serial; máximo de 2 navegadores.',flush=True)
+ if workers=='1':await primary_loop();return
+ # Primary slot alternates Digi+/ConsigX; the additional slot is Digi+ only.
+ # Thus Digi+ gets two simultaneous queries when both slots are available,
+ # while ConsigX cannot exceed its existing one authenticated session.
+ tasks=[asyncio.create_task(primary_loop()),asyncio.create_task(digimais_loop())]
+ try:await asyncio.gather(*tasks)
+ finally:
+  for task in tasks:task.cancel()
+  await asyncio.gather(*tasks,return_exceptions=True)
 
 def main():asyncio.run(main_async())
 if __name__=='__main__':main()
