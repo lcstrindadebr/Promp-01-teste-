@@ -517,3 +517,38 @@ O projeto Supabase original já recebeu a migração. Em outros projetos, apliqu
 o painel. Para instalar a nova interface na VPS, use opção 1 do instalador e Ctrl+F5.
 Testes: `node tests/test_workspace.cjs` e `tests/campaign_ux_database.sql` (rollback).
 O teste SQL verifica ordem, avanço entre campanhas, pausa/retomada e isolamento.
+
+### Simulador Amigoz: juros Price, encargos e agregação de margem
+
+As sete tabelas usam suas taxas contratuais mensais (3; 3,25; 3,50; 3,75; 3,98;
+4,50; 4,80%), prazo editável de 1 a 600 meses e primeira parcela após um mês.
+O CET não é somado nem utilizado como taxa de juros. A capacidade financiada é
+parcela × (1 − (1 + i)^(-n)) / i; com i zero, parcela × prazo.
+
+Em cada tabela, Custos e teto desta proposta permite indicar ausência de encargos
+financiados, total de encargos calculado para a operação ou uma regra exatamente
+igual a percentual sobre o líquido + despesa fixa. O aplicativo não inventa IOF,
+não implementa uma alíquota universal e não reaproveita custos de outro cliente.
+Encargos desconhecidos mantêm limite líquido e troco indisponíveis; a capacidade
+bruta pode ser conferida no detalhe. Os dados são mantidos somente para recalcular
+a mesma proposta aberta e arquivados no resultado auditável do Supabase. Ao abrir
+outro cliente, encargos e teto são limpos. Não há preenchimento baseado em proposta anterior.
+
+Teto líquido limita o líquido; teto financiado limita o total antes de deduzir
+encargos. O cálculo preserva precisão numeric no banco e arredonda o líquido para
+baixo em centavos, recalculando encargos e conferindo a parcela. Troco = líquido −
+quitação. Se insuficiente, não exibe troco ou comissão disponível. A comissão
+configurada permanece opcional e incide sobre quitação + troco.
+
+Agregar margem / alterar parcela aceita a parcela total escolhida para esta
+simulação, preservando valor_parcela do trabalho original. O resultado registra
+parcela original, parcela simulada e margem adicional necessária. A disponibilidade
+extra precisa ser conferida no banco: ela não é inferida da consulta Digi+.
+Não use esse modelo para carência, vencimentos irregulares ou juros diários.
+
+A RPC simular_amigoz_price valida proprietário e salva todas as condições e saídas
+em amigoz_simulacoes. O método é price_juros_contratuais_encargos_separados_v2;
+simulações históricas anteriores mantêm seu próprio método. O helper interno
+também trata taxa efetiva anual via potência 1/12, nunca divisão por 12.
+Em outros projetos Supabase, aplique upgrade_amigoz_price.sql. O projeto original
+já foi atualizado. Testes numéricos e de isolamento: tests/amigoz_database.sql.
