@@ -78,13 +78,13 @@ async def start_chat(chat, client, timeout):
  await wait_menu(chat,CONSIGNADO,timeout,registration=True)
 
 class DigiSession:
- """One browser per executor; each chat gets a fresh, short-lived context.
+ """One browser per CPF by default; each chat gets a clean context.
 
  Playwright stays on its owning asyncio loop. No cookies, chat history or client
  fields are carried into another request. Recycle only BETWEEN jobs, never retry
  an external query automatically after a transport/browser failure.
  """
- def __init__(self,*,idle_seconds=90,max_age=600,max_jobs=25):
+ def __init__(self,*,idle_seconds=90,max_age=600,max_jobs=1):
   self.manager=None;self.pw=None;self.browser=None;self.owner=None
   self.started=0;self.last_used=0;self.jobs=0;self.busy=False
   self.idle_seconds=idle_seconds;self.max_age=max_age;self.max_jobs=max_jobs
@@ -133,6 +133,7 @@ class DigiSession:
   except BaseException:
    await self.close();raise
   finally:
+   if self.jobs>=self.max_jobs:await self.close()
    self.busy=False;self.last_used=time.monotonic()
 
 async def run_once(client,timeout=60000,on_progress=None,kind="saldo",session=None):

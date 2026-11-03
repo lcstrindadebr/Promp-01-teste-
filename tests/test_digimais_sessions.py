@@ -15,7 +15,7 @@ class SessionsTests(unittest.IsolatedAsyncioTestCase):
   return patch.dict(sys.modules,{'playwright':types.ModuleType('playwright'),'playwright.async_api':fake})
  async def test_reuse_across_customers_but_each_chat_is_clean(self):
   with self.engines('positive'):
-   session=DigiSession()
+   session=DigiSession(max_jobs=25)
    try:
     for cpf in ['00123456789','00000000191']:
      result=await session.run({**CLIENT,'cpf':cpf},on_checkpoint=AsyncMock())
@@ -30,14 +30,14 @@ class SessionsTests(unittest.IsolatedAsyncioTestCase):
    self.assertFalse(self.browsers[0].connected)
  async def test_nonclient_skips_parcela_and_reuses_browser(self):
   with self.engines():
-   session=DigiSession()
+   session=DigiSession(max_jobs=25)
    try:
     for _ in range(2):self.assertEqual((await session.run(CLIENT))['status'],'nao_cliente')
     self.assertEqual(len(self.browsers),1);self.assertEqual(len(self.browsers[0].contexts),2)
    finally:await session.close()
  async def test_isolation_when_owner_changes_and_browser_disconnects(self):
   with self.engines():
-   session=DigiSession()
+   session=DigiSession(max_jobs=25)
    try:
     await session.run(CLIENT)
     await session.run({**CLIENT,'user_id':'owner-b'})
@@ -46,19 +46,32 @@ class SessionsTests(unittest.IsolatedAsyncioTestCase):
     await session.run({**CLIENT,'user_id':'owner-b'})
     self.assertEqual(len(self.browsers),3)
    finally:await session.close()
+ async def test_default_reuses_within_cpf_then_releases_browser(self):
+  with self.engines('positive'):
+   session=DigiSession()
+   try:
+    for _ in range(2):
+     result=await session.run(CLIENT,on_checkpoint=AsyncMock())
+     self.assertEqual(result['status'],'concluida');self.assertIsNone(session.browser)
+    self.assertEqual(len(self.browsers),2)
+    self.assertTrue(all(len(b.contexts)==2 for b in self.browsers))
+    self.assertTrue(all(not b.connected for b in self.browsers))
+   finally:await session.close()
  async def test_idle_age_and_job_limit_recycle(self):
   with self.engines():
-   session=DigiSession(max_jobs=1)
+   session=DigiSession(max_jobs=2)
    try:
     await session.run(CLIENT);await session.run(CLIENT)
-    self.assertEqual(len(self.browsers),2)
+    self.assertIsNone(session.browser);self.assertEqual(len(self.browsers),1)
+    await session.run(CLIENT)
     session.last_used-=91;await session.close_idle();self.assertIsNone(session.browser)
-    await session.run(CLIENT);session.max_jobs=100;session.started-=601;await session.run(CLIENT)
+    session.max_jobs=100
+    await session.run(CLIENT);session.started-=601;await session.run(CLIENT)
     self.assertEqual(len(self.browsers),4)
    finally:await session.close()
  async def test_failure_discards_browser_without_repeating_cpf(self):
   with self.engines(True):
-   session=DigiSession()
+   session=DigiSession(max_jobs=25)
    try:
     result=await session.run(CLIENT)
     self.assertEqual(result['status'],'erro');self.assertIsNone(session.browser)
@@ -67,7 +80,7 @@ class SessionsTests(unittest.IsolatedAsyncioTestCase):
    finally:await session.close()
  async def test_failure_after_sending_cpf_never_repeats_query(self):
   with self.engines():
-   session=DigiSession()
+   session=DigiSession(max_jobs=25)
    try:
     with patch('robot.parse_response',side_effect=OSError('lost connection')):
      result=await session.run(CLIENT)
@@ -77,7 +90,7 @@ class SessionsTests(unittest.IsolatedAsyncioTestCase):
    finally:await session.close()
  async def test_busy_executor_rejects_overlap_and_cancellation_cleans_up(self):
   with self.engines():
-   session=DigiSession();entered=asyncio.Event()
+   session=DigiSession(max_jobs=25);entered=asyncio.Event()
    async def running(*args,**kwargs):entered.set();await asyncio.Event().wait()
    with patch('robot.run',side_effect=running):
     task=asyncio.create_task(session.run(CLIENT));await entered.wait()

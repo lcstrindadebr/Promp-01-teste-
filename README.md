@@ -562,28 +562,29 @@ Alterações exibem aviso para recalcular. A janela aceita Escape para fechar e
 mantém a navegação de teclado dentro do simulador. Em telas pequenas, os cartões
 ficam em uma coluna. Esta alteração visual preserva o cálculo por juros mensais.
 
-### Navegadores Digi+ reaproveitados por executor
+### Ciclo de navegador Digi+ por CPF
 
-Cada executor mantém seu próprio Chromium aberto entre os CPFs, inclusive entre
-as duas consultas de saldo e parcela. Os dois executores continuam independentes
-em paralelo; não há navegador compartilhado ou espera pelo outro executor.
-Cada atendimento abre um contexto novo, que é fechado ao terminar: cookies,
-histórico do chat, nome, telefone e CPF não passam para o atendimento seguinte.
-O fluxo do portal permanece o mesmo. Não reutilizamos um chat encerrado.
+Cada executor abre um Chromium para o CPF e reaproveita esse navegador entre
+as consultas de saldo e parcela. Ao terminar o CPF, fecha o navegador antes de
+salvar o resultado final e reservar o próximo trabalho. O padrão foi ajustado
+para evitar manter processos e caches do Chromium durante uma campanha inteira
+na VPS de 2 GB. Os dois executores continuam em paralelo, sem esperar pelo outro.
 
-O navegador é renovado entre trabalhos ao trocar o usuário da conta, completar
-25 trabalhos ou atingir 10 minutos de vida. Após 90 segundos sem trabalho, é
-fechado para liberar memória. Falhas/revisões descartam o navegador; a consulta
-que falhou não é repetida automaticamente. Ao trocar para ConsigX, o executor
-principal fecha o Digi+ antes de abrir o outro portal, mantendo até dois browsers.
-O salvamento parcial do saldo e a regra de pular parcela para não clientes continuam.
-Se falhar o salvamento final, somente a gravação é repetida, sem nova consulta.
+Cada atendimento usa um contexto novo, fechado ao terminar, sem compartilhar
+cookies ou dados de clientes. O fluxo do portal permanece o mesmo. Não reutiliza
+um chat encerrado. A regra de pular parcela para não clientes e o salvamento
+parcial do saldo continuam ativos. Falhas não repetem automaticamente a consulta;
+se falhar a gravação final, somente a gravação é repetida.
 
-Instale pela opção 1 do auto instalador. Não exige novas variáveis, migração de
-banco ou alteração nas credenciais. A atualização mantém o mecanismo de aguardar
-as consultas em andamento antes de trocar o código. Ganho de tempo depende do
-portal e deve ser medido na VPS; não reduzimos prazos de resposta do banco.
-Validação sem tráfego ao banco: `python3 -m unittest discover -s tests`.
+O monitoramento permanece ativo. Os logs ETAPA identificam o executor e tempo
+acumulado; DURAÇÃO separa processamento e gravação final para investigar lentidão.
+Não registram CPF ou credenciais. Consulte `journalctl -u apoiarcred-robo -n 80 --no-pager`.
+A alteração reduz a retenção de navegadores entre CPFs; não comprova por si só a
+causa de uma lentidão. É necessário comparar tempo/volume e RAM/swap na VPS.
+
+Instale pela opção 1 do auto instalador. Não exige variáveis, migração de banco ou
+alteração nas credenciais. O instalador aguarda as consultas em andamento antes
+de trocar o código. Validação sem tráfego ao banco: `python3 -m unittest discover -s tests`.
 
 ### Monitoramento de atividade dos robôs
 

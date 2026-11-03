@@ -22,7 +22,8 @@ async def process_digimais(job,adapter):
  started=time.monotonic()
  async def report(percent,stage):
   if getattr(adapter,'telemetry',None):adapter.telemetry.report(percent)
-  print(f"ETAPA | {percent}% | {time.monotonic()-started:.1f}s | {stage}",flush=True)
+  executor=getattr(getattr(adapter,"telemetry",None),"name","digimais")
+  print(f"ETAPA | {executor} | {percent}% | {time.monotonic()-started:.1f}s | {stage}",flush=True)
   if queue.full():queue.get_nowait();queue.task_done()
   queue.put_nowait({'progress':percent,'stage':stage})
  async def flush():
@@ -92,11 +93,14 @@ async def primary_loop():
       await adapter.close();result=await process_digimais(job,digi)
     except Exception:result={'status':'erro','message':'Falha interna no robô. Verificar a instalação e conectividade da VPS.'}
     if slot:slot.saving(result)
+    save_started=time.monotonic()
     result['consultado_em']=datetime.now(timezone.utc).isoformat()
     while True:
      try:await asyncio.to_thread(request,('tjba_jobs' if job.get('servico')=='tjba_margem' else 'consulta_jobs')+'?id=eq.'+job['id'],result,'PATCH');break
      except Exception:print('Falha ao salvar resultado; tentando novamente.',flush=True);await asyncio.sleep(10)
-    if slot:slot.saved()
+    if slot:
+     print(f"DURAÇÃO | {slot.name} | processamento={slot.duration:.1f}s | gravação={time.monotonic()-save_started:.1f}s",flush=True)
+     slot.saved()
    except Exception:
     if slot:slot.state='queue_error'
     print('Fila indisponível; nova tentativa em 10 segundos.',flush=True);await asyncio.sleep(10)
@@ -121,6 +125,7 @@ async def digimais_loop():
     try:result=await process_digimais(job,digi)
     except Exception:result={'status':'erro','message':'Falha interna no robô. Verificar a instalação e conectividade da VPS.'}
     if slot:slot.saving(result)
+    save_started=time.monotonic()
     result['consultado_em']=datetime.now(timezone.utc).isoformat()
     # Hold this slot until persistence succeeds. Never repeat the bank query.
     while True:
@@ -129,7 +134,9 @@ async def digimais_loop():
      except Exception:
       print('Falha ao salvar resultado Digi+; tentando somente a gravação.',flush=True)
       await asyncio.sleep(10)
-    if slot:slot.saved()
+    if slot:
+     print(f"DURAÇÃO | {slot.name} | processamento={slot.duration:.1f}s | gravação={time.monotonic()-save_started:.1f}s",flush=True)
+     slot.saved()
    except Exception:
     if slot:slot.state='queue_error'
     print('Fila Digi+ indisponível; nova tentativa em 10 segundos.',flush=True)
