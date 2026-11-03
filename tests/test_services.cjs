@@ -6,6 +6,6 @@ const {setup,response}=require('./test_frontend.cjs');const vm=require('vm'),ass
  t.get('#serviceSelect').value='digimais_saldo_parcela';await vm.runInContext("createCampaign('Teste',[{nome:'TESTE',cpf:'00123456789',telefone:'11999999999'}])",t.ctx);assert.equal(payload.p_servico,'digimais_saldo_parcela');
  t.handler(async(u,o)=>{if(o.method==='POST'&&u.includes('consulta_lotes')){assert.equal(JSON.parse(o.body).servico,'digimais_saldo_parcela');return response([{id:'lot'}])}if(o.method==='POST'&&u.includes('consulta_jobs'))assert.equal(JSON.parse(o.body)[0].servico,'digimais_saldo_parcela');return response([])});
  await vm.runInContext("add([{nome:'TESTE',cpf:'00123456789',telefone:'11999999999'}])",t.ctx);
- assert(vm.runInContext("rowsHTML([{id:'x',nome:'TESTE',status:'Concluída',servico:'digimais_saldo_parcela'}])",t.ctx).includes('Digi+ · Saldo devedor e parcela'));
+ assert(vm.runInContext("rowsHTML([{id:'x',nome:'TESTE',status:'Concluída',servico:'digimais_saldo_parcela'}])",t.ctx).includes('Saldo e parcela — Digi+'));
  console.log('PASS: service selection, future-service rejection, individual/campaign persistence and history label');
 })().catch(e=>{console.error(e);process.exitCode=1});

@@ -486,3 +486,34 @@ instalador novamente para conferir o estado antes de retomar uma atualização i
 Essa proteção não cobre desligamento abrupto da VPS ou kill forçado. O helper usa
 um token de manutenção e bloqueio transacional compartilhado com as RPCs de reserva,
 para que uma nova consulta não comece entre a última verificação e o stop do serviço.
+
+### Interface e controle de campanhas
+
+Nova campanha tem três etapas: Consulta → Planilha → Conferir e iniciar.
+Use Saldo e parcela — Digi+ ou Margem — ConsigX; convênio só é necessário no segundo.
+O modelo Digi+ permanece com nome, cpf e telefone. O modelo ConsigX contém somente cpf.
+Excel, CSV e TSV continuam aceitos; nome e telefone extras são opcionais no ConsigX.
+
+Todas as campanhas aparecem juntas, com busca, filtro de andamento, progresso e
+identificação da consulta/convênio. Ao abrir, há resultados na ordem de entrada,
+CPF(s) em execução, Pausar/Retomar e repetição de erros/revisões. Ações por cliente
+ficam no menu Ações. A data de consulta só aparece após o retorno ser registrado.
+
+A pausa é persistida no Supabase e impede novas reservas daquela campanha; consultas
+já reservadas terminam. Retomar preserva os resultados e libera apenas os pendentes.
+Cada fila (Digi+ e ConsigX) prioriza o lote mais antigo não pausado com pendentes ou
+em andamento. Só passa ao próximo quando o anterior terminar ou for pausado.
+Digi+ ainda pode ter dois CPFs em execução: ordem de reserva é estável, conclusão
+pode variar. Consulta individual também usa essa fila e respeita sua vez.
+
+Novas campanhas usam a ordem explícita das linhas importadas. Nos registros antigos,
+a sequência anterior não foi armazenada: a atualização atribui uma ordem estável,
+mas não recupera com certeza a ordem original das planilhas antigas. Não apaga nem
+reconsulta resultados. A numeração da tabela é a posição dentro da campanha e não
+muda quando se usa filtro. Exportações também respeitam a ordenação.
+
+O projeto Supabase original já recebeu a migração. Em outros projetos, aplique
+`supabase/upgrade_campaign_ux.sql` após as migrações anteriores, antes de atualizar
+o painel. Para instalar a nova interface na VPS, use opção 1 do instalador e Ctrl+F5.
+Testes: `node tests/test_workspace.cjs` e `tests/campaign_ux_database.sql` (rollback).
+O teste SQL verifica ordem, avanço entre campanhas, pausa/retomada e isolamento.

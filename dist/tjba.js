@@ -51,7 +51,7 @@ function selectHygieneService(){
  const tjba=selectedService()==='tjba_margem';$('#convenioPicker').hidden=!tjba;updateServiceCopy();activeCampaign=null;pending=[];importGeneration++;readingImport=false;importError='';$('#file').value='';$('#preview').classList.add('hide');$('#search').value='';$('#filter').value='';
  $('#nome').required=!tjba;$('#telefone').required=!tjba;$('#nameLabel').textContent=tjba?'Nome (opcional)':'Nome completo';$('#phoneLabel').textContent=tjba?'Telefone (opcional)':'Telefone com DDD';
  $('#serviceDescription').textContent=tjba?'Retorna margens de empréstimo e cartão, matrícula e situação do vínculo':'Retorna saldo devedor e valor da parcela';
- $('#singleServiceLabel').textContent=serviceLabel(selectedService());$('#importColumns').textContent=tjba?'Excel, CSV ou TSV. CPF é obrigatório; nome e telefone são opcionais.':'Aceitamos Excel (.xlsx e .xls), CSV e TSV, com as colunas nome, cpf e telefone.';
+ $('#singleServiceLabel').textContent=serviceLabel(selectedService());$('#importColumns').textContent=tjba?'Excel, CSV ou TSV. Para consultar margem, a planilha precisa apenas da coluna cpf.':'Aceitamos Excel (.xlsx e .xls), CSV e TSV, com as colunas nome, cpf e telefone.';
  $('#downloadModel').href=tjba?'modelo-tjba.csv':'modelo-importacao.csv';syncImportButton();render();
 }
 $('#serviceSelect').onchange=selectHygieneService;

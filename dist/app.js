@@ -1,6 +1,6 @@
 const $=s=>document.querySelector(s);
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const serviceCatalog={digimais_saldo_parcela:{label:'Digi+ · Saldo devedor e parcela',available:true,categoria:'saldo_devedor',provedor:'digimais'},margem:{label:'Consulta de margem',available:false},tjba_margem:{label:'ConsigX · Consulta de margem',available:true,categoria:'margem',provedor:'tjba'}};
+const serviceCatalog={digimais_saldo_parcela:{label:'Saldo e parcela — Digi+',available:true,categoria:'saldo_devedor',provedor:'digimais'},margem:{label:'Consulta de margem',available:false},tjba_margem:{label:'Margem — ConsigX',available:true,categoria:'margem',provedor:'tjba'}};
 function selectedService(){const id=$('#serviceSelect').value||'digimais_saldo_parcela';if(!serviceCatalog[id]?.available)throw Error('Este tipo de higienização ainda não está disponível.');return id;}
 function serviceLabel(id){return serviceCatalog[id||'digimais_saldo_parcela']?.label||'Serviço não identificado';}
 let records=[],pending=[],campaigns=[],activeCampaign=null,currentPage="home",retryingCampaign=false;
