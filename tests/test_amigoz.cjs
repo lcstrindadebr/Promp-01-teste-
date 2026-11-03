@@ -16,6 +16,9 @@ await vm.runInContext("simulateAmigoz('j')",t.ctx);
 assert.equal(requestBody.p_condicoes._parcela_simulada,243.25);for(const rate of [3,3.25,3.5,3.75,3.98,4.5,4.8])assert.deepEqual(requestBody.p_condicoes[String(rate)],{encargos_modo:'sem_encargos'});assert(!t.get('#amigozCards').innerHTML.includes('cost-mode-'));assert(!t.get('#amigozCards').innerHTML.includes('Custos e teto'));assert(t.get('#amigozCards').innerHTML.includes('estimativa antes dos encargos'));assert.equal(requestBody.p_prazo,96);assert.equal(vm.runInContext('records[0].valorParcela',t.ctx),179.37);
 assert(t.get('#amigozCards').innerHTML.includes('7.633,48'));assert(t.get('#amigozMarginInfo').textContent.includes('63,88'));
 
+const comparison=vm.runInContext("renderAmigozTables([{taxa:3,limite:5000,quitacao:1000,troco:4000},{taxa:4,limite:3000,quitacao:1000,troco:2000},{taxa:5,limite:500,quitacao:1000,troco:null,insuficiente:true}])",t.ctx);
+assert.equal((comparison.match(/Maior troco/g)||[]).length,1);assert(comparison.includes('Limite insuficiente'));assert(!comparison.includes('null'));
+t.get('#amigozPanel').onkeydown({key:'Escape',preventDefault(){}});assert(t.get('#amigozPanel').hidden);assert.equal(t.get('#appShell').inert,false);
 vm.runInContext('records[0].saldo=2000;refreshAmigoz()',t.ctx);assert(t.get('#amigozCards').hidden);assert(!t.get('#amigozStale').hidden);
 vm.runInContext('resetAmigoz()',t.ctx);assert(t.get('#amigozPanel').hidden);assert.equal(t.get('#amigozCards').innerHTML,'');
 console.log('PASS: eligibility, conditional commission, stale simulation and logout cleanup');

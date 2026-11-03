@@ -555,3 +555,9 @@ estimativas antes dos encargos, sujeitas à confirmação do banco. A opção
 de agregar margem preserva a parcela original da consulta. O cálculo no
 Supabase continua disponível; o painel envia explicitamente o modo sem
 encargos financiados para as sete tabelas em cada simulação.
+
+O simulador organiza prazo, parcela e recálculo em um painel único e compara
+as sete taxas em cartões, destacando o maior troco entre resultados disponíveis.
+Alterações exibem aviso para recalcular. A janela aceita Escape para fechar e
+mantém a navegação de teclado dentro do simulador. Em telas pequenas, os cartões
+ficam em uma coluna. Esta alteração visual preserva o cálculo por juros mensais.
