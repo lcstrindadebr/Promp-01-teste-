@@ -4,6 +4,8 @@ Wants=network-online.target
 After=network-online.target
 [Service]
 User=apoiarcred
+RuntimeDirectory=apoiarcred-robots
+RuntimeDirectoryMode=0700
 WorkingDirectory=/opt/apoiarcred/vps
 EnvironmentFile=/opt/apoiarcred/.env
 Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/apoiarcred/browsers

@@ -4,6 +4,7 @@ from datetime import datetime,timezone
 URL=os.environ['SUPABASE_URL'].rstrip('/')
 KEY=os.environ['SUPABASE_SERVICE_ROLE_KEY']
 MODE=os.environ.get('ROBOT_MODE','disabled')
+robot_metrics=None
 def request(path,payload=None,method='POST',timeout=30):
  data=json.dumps(payload).encode() if payload is not None else None
  headers={'apikey':KEY,'Content-Type':'application/json'}
@@ -20,6 +21,7 @@ async def process_digimais(job,adapter):
  queue=asyncio.Queue(maxsize=1)
  started=time.monotonic()
  async def report(percent,stage):
+  if getattr(adapter,'telemetry',None):adapter.telemetry.report(percent)
   print(f"ETAPA | {percent}% | {time.monotonic()-started:.1f}s | {stage}",flush=True)
   if queue.full():queue.get_nowait();queue.task_done()
   queue.put_nowait({'progress':percent,'stage':stage})
@@ -47,6 +49,7 @@ async def process_tjba(job,adapter):
  credentials=await asyncio.to_thread(request,'rpc/get_tjba_credentials',{'p_user_id':job['user_id']})
  queue=asyncio.Queue(maxsize=1)
  async def report(percent,stage):
+  if getattr(adapter,'telemetry',None):adapter.telemetry.report(percent)
   if queue.full():queue.get_nowait();queue.task_done()
   queue.put_nowait({'progress':percent,'stage':stage})
  async def flush():
@@ -67,6 +70,8 @@ async def primary_loop():
  from tjba import Session
  from robot import DigiSession
  adapter=Session();digi=DigiSession();last_queue="tjba"
+ slot=robot_metrics.slots[0] if robot_metrics else None
+ adapter.telemetry=slot;digi.telemetry=slot
  try:
   while True:
    try:
@@ -76,19 +81,24 @@ async def primary_loop():
      jobs=await asyncio.to_thread(request,'rpc/claim_tjba_job' if queue_name=='tjba' else 'rpc/claim_consulta_job',{})
      if jobs:last_queue=queue_name;break
     if not jobs:
+     if slot and slot.state=='queue_error':slot.state='idle'
      await adapter.close_idle();await digi.close_idle();await asyncio.sleep(3);continue
     job=jobs[0]
+    if slot:slot.begin('consigx' if job.get('servico')=='tjba_margem' else 'digimais')
     try:
      if job.get('servico')=='tjba_margem':
       await digi.close();result=await process_tjba(job,adapter)
      else:
       await adapter.close();result=await process_digimais(job,digi)
     except Exception:result={'status':'erro','message':'Falha interna no robô. Verificar a instalação e conectividade da VPS.'}
+    if slot:slot.saving(result)
     result['consultado_em']=datetime.now(timezone.utc).isoformat()
     while True:
      try:await asyncio.to_thread(request,('tjba_jobs' if job.get('servico')=='tjba_margem' else 'consulta_jobs')+'?id=eq.'+job['id'],result,'PATCH');break
      except Exception:print('Falha ao salvar resultado; tentando novamente.',flush=True);await asyncio.sleep(10)
+    if slot:slot.saved()
    except Exception:
+    if slot:slot.state='queue_error'
     print('Fila indisponível; nova tentativa em 10 segundos.',flush=True);await asyncio.sleep(10)
  finally:
   await adapter.close();await digi.close()
@@ -97,15 +107,20 @@ async def digimais_loop():
  """Second executor claims Digi+ only. No shared Playwright/browser state."""
  from robot import DigiSession
  digi=DigiSession()
+ slot=robot_metrics.slots[1] if robot_metrics and len(robot_metrics.slots)>1 else None
+ digi.telemetry=slot
  try:
   while True:
    try:
     jobs=await asyncio.to_thread(request,'rpc/claim_consulta_job',{})
     if not jobs:
+     if slot and slot.state=='queue_error':slot.state='idle'
      await digi.close_idle();await asyncio.sleep(3);continue
     job=jobs[0]
+    if slot:slot.begin('consigx' if job.get('servico')=='tjba_margem' else 'digimais')
     try:result=await process_digimais(job,digi)
     except Exception:result={'status':'erro','message':'Falha interna no robô. Verificar a instalação e conectividade da VPS.'}
+    if slot:slot.saving(result)
     result['consultado_em']=datetime.now(timezone.utc).isoformat()
     # Hold this slot until persistence succeeds. Never repeat the bank query.
     while True:
@@ -114,25 +129,28 @@ async def digimais_loop():
      except Exception:
       print('Falha ao salvar resultado Digi+; tentando somente a gravação.',flush=True)
       await asyncio.sleep(10)
+    if slot:slot.saved()
    except Exception:
+    if slot:slot.state='queue_error'
     print('Fila Digi+ indisponível; nova tentativa em 10 segundos.',flush=True)
     await asyncio.sleep(10)
 
  finally:await digi.close()
 
 async def main_async():
+ global robot_metrics
+ from robot_metrics import RobotMetrics
  workers=os.environ.get('DIGIMAIS_WORKERS','2')
  if workers not in ('1','2'):raise ValueError('DIGIMAIS_WORKERS deve ser 1 ou 2.')
+ robot_metrics=RobotMetrics(int(workers))
  print('Executores Digi+: '+workers+'; ConsigX permanece serial; máximo de 2 navegadores.',flush=True)
- if workers=='1':await primary_loop();return
- # Primary slot alternates Digi+/ConsigX; the additional slot is Digi+ only.
- # Thus Digi+ gets two simultaneous queries when both slots are available,
- # while ConsigX cannot exceed its existing one authenticated session.
- tasks=[asyncio.create_task(primary_loop()),asyncio.create_task(digimais_loop())]
+ heartbeat=asyncio.create_task(robot_metrics.publish_loop())
+ tasks=[asyncio.create_task(primary_loop())]
+ if workers=='2':tasks.append(asyncio.create_task(digimais_loop()))
  try:await asyncio.gather(*tasks)
  finally:
-  for task in tasks:task.cancel()
-  await asyncio.gather(*tasks,return_exceptions=True)
+  for task in tasks+[heartbeat]:task.cancel()
+  await asyncio.gather(*tasks,heartbeat,return_exceptions=True)
 
 def main():asyncio.run(main_async())
 if __name__=='__main__':main()

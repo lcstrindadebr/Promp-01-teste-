@@ -584,3 +584,31 @@ banco ou alteração nas credenciais. A atualização mantém o mecanismo de agu
 as consultas em andamento antes de trocar o código. Ganho de tempo depende do
 portal e deve ser medido na VPS; não reduzimos prazos de resposta do banco.
 Validação sem tráfego ao banco: `python3 -m unittest discover -s tests`.
+
+### Monitoramento de atividade dos robôs
+
+Configurações → Atividade dos robôs mostra os dois executores, serviço atual,
+progresso, tempo em execução e duração da última consulta. O executor principal
+alterna Digi+ e ConsigX; o segundo é exclusivo Digi+. Indica separadamente
+consultando, salvando, disponível, fila indisponível e sem comunicação.
+A atualização é a cada 5 segundos, enquanto Configurações estiver aberta.
+
+O worker escreve um estado agregado em `/run/apoiarcred-robots/state.json`,
+com permissão 0600. O diretório 0700 pertence ao usuário do serviço e é criado
+pelo systemd. O coletor existente envia os agregados no payload de monitoramento.
+Não transmite CPF, nome, telefone, IDs de consultas ou credenciais. Mantém a mesma
+regra existente de acesso ao monitor: usuários autenticados veem dados agregados
+da operação. Não é necessário mudar o esquema do Supabase.
+
+Volume, erros, revisões, percentual conclusivo e duração média usam uma janela
+móvel de 60 minutos, limitada ao período desde o último reinício do worker.
+Só contam consultas após confirmação de salvamento final. A duração mede o
+processamento (inclui as duas etapas Digi+ e o checkpoint do saldo), excluindo
+espera na fila e tentativas de gravar o resultado final. Retorno conclusivo inclui
+concluído e ausência confirmada de cliente/registro; revisão e erro não contam.
+A mensagem de ausência de avanço é um aviso, não diagnóstico automático de travamento.
+Após 20 segundos sem heartbeat ou coletor atualizado, o painel não confirma o
+estado atual e sinaliza dados desatualizados. Estatísticas não são histórico permanente.
+
+A opção 1 do auto instalador atualiza worker, coletor, serviço e painel, aguardando
+as consultas em execução como antes. Nenhuma configuração extra é necessária.
