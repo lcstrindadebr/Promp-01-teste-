@@ -12,39 +12,35 @@ def request(path,payload=None,method='POST',timeout=30):
  with urllib.request.urlopen(req,timeout=timeout) as res:
   text=res.read().decode();return json.loads(text) if text else None
 
-def process(job):
+async def process_digimais(job,adapter):
  if job.get('servico','digimais_saldo_parcela')!='digimais_saldo_parcela':return {'status':'revisao','message':'Tipo de higienização sem robô disponível.'}
  if MODE=='demo':return {'status':'revisao','message':'Worker em modo demo. Nenhuma consulta realizada; use a demonstração local para valores fictícios.'}
  if MODE!='live':return {'status':'revisao','message':'Robô desativado. Ative somente após homologação.'}
- from robot import run
- async def execute():
-  # Only the latest pending progress matters; database latency must not pause chat clicks.
-  queue=asyncio.Queue(maxsize=1)
-  started=time.monotonic()
-  async def report(percent,stage):
-   print(f"ETAPA | {percent}% | {time.monotonic()-started:.1f}s | {stage}",flush=True)
-   if queue.full():queue.get_nowait();queue.task_done()
-   queue.put_nowait({'progress':percent,'stage':stage})
-  async def flush():
-   while True:
-    data=await queue.get()
-    try:await asyncio.to_thread(request,'consulta_jobs?id=eq.'+job['id'],data,'PATCH',4)
-    except Exception:print('Não foi possível registrar progresso desta etapa.',flush=True)
-    finally:queue.task_done()
-  writer=asyncio.create_task(flush())
-  try:
-   async def checkpoint(data):
-    await queue.join()
-    await asyncio.to_thread(request,'consulta_jobs?id=eq.'+job['id'],data,'PATCH',10)
-   result=await run(job,on_progress=report,on_checkpoint=checkpoint)
-   await queue.join() # Finish progress writes before saving the final result.
-   return result
-  finally:
-   writer.cancel()
-   try:await writer
-   except asyncio.CancelledError:pass
- return asyncio.run(execute())
-
+ # Only the latest pending progress matters; database latency must not pause chat clicks.
+ queue=asyncio.Queue(maxsize=1)
+ started=time.monotonic()
+ async def report(percent,stage):
+  print(f"ETAPA | {percent}% | {time.monotonic()-started:.1f}s | {stage}",flush=True)
+  if queue.full():queue.get_nowait();queue.task_done()
+  queue.put_nowait({'progress':percent,'stage':stage})
+ async def flush():
+  while True:
+   data=await queue.get()
+   try:await asyncio.to_thread(request,'consulta_jobs?id=eq.'+job['id'],data,'PATCH',4)
+   except Exception:print('Não foi possível registrar progresso desta etapa.',flush=True)
+   finally:queue.task_done()
+ writer=asyncio.create_task(flush())
+ try:
+  async def checkpoint(data):
+   await queue.join()
+   await asyncio.to_thread(request,'consulta_jobs?id=eq.'+job['id'],data,'PATCH',10)
+  result=await adapter.run(job,on_progress=report,on_checkpoint=checkpoint)
+  await queue.join() # Finish progress writes before saving the final result.
+  return result
+ finally:
+  writer.cancel()
+  try:await writer
+  except asyncio.CancelledError:pass
 async def process_tjba(job,adapter):
  from tjba import job_result
  if MODE!='live':return job_result({'status':'sessao_expirada','observacoes':'Robô desativado. Ative somente após homologação.'})
@@ -69,7 +65,8 @@ async def process_tjba(job,adapter):
 
 async def primary_loop():
  from tjba import Session
- adapter=Session();last_queue="tjba"
+ from robot import DigiSession
+ adapter=Session();digi=DigiSession();last_queue="tjba"
  try:
   while True:
    try:
@@ -78,12 +75,14 @@ async def primary_loop():
     for queue_name in queues:
      jobs=await asyncio.to_thread(request,'rpc/claim_tjba_job' if queue_name=='tjba' else 'rpc/claim_consulta_job',{})
      if jobs:last_queue=queue_name;break
-    if not jobs:await adapter.close_idle();await asyncio.sleep(3);continue
+    if not jobs:
+     await adapter.close_idle();await digi.close_idle();await asyncio.sleep(3);continue
     job=jobs[0]
     try:
-     if job.get('servico')=='tjba_margem':result=await process_tjba(job,adapter)
+     if job.get('servico')=='tjba_margem':
+      await digi.close();result=await process_tjba(job,adapter)
      else:
-      await adapter.close();result=await asyncio.to_thread(process,job)
+      await adapter.close();result=await process_digimais(job,digi)
     except Exception:result={'status':'erro','message':'Falha interna no robô. Verificar a instalação e conectividade da VPS.'}
     result['consultado_em']=datetime.now(timezone.utc).isoformat()
     while True:
@@ -91,29 +90,35 @@ async def primary_loop():
      except Exception:print('Falha ao salvar resultado; tentando novamente.',flush=True);await asyncio.sleep(10)
    except Exception:
     print('Fila indisponível; nova tentativa em 10 segundos.',flush=True);await asyncio.sleep(10)
- finally:await adapter.close()
+ finally:
+  await adapter.close();await digi.close()
 
 async def digimais_loop():
  """Second executor claims Digi+ only. No shared Playwright/browser state."""
- while True:
-  try:
-   jobs=await asyncio.to_thread(request,'rpc/claim_consulta_job',{})
-   if not jobs:
-    await asyncio.sleep(3);continue
-   job=jobs[0]
-   try:result=await asyncio.to_thread(process,job)
-   except Exception:result={'status':'erro','message':'Falha interna no robô. Verificar a instalação e conectividade da VPS.'}
-   result['consultado_em']=datetime.now(timezone.utc).isoformat()
-   # Hold this slot until persistence succeeds. Never repeat the bank query.
-   while True:
-    try:
-     await asyncio.to_thread(request,'consulta_jobs?id=eq.'+job['id'],result,'PATCH');break
-    except Exception:
-     print('Falha ao salvar resultado Digi+; tentando somente a gravação.',flush=True)
-     await asyncio.sleep(10)
-  except Exception:
-   print('Fila Digi+ indisponível; nova tentativa em 10 segundos.',flush=True)
-   await asyncio.sleep(10)
+ from robot import DigiSession
+ digi=DigiSession()
+ try:
+  while True:
+   try:
+    jobs=await asyncio.to_thread(request,'rpc/claim_consulta_job',{})
+    if not jobs:
+     await digi.close_idle();await asyncio.sleep(3);continue
+    job=jobs[0]
+    try:result=await process_digimais(job,digi)
+    except Exception:result={'status':'erro','message':'Falha interna no robô. Verificar a instalação e conectividade da VPS.'}
+    result['consultado_em']=datetime.now(timezone.utc).isoformat()
+    # Hold this slot until persistence succeeds. Never repeat the bank query.
+    while True:
+     try:
+      await asyncio.to_thread(request,'consulta_jobs?id=eq.'+job['id'],result,'PATCH');break
+     except Exception:
+      print('Falha ao salvar resultado Digi+; tentando somente a gravação.',flush=True)
+      await asyncio.sleep(10)
+   except Exception:
+    print('Fila Digi+ indisponível; nova tentativa em 10 segundos.',flush=True)
+    await asyncio.sleep(10)
+
+ finally:await digi.close()
 
 async def main_async():
  workers=os.environ.get('DIGIMAIS_WORKERS','2')

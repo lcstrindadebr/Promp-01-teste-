@@ -561,3 +561,26 @@ as sete taxas em cartões, destacando o maior troco entre resultados disponívei
 Alterações exibem aviso para recalcular. A janela aceita Escape para fechar e
 mantém a navegação de teclado dentro do simulador. Em telas pequenas, os cartões
 ficam em uma coluna. Esta alteração visual preserva o cálculo por juros mensais.
+
+### Navegadores Digi+ reaproveitados por executor
+
+Cada executor mantém seu próprio Chromium aberto entre os CPFs, inclusive entre
+as duas consultas de saldo e parcela. Os dois executores continuam independentes
+em paralelo; não há navegador compartilhado ou espera pelo outro executor.
+Cada atendimento abre um contexto novo, que é fechado ao terminar: cookies,
+histórico do chat, nome, telefone e CPF não passam para o atendimento seguinte.
+O fluxo do portal permanece o mesmo. Não reutilizamos um chat encerrado.
+
+O navegador é renovado entre trabalhos ao trocar o usuário da conta, completar
+25 trabalhos ou atingir 10 minutos de vida. Após 90 segundos sem trabalho, é
+fechado para liberar memória. Falhas/revisões descartam o navegador; a consulta
+que falhou não é repetida automaticamente. Ao trocar para ConsigX, o executor
+principal fecha o Digi+ antes de abrir o outro portal, mantendo até dois browsers.
+O salvamento parcial do saldo e a regra de pular parcela para não clientes continuam.
+Se falhar o salvamento final, somente a gravação é repetida, sem nova consulta.
+
+Instale pela opção 1 do auto instalador. Não exige novas variáveis, migração de
+banco ou alteração nas credenciais. A atualização mantém o mecanismo de aguardar
+as consultas em andamento antes de trocar o código. Ganho de tempo depende do
+portal e deve ser medido na VPS; não reduzimos prazos de resposta do banco.
+Validação sem tráfego ao banco: `python3 -m unittest discover -s tests`.

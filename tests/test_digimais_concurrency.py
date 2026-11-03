@@ -8,7 +8,7 @@ class ConcurrentDigiTests(unittest.IsolatedAsyncioTestCase):
   with patch.dict(os.environ,{'SUPABASE_URL':'https://example.invalid','SUPABASE_SERVICE_ROLE_KEY':'fake','DIGIMAIS_WORKERS':'2'}):
    spec=importlib.util.spec_from_file_location('worker_parallel_test',path);worker=importlib.util.module_from_spec(spec);spec.loader.exec_module(worker)
   jobs=[{'id':'a','cpf':'00000000191','servico':'digimais_saldo_parcela'},{'id':'b','cpf':'00000000272','servico':'digimais_saldo_parcela'}]
-  lock=threading.Lock();barrier=threading.Barrier(2);processed=[];saved=set();fail_once=True
+  lock=threading.Lock();barrier=asyncio.Event();processed=[];saved=set();fail_once=True
   def request(route,data=None,method='POST',timeout=30):
    nonlocal fail_once
    with lock:
@@ -18,13 +18,15 @@ class ConcurrentDigiTests(unittest.IsolatedAsyncioTestCase):
      if fail_once:fail_once=False;raise OSError('temporary database outage')
      saved.add(route);return None
    raise AssertionError(route)
-  def process(job):
-   barrier.wait(timeout=3)
-   with lock:processed.append(job['id'])
+  adapters=[]
+  async def process(job,adapter):
+   adapters.append(adapter);processed.append(job['id'])
+   if len(processed)==2:barrier.set()
+   await asyncio.wait_for(barrier.wait(),3)
    return {'status':'concluida'}
   original_sleep=asyncio.sleep
   async def short_sleep(seconds):await original_sleep(.001)
-  with patch.object(worker,'request',side_effect=request),patch.object(worker,'process',side_effect=process),patch.object(worker.asyncio,'sleep',side_effect=short_sleep),patch.dict(os.environ,{'DIGIMAIS_WORKERS':'2'}):
+  with patch.object(worker,'request',side_effect=request),patch.object(worker,'process_digimais',side_effect=process),patch.object(worker.asyncio,'sleep',side_effect=short_sleep),patch.dict(os.environ,{'DIGIMAIS_WORKERS':'2'}):
    task=asyncio.create_task(worker.main_async())
    try:
     async with asyncio.timeout(5):
@@ -32,7 +34,7 @@ class ConcurrentDigiTests(unittest.IsolatedAsyncioTestCase):
    finally:
     task.cancel()
     with self.assertRaises(asyncio.CancelledError):await task
-  self.assertCountEqual(processed,['a','b']);self.assertEqual(len(saved),2)
+  self.assertCountEqual(processed,['a','b']);self.assertEqual(len(saved),2);self.assertIsNot(adapters[0],adapters[1])
  async def test_single_worker_setting_does_not_start_extra_executor(self):
   path=Path(__file__).resolve().parents[1]/'vps/worker.py'
   with patch.dict(os.environ,{'SUPABASE_URL':'https://example.invalid','SUPABASE_SERVICE_ROLE_KEY':'fake','DIGIMAIS_WORKERS':'1'}):

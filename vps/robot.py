@@ -77,9 +77,69 @@ async def start_chat(chat, client, timeout):
  await chat.get_by_role('button',name='Enviar',exact=True).click(timeout=5000)
  await wait_menu(chat,CONSIGNADO,timeout,registration=True)
 
-async def run_once(client,timeout=60000,on_progress=None,kind="saldo"):
- from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
- progress=0;stage='Iniciar navegador';browser=None;context=None
+class DigiSession:
+ """One browser per executor; each chat gets a fresh, short-lived context.
+
+ Playwright stays on its owning asyncio loop. No cookies, chat history or client
+ fields are carried into another request. Recycle only BETWEEN jobs, never retry
+ an external query automatically after a transport/browser failure.
+ """
+ def __init__(self,*,idle_seconds=90,max_age=600,max_jobs=25):
+  self.manager=None;self.pw=None;self.browser=None;self.owner=None
+  self.started=0;self.last_used=0;self.jobs=0;self.busy=False
+  self.idle_seconds=idle_seconds;self.max_age=max_age;self.max_jobs=max_jobs
+
+ async def close(self):
+  browser,manager=self.browser,self.manager
+  self.browser=None;self.manager=None;self.pw=None;self.owner=None;self.jobs=0
+  try:
+   if browser:await browser.close()
+  except Exception:pass
+  finally:
+   if manager:
+    try:await manager.__aexit__(None,None,None)
+    except Exception:pass
+
+ async def close_idle(self):
+  if not self.busy and self.browser and time.monotonic()-self.last_used>=self.idle_seconds:
+   await self.close()
+
+ async def prepare(self,owner):
+  now=time.monotonic()
+  if self.browser and (self.owner!=owner or not self.browser.is_connected() or
+      now-self.started>=self.max_age or now-self.last_used>=self.idle_seconds or self.jobs>=self.max_jobs):
+   await self.close()
+  if self.browser is None:
+   from playwright.async_api import async_playwright
+   try:
+    self.manager=async_playwright();self.pw=await self.manager.__aenter__()
+    self.browser=await self.pw.chromium.launch(headless=True,args=list(CHROMIUM_ARGS))
+    self.started=time.monotonic();self.owner=owner
+   except BaseException:
+    await self.close();raise
+  self.last_used=time.monotonic()
+
+ async def run(self,client,timeout=60000,on_progress=None,on_checkpoint=None):
+  if self.busy:raise RuntimeError('Executor Digi+ já está ocupado.')
+  self.busy=True
+  try:
+   # prepare is also checked at each run_once to handle a disconnected browser.
+   # Ownership/age recycling happens once here, outside a customer's two chats.
+   await self.prepare(client.get('user_id'))
+   self.jobs+=1
+   result=await run(client,timeout,on_progress,on_checkpoint,session=self)
+   if result.get('status') in ('erro','revisao'):await self.close()
+   return result
+  except BaseException:
+   await self.close();raise
+  finally:
+   self.busy=False;self.last_used=time.monotonic()
+
+async def run_once(client,timeout=60000,on_progress=None,kind="saldo",session=None):
+ from playwright.async_api import TimeoutError as PlaywrightTimeout
+ progress=0;stage='Iniciar navegador';context=None
+ owned=session is None
+ if owned:session=DigiSession()
  async def emit(percent,label):
   nonlocal progress,stage
   progress=percent;stage=label
@@ -89,72 +149,72 @@ async def run_once(client,timeout=60000,on_progress=None,kind="saldo"):
  async def finish(result):
   if result['status'] in ('concluida','nao_cliente'):await emit(100,'Concluída' if result['status']=='concluida' else 'Não é cliente')
   result.update(progress=progress,stage=stage);return result
- async with async_playwright() as pw:
-  try:
-   await emit(5,'Iniciar navegador')
-   browser=await pw.chromium.launch(headless=True,args=list(CHROMIUM_ARGS))
-   context=await browser.new_context(locale='pt-BR')
-   chat=await open_direct_chat(context,timeout=timeout,report=emit)
-   await emit(30,'Preencher nome e telefone')
-   await start_chat(chat,client,timeout)
-   await emit(40,'Selecionar empréstimo consignado')
-   await chat.get_by_role('button',name=CONSIGNADO).click(timeout=5000)
-   await emit(50,'Selecionar boleto')
-   boleto=await wait_menu(chat,re.compile(r'^Boleto$',re.I),timeout)
-   await boleto.click(timeout=5000)
-   await emit(60,'Aguardar solicitação do CPF')
-   # Match normalized text across nested elements/nonbreaking spaces.
-   await chat.wait_for_function("() => /para te localizar.*cpf/i.test(document.body.innerText.replace(/\\s+/g,' '))",timeout=timeout)
-   field=chat.get_by_placeholder('Digitar...',exact=True)
-   await field.fill(format_cpf(client['cpf']))
-   # Observed actual send button; Enter is no longer assumed to submit.
-   await chat.locator('button.send[type="submit"]').click()
-   await emit(70,'CPF enviado; aguardando resposta')
-   selected_saldo=False;end_seen=None;history_opened=False;deadline=time.monotonic()+timeout/1000
-   while time.monotonic()<deadline:
-    text=await chat.locator('body').inner_text()
-    if re.search(r'verifique.{0,30}human|captcha|checking your browser|access denied',text,re.I):
-     return await finish({'status':'revisao','message':'Verificação adicional no site; intervenção humana necessária.'})
-    ended=bool(re.search(r'a sessão de chat acabou|esse atendimento foi encerrado',normalize(text),re.I)) or await chat.get_by_role('button',name='Novo Chat',exact=True).count()>0
-    # Let any last message settle after the close event, without resending CPF.
-    if ended:
-     end_seen=end_seen or time.monotonic()
-     history=chat.get_by_role('button',name='Visualizar Chat',exact=True)
-     if not history_opened and await history.is_visible():
-      await history.click(timeout=5000);history_opened=True
-      continue # Read the newly visible final message before deciding.
-    result=parse_response(text,ended=ended and time.monotonic()-(end_seen or 0)>=5,cpf_sent=True,kind=kind)
-    if result:return await finish(result)
-    button=chat.get_by_role('button',name=re.compile(r'^Valor\s+de\s+Parcela$' if kind=='parcela' else r'^Saldo\s+Liquidação$',re.I))
-    if not selected_saldo and await button.is_visible():
-     await button.click();selected_saldo=True;deadline=time.monotonic()+timeout/1000
-     await emit(85,'Valor de parcela solicitado; aguardando resposta' if kind=='parcela' else 'Saldo de liquidação solicitado; aguardando valores')
-    await asyncio.sleep(.5)
-   raise RobotError('Não houve resposta final reconhecida após o envio. Não é possível classificar como não cliente.')
-  except PlaywrightTimeout:
-   return {'status':'erro','message':f'Tempo excedido: {stage} ({progress}%). Nenhum resultado conclusivo.','progress':progress,'stage':stage}
-  except (RobotError,NavigationIssue) as e:return {'status':'revisao','message':str(e),'progress':progress,'stage':stage}
-  except Exception as e:
-   return {'status':'erro','message':f'Falha na etapa {stage}: {describe_error(e)}.','progress':progress,'stage':stage}
-  finally:
-   if context:
-    try:await context.close()
-    except Exception:pass
-   if browser:
-    try:await browser.close()
-    except Exception:pass
+ try:
+  await emit(5,'Iniciar navegador')
+  if session.browser is None:await session.prepare(client.get('user_id'))
+  elif not session.browser.is_connected():
+   await session.close();await session.prepare(client.get('user_id'))
+  context=await session.browser.new_context(locale='pt-BR')
+  chat=await open_direct_chat(context,timeout=timeout,report=emit)
+  await emit(30,'Preencher nome e telefone')
+  await start_chat(chat,client,timeout)
+  await emit(40,'Selecionar empréstimo consignado')
+  await chat.get_by_role('button',name=CONSIGNADO).click(timeout=5000)
+  await emit(50,'Selecionar boleto')
+  boleto=await wait_menu(chat,re.compile(r'^Boleto$',re.I),timeout)
+  await boleto.click(timeout=5000)
+  await emit(60,'Aguardar solicitação do CPF')
+  # Match normalized text across nested elements/nonbreaking spaces.
+  await chat.wait_for_function("() => /para te localizar.*cpf/i.test(document.body.innerText.replace(/\\s+/g,' '))",timeout=timeout)
+  field=chat.get_by_placeholder('Digitar...',exact=True)
+  await field.fill(format_cpf(client['cpf']))
+  # Observed actual send button; Enter is no longer assumed to submit.
+  await chat.locator('button.send[type="submit"]').click()
+  await emit(70,'CPF enviado; aguardando resposta')
+  selected_saldo=False;end_seen=None;history_opened=False;deadline=time.monotonic()+timeout/1000
+  while time.monotonic()<deadline:
+   text=await chat.locator('body').inner_text()
+   if re.search(r'verifique.{0,30}human|captcha|checking your browser|access denied',text,re.I):
+    return await finish({'status':'revisao','message':'Verificação adicional no site; intervenção humana necessária.'})
+   ended=bool(re.search(r'a sessão de chat acabou|esse atendimento foi encerrado',normalize(text),re.I)) or await chat.get_by_role('button',name='Novo Chat',exact=True).count()>0
+   # Let any last message settle after the close event, without resending CPF.
+   if ended:
+    end_seen=end_seen or time.monotonic()
+    history=chat.get_by_role('button',name='Visualizar Chat',exact=True)
+    if not history_opened and await history.is_visible():
+     await history.click(timeout=5000);history_opened=True
+     continue # Read the newly visible final message before deciding.
+   result=parse_response(text,ended=ended and time.monotonic()-(end_seen or 0)>=5,cpf_sent=True,kind=kind)
+   if result:return await finish(result)
+   button=chat.get_by_role('button',name=re.compile(r'^Valor\s+de\s+Parcela$' if kind=='parcela' else r'^Saldo\s+Liquidação$',re.I))
+   if not selected_saldo and await button.is_visible():
+    await button.click();selected_saldo=True;deadline=time.monotonic()+timeout/1000
+    await emit(85,'Valor de parcela solicitado; aguardando resposta' if kind=='parcela' else 'Saldo de liquidação solicitado; aguardando valores')
+   await asyncio.sleep(.5)
+  raise RobotError('Não houve resposta final reconhecida após o envio. Não é possível classificar como não cliente.')
+ except PlaywrightTimeout:
+  return {'status':'erro','message':f'Tempo excedido: {stage} ({progress}%). Nenhum resultado conclusivo.','progress':progress,'stage':stage}
+ except (RobotError,NavigationIssue) as e:return {'status':'revisao','message':str(e),'progress':progress,'stage':stage}
+ except Exception as e:
+  return {'status':'erro','message':f'Falha na etapa {stage}: {describe_error(e)}.','progress':progress,'stage':stage}
+ finally:
+  if context:
+   try:await context.close()
+   except Exception:await session.close()
+  if owned:await session.close()
 
 
 
-async def run(client,timeout=60000,on_progress=None,on_checkpoint=None):
- """Two independent sessions, one job. Persist the balance before the second call."""
+async def run(client,timeout=60000,on_progress=None,on_checkpoint=None,session=None):
+ """Two clean chat contexts, one job; persist balance before querying installment."""
+ options={"session":session} if session is not None else {}
  async def progress(percent,label):
   if on_progress:
    result=on_progress(percent,label)
    if inspect.isawaitable(result):await result
  async def first_progress(percent,label):await progress(percent//2,'1/2 Saldo: '+label)
  async def second_progress(percent,label):await progress(50+percent//2,'2/2 Parcela: '+label)
- first=await run_once(client,timeout,first_progress,kind='saldo')
+ first=await run_once(client,timeout,first_progress,kind='saldo',**options)
  combined={k:v for k,v in first.items() if k not in ('progress','stage')}
  combined.update(resultado_saldo=first,progress=first.get('progress',0)//2,stage='1/2 Saldo: '+first.get('stage',''))
  if first['status']!='concluida':
@@ -170,7 +230,7 @@ async def run(client,timeout=60000,on_progress=None,on_checkpoint=None):
    combined.update(status='revisao',message='Saldo obtido; não foi possível confirmar o salvamento parcial. A segunda consulta não foi iniciada.')
    return combined
  try:
-  second=await run_once(client,timeout,second_progress,kind='parcela')
+  second=await run_once(client,timeout,second_progress,kind='parcela',**options)
  except Exception:
   second={'status':'erro','progress':0,'stage':'Iniciar consulta da parcela','message':'Falha interna na segunda consulta; saldo preservado.'}
  combined.update(resultado_parcela=second,progress=50+second.get('progress',0)//2,stage='2/2 Parcela: '+second.get('stage',''))

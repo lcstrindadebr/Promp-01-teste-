@@ -13,7 +13,8 @@ class Locator:
  async def click(self,**kwargs):
   self.page.actions.append(('click',self.name))
   if self.page.fail is True and 'Boleto' in self.name:raise Timeout()
-  if 'Saldo' in self.name:self.page.finished=True
+  if 'Saldo' in self.name or 'Parcela' in self.name:
+   self.page.finished=True;self.page.parcela='Parcela' in self.name
   if self.name=='Visualizar Chat':self.page.history=True
   if self.name=='Enviar':self.page.registered=True
   if self.name=='button.send[type="submit"]':self.page.sent=True
@@ -24,11 +25,12 @@ class Locator:
   if self.name.startswith('input') and self.page.url.startswith('https://widget.'):return 2
   return 0
  async def is_visible(self):
-  if 'Saldo' in self.name:return self.page.fail=='positive' and self.page.sent and not self.page.finished
+  if 'Saldo' in self.name or 'Parcela' in self.name:return self.page.fail=='positive' and self.page.sent and not self.page.finished
   if self.name=='Visualizar Chat':return self.page.finished and not self.page.history
   return ('consignado' in self.name and self.page.registered) or 'Boleto' in self.name
  async def inner_text(self,**kwargs):
   if self.page.fail=='positive':
+   if self.page.history and getattr(self.page,'parcela',False):return 'Valor da Parcela: R$ 123.40'
    if self.page.history:return 'Segue o valor do Saldo para quitação na data de hoje. Valor Saldo: R$ 1234.56 Total de parcelas: 24'
    return 'A sessão de chat acabou' if self.page.finished else 'CPF'
   return 'Desculpe, o seu documento não foi localizado para esse produto.' if self.page.sent else 'CPF'
@@ -59,11 +61,13 @@ class Context:
   if self.chat not in self.pages:self.pages.append(self.chat)
   return self.chat
  def expect_page(self,**kw):return Opened(self.chat)
- async def close(self):pass
+ async def close(self):self.closed=True
 class Browser:
- def __init__(self,actions,fail):self.context=Context(actions,fail)
- async def new_context(self,**kw):return self.context
- async def close(self):pass
+ def __init__(self,actions,fail):self.context=Context(actions,fail);self.actions=actions;self.fail=fail;self.contexts=[];self.connected=True
+ def is_connected(self):return self.connected
+ async def new_context(self,**kw):
+  self.context=Context(self.actions,self.fail);self.contexts.append(self.context);return self.context
+ async def close(self):self.connected=False
 class Engine:
  def __init__(self,browser):self.browser=browser;self.chromium=self
  async def __aenter__(self):return self
