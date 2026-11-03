@@ -525,20 +525,13 @@ As sete tabelas usam suas taxas contratuais mensais (3; 3,25; 3,50; 3,75; 3,98;
 O CET não é somado nem utilizado como taxa de juros. A capacidade financiada é
 parcela × (1 − (1 + i)^(-n)) / i; com i zero, parcela × prazo.
 
-Em cada tabela, Custos e teto desta proposta permite indicar ausência de encargos
-financiados, total de encargos calculado para a operação ou uma regra exatamente
-igual a percentual sobre o líquido + despesa fixa. O aplicativo não inventa IOF,
-não implementa uma alíquota universal e não reaproveita custos de outro cliente.
-Encargos desconhecidos mantêm limite líquido e troco indisponíveis; a capacidade
-bruta pode ser conferida no detalhe. Os dados são mantidos somente para recalcular
-a mesma proposta aberta e arquivados no resultado auditável do Supabase. Ao abrir
-outro cliente, encargos e teto são limpos. Não há preenchimento baseado em proposta anterior.
-
-Teto líquido limita o líquido; teto financiado limita o total antes de deduzir
-encargos. O cálculo preserva precisão numeric no banco e arredonda o líquido para
-baixo em centavos, recalculando encargos e conferindo a parcela. Troco = líquido −
-quitação. Se insuficiente, não exibe troco ou comissão disponível. A comissão
-configurada permanece opcional e incide sobre quitação + troco.
+O painel considera somente juros mensais, parcela e prazo. IOF, seguros,
+despesas e teto pré-aprovado não entram no cálculo; os campos para informar esses
+custos foram removidos. Limite, troco e comissão são estimativas antes dos encargos.
+O cálculo preserva precisão numeric no banco, arredonda o limite para baixo em
+centavos e confere se a parcela cabe na escolhida. Troco = limite − quitação.
+Se insuficiente, não exibe troco ou comissão disponível. A comissão configurada
+permanece opcional e incide sobre quitação + troco.
 
 Agregar margem / alterar parcela aceita a parcela total escolhida para esta
 simulação, preservando valor_parcela do trabalho original. O resultado registra
@@ -552,3 +545,13 @@ simulações históricas anteriores mantêm seu próprio método. O helper inter
 também trata taxa efetiva anual via potência 1/12, nunca divisão por 12.
 Em outros projetos Supabase, aplique upgrade_amigoz_price.sql. O projeto original
 já foi atualizado. Testes numéricos e de isolamento: tests/amigoz_database.sql.
+
+### Simulação simplificada por juros mensais
+
+O painel usa somente taxa de juros mensal, parcela e prazo na Tabela Price.
+IOF, seguros, despesas e teto pré-aprovado não entram no cálculo. Os campos
+para informar esses custos foram removidos. Limite, troco e comissão são
+estimativas antes dos encargos, sujeitas à confirmação do banco. A opção
+de agregar margem preserva a parcela original da consulta. O cálculo no
+Supabase continua disponível; o painel envia explicitamente o modo sem
+encargos financiados para as sete tabelas em cada simulação.
