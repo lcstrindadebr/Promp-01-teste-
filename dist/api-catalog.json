@@ -1,0 +1,283 @@
+[
+  {
+    "method": "GET",
+    "path": "/servicos",
+    "summary": "Serviços disponíveis",
+    "scope": "read",
+    "body": null,
+    "status": 200,
+    "response": {
+      "data": [
+        {
+          "id": "digimais_saldo_parcela",
+          "campos_obrigatorios": [
+            "nome",
+            "cpf",
+            "telefone"
+          ]
+        },
+        {
+          "id": "tjba_margem",
+          "campos_obrigatorios": [
+            "cpf"
+          ],
+          "convenios": [
+            "tjba",
+            "dpeba",
+            "embasa",
+            "saeb",
+            "suprev"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/campanhas",
+    "summary": "Listar campanhas",
+    "scope": "read",
+    "body": null,
+    "status": 200,
+    "response": {
+      "data": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "nome": "Campanha de exemplo",
+          "servico": "digimais_saldo_parcela",
+          "convenio": null,
+          "paused": true
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "page_size": 50,
+        "total": 1
+      }
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/campanhas",
+    "summary": "Criar campanha pausada",
+    "scope": "campanhas:write",
+    "body": {
+      "nome": "Campanha de exemplo",
+      "servico": "digimais_saldo_parcela"
+    },
+    "status": 201,
+    "response": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "nome": "Campanha de exemplo",
+      "servico": "digimais_saldo_parcela",
+      "convenio": null,
+      "paused": true
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/campanhas/{id}",
+    "summary": "Andamento e relatório",
+    "scope": "read",
+    "body": null,
+    "status": 200,
+    "response": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "nome": "Campanha de exemplo",
+      "servico": "digimais_saldo_parcela",
+      "convenio": null,
+      "paused": true,
+      "relatorio": {
+        "total": 1,
+        "clientes": 0,
+        "nao_clientes": 0,
+        "erros": 0,
+        "revisao": 0,
+        "aguardando": 1,
+        "processando": 0
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/campanhas/{id}/leads",
+    "summary": "Leads da campanha",
+    "scope": "read",
+    "body": null,
+    "status": 200,
+    "response": {
+      "data": [
+        {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "campanha_id": "00000000-0000-4000-8000-000000000001",
+          "cpf": "00000000000",
+          "status": "aguardando",
+          "progress": 0,
+          "resultado": {
+            "saldo_liquidacao": null,
+            "total_parcelas": null,
+            "valor_parcela": null
+          }
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "page_size": 50,
+        "total": 1
+      }
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/campanhas/{id}/leads",
+    "summary": "Adicionar leads à campanha pausada",
+    "scope": "campanhas:write",
+    "body": {
+      "leads": [
+        {
+          "nome": "Cliente de exemplo",
+          "cpf": "00000000000",
+          "telefone": "11999999999",
+          "referencia_externa": "contato-123"
+        }
+      ]
+    },
+    "status": 200,
+    "response": {
+      "accepted": [
+        {
+          "linha": 1,
+          "id": "00000000-0000-4000-8000-000000000002",
+          "cpf": "00000000000"
+        }
+      ],
+      "duplicates": [],
+      "rejected": []
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/campanhas/{id}/iniciar",
+    "summary": "Iniciar ou retomar campanha",
+    "scope": "campanhas:write",
+    "body": {},
+    "status": 200,
+    "response": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "paused": false
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/campanhas/{id}/pausar",
+    "summary": "Pausar novas consultas",
+    "scope": "campanhas:write",
+    "body": {},
+    "status": 200,
+    "response": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "paused": true
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/campanhas/{id}/repetir-revisoes",
+    "summary": "Reenfileirar erros e revisões",
+    "scope": "campanhas:write",
+    "body": {},
+    "status": 202,
+    "response": {
+      "reenfileirados": 1,
+      "paused": true
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/leads/{id}",
+    "summary": "Registro individual e resultado",
+    "scope": "read",
+    "body": null,
+    "status": 200,
+    "response": {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "campanha_id": "00000000-0000-4000-8000-000000000001",
+      "cpf": "00000000000",
+      "status": "aguardando",
+      "progress": 0,
+      "resultado": {
+        "saldo_liquidacao": null,
+        "total_parcelas": null,
+        "valor_parcela": null
+      }
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/leads/buscar",
+    "summary": "Buscar registros por CPF",
+    "scope": "read",
+    "body": {
+      "cpf": "00000000000"
+    },
+    "status": 200,
+    "response": {
+      "data": [
+        {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "campanha_id": "00000000-0000-4000-8000-000000000001",
+          "cpf": "00000000000",
+          "status": "aguardando",
+          "progress": 0,
+          "resultado": {
+            "saldo_liquidacao": null,
+            "total_parcelas": null,
+            "valor_parcela": null
+          }
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "page_size": 50,
+        "total": 1
+      }
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/consultas",
+    "summary": "Solicitar consulta individual",
+    "scope": "consultas:create",
+    "body": {
+      "servico": "tjba_margem",
+      "convenio": "tjba",
+      "cpf": "00000000000",
+      "referencia_externa": "contato-123"
+    },
+    "status": 202,
+    "response": {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "campanha_id": "00000000-0000-4000-8000-000000000001",
+      "status": "aguardando"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/consultas/{id}",
+    "summary": "Acompanhar consulta individual",
+    "scope": "read",
+    "body": null,
+    "status": 200,
+    "response": {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "campanha_id": "00000000-0000-4000-8000-000000000001",
+      "cpf": "00000000000",
+      "status": "aguardando",
+      "progress": 0,
+      "resultado": {
+        "saldo_liquidacao": null,
+        "total_parcelas": null,
+        "valor_parcela": null
+      }
+    }
+  }
+]

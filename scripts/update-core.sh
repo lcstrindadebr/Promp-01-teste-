@@ -15,7 +15,7 @@ cd "$REPO"
 python3 - <<'PY'
 import ast
 from pathlib import Path
-for p in [Path('vps/worker.py'),Path('vps/robot_metrics.py'),Path('vps/robot.py'),Path('vps/chat_browser.py'),Path('vps/diagnose.py'),Path('vps/monitor.py'),Path('vps/tjba.py'),Path('vps/diagnose_tjba.py'),Path('vps/tjba_proxy.py')]:
+for p in [Path('vps/worker.py'),Path('vps/api.py'),Path('vps/robot_metrics.py'),Path('vps/robot.py'),Path('vps/chat_browser.py'),Path('vps/diagnose.py'),Path('vps/monitor.py'),Path('vps/tjba.py'),Path('vps/diagnose_tjba.py'),Path('vps/tjba_proxy.py')]:
  ast.parse(p.read_text())
 assert Path('dist/index.html').is_file()
 PY
@@ -48,11 +48,20 @@ chmod -R a+rX "$APP/browsers"
 STAGE='atualização do serviço'
 install -m 644 "$REPO/deploy/apoiarcred-robo.service" /etc/systemd/system/apoiarcred-robo.service
 install -m 644 "$REPO/deploy/apoiarcred-monitor.service" /etc/systemd/system/apoiarcred-monitor.service
+install -m 644 "$REPO/deploy/apoiarcred-api.service" /etc/systemd/system/apoiarcred-api.service
+install -d -m 755 /etc/nginx/snippets /etc/nginx/conf.d
+install -m 644 "$REPO/deploy/apoiarcred-api.nginx" /etc/nginx/snippets/apoiarcred-api.conf
+install -m 644 "$REPO/deploy/apoiarcred-api-rate.nginx" /etc/nginx/conf.d/apoiarcred-api-rate.conf
+python3 "$REPO/scripts/configure_api.py" --app "$APP"
 systemctl daemon-reload
+systemctl enable apoiarcred-api
+systemctl restart apoiarcred-api
+systemctl is-active --quiet apoiarcred-api
 systemctl enable apoiarcred-monitor
 systemctl restart apoiarcred-monitor
 systemctl is-active --quiet apoiarcred-monitor
 nginx -t
+systemctl reload nginx
 python3 "$REPO/scripts/drain_queue.py" --app "$APP" --release
 # Não ligar um worker que estava parado manualmente.
 if (( WAS_ACTIVE )); then

@@ -613,3 +613,35 @@ estado atual e sinaliza dados desatualizados. Estatísticas não são histórico
 
 A opção 1 do auto instalador atualiza worker, coletor, serviço e painel, aguardando
 as consultas em execução como antes. Nenhuma configuração extra é necessária.
+
+### API v1 e novas configurações
+
+Configurações foi organizada em Operação, Robôs e monitoramento, Comissões,
+Integrações e Conta e diagnóstico. Os formulários anteriores permanecem nesses grupos.
+Em Integrações, gere um token por sistema, escolha validade/permissões e copie
+uma única vez. A lista permite conferir último uso e revogar. Token nunca é
+salvo em texto no banco; as chaves Supabase não são tokens de integração.
+
+A documentação completa, payloads, respostas e cURLs ficam na própria página.
+Arquivo OpenAPI em `/openapi.json` e instruções também em [docs/api.md](docs/api.md).
+Base: `https://SEU_SUBDOMINIO/api/v1`. Cada token acessa somente sua conta.
+Crie campanha (pausada), adicione leads e inicie. Consultas são assíncronas e
+seguem a fila existente. POST de escrita exige Idempotency-Key por operação.
+
+O Supabase original já recebeu a atualização. Em outro projeto, execute
+`supabase/upgrade_api.sql` após as atualizações anteriores. Então use opção 1 do
+instalador na VPS e Ctrl+F5. O instalador instala e habilita apoiarcred-api,
+configura o Nginx preservando SSL e publica o serviço em /api/. Nenhum token é
+gerado automaticamente. Não é preciso abrir nova porta ou usar Docker.
+A API escuta apenas em 127.0.0.1:8877, com até 16 requisições simultâneas;
+limite por token de 120/minuto e proteção por IP de 5/s (rajada de 20).
+
+Diagnóstico: `systemctl status apoiarcred-api` e
+`curl --fail http://127.0.0.1:8877/api/health`. O health confirma o processo;
+verifique GET /api/v1/servicos com seu token para confirmar acesso ao banco.
+Os logs HTTP não incluem token, payload ou CPF. Migrações não são executadas
+pelo instalador: o projeto original já foi migrado; projetos próprios exigem o SQL.
+
+Validação: `tests/api_database.sql` roda em transação com rollback e exercita
+idempotência, importação parcial, pausa, busca, permissões e isolamento entre contas.
+`python3 -m unittest discover -s tests` cobre gateway HTTP e instalação/atualização.

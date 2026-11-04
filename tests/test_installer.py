@@ -7,7 +7,7 @@ class InstallerTests(unittest.TestCase):
    base=pathlib.Path(td);src=base/'source';src.mkdir();bin=base/'bin';bin.mkdir()
    for name in ['dist','vps','deploy']:
     (src/name).mkdir()
-   for f in ['dist/index.html','dist/app.js','dist/supabase.js','dist/supabase-config.js','vps/worker.py','vps/robot.py','vps/requirements.txt','vps/monitor.py','deploy/apoiarcred-monitor.service']:
+   for f in ['dist/index.html','dist/app.js','dist/supabase.js','dist/supabase-config.js','vps/worker.py','vps/robot.py','vps/requirements.txt','vps/monitor.py','deploy/apoiarcred-monitor.service','deploy/apoiarcred-api.service','deploy/apoiarcred-api.nginx','deploy/apoiarcred-api-rate.nginx']:
     (src/f).write_text('test')
    replacements={'/opt/apoiarcred':str(base/'app'),'/etc/nginx':str(base/'nginx'),'/etc/systemd/system':str(base/'systemd'),'/var/www/apoiarcred-acme':str(base/'acme'),'/etc/letsencrypt':str(base/'tls'),'/var/lib/apoiarcred':str(base/'home'),'/var/tmp/apoiarcred-install.':str(base/'run.'),'/run/lock/apoiarcred-instalar.lock':str(base/'lock')}
    code=(ROOT/'scripts/install-core.sh').read_text().replace('\"$(dirname -- \"${BASH_SOURCE[0]}\")/..\"','\"$(dirname -- \"${BASH_SOURCE[0]}\")\"')

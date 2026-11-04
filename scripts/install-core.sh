@@ -118,6 +118,9 @@ PLAYWRIGHT_BROWSERS_PATH="$APP/browsers" "$APP/.venv/bin/playwright" install --w
 chmod -R a+rX "$APP/browsers"
 id apoiarcred >/dev/null 2>&1 || useradd --system --create-home --home-dir /var/lib/apoiarcred --shell /usr/sbin/nologin apoiarcred
 STAGE='Nginx e verificação do DNS'
+install -d -m 755 /etc/nginx/snippets /etc/nginx/conf.d
+install -m 644 "$SOURCE/deploy/apoiarcred-api.nginx" /etc/nginx/snippets/apoiarcred-api.conf
+install -m 644 "$SOURCE/deploy/apoiarcred-api-rate.nginx" /etc/nginx/conf.d/apoiarcred-api-rate.conf
 install -d -m 755 /var/www/apoiarcred-acme/.well-known/acme-challenge
 write_http() {
     cat > "$CONF" <<EOF
@@ -125,6 +128,7 @@ server {
     listen 80;
     server_name $DOMAIN;
     root /opt/apoiarcred/dist;
+    include /etc/nginx/snippets/apoiarcred-api.conf;
     index index.html;
     location /.well-known/acme-challenge/ { root /var/www/apoiarcred-acme; }
     location / { try_files \$uri \$uri/ =404; }
@@ -162,6 +166,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
     root /opt/apoiarcred/dist;
+    include /etc/nginx/snippets/apoiarcred-api.conf;
     index index.html;
     server_tokens off;
     add_header X-Content-Type-Options nosniff always;
@@ -187,6 +192,8 @@ Wants=network-online.target
 After=network-online.target
 [Service]
 User=apoiarcred
+RuntimeDirectory=apoiarcred-robots
+RuntimeDirectoryMode=0700
 WorkingDirectory=/opt/apoiarcred/vps
 EnvironmentFile=/opt/apoiarcred/.env
 Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/apoiarcred/browsers
@@ -197,7 +204,11 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
 install -m 644 "$SOURCE/deploy/apoiarcred-monitor.service" /etc/systemd/system/apoiarcred-monitor.service
+install -m 644 "$SOURCE/deploy/apoiarcred-api.service" /etc/systemd/system/apoiarcred-api.service
 systemctl daemon-reload
+systemctl enable apoiarcred-api
+systemctl restart apoiarcred-api
+systemctl is-active --quiet apoiarcred-api
 systemctl enable apoiarcred-monitor
 systemctl restart apoiarcred-monitor
 systemctl is-active --quiet apoiarcred-monitor
@@ -214,7 +225,7 @@ EOF
 fi
 SUCCESS=1
 printf '\nInstalação concluída: https://%s\n' "$DOMAIN"
-printf 'Entre em Configurações com um usuário do Supabase Auth e selecione Supabase · fila real.\n'
+printf 'Entre com um usuário do Supabase Auth. Configure portais, comissões e tokens em Configurações.\n'
 printf 'Robô em modo disabled: testa a fila sem consultar o banco. Homologue antes de ativar live.\n'
 printf 'Logs: journalctl -u apoiarcred-robo -n 50 -f\n'
 printf 'Backups de instalação: %s (acesso restrito a root).\n' "$WORK"

@@ -1,0 +1,19 @@
+[Unit]
+Description=API ApoiarCred
+Wants=network-online.target
+After=network-online.target
+[Service]
+User=apoiarcred
+WorkingDirectory=/opt/apoiarcred/vps
+EnvironmentFile=/opt/apoiarcred/.env
+ExecStart=/opt/apoiarcred/.venv/bin/python -u api.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+MemoryMax=256M
+TasksMax=48
+[Install]
+WantedBy=multi-user.target
