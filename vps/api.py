@@ -48,7 +48,9 @@ def partner_admin(auth,method,path,payload):
   services.add(service);limit=rule.get('daily_limit')
   if type(limit) is not int or not 0<=limit<=100000 or any(type(rule.get(k)) is not bool for k in ('enabled','allow_individual','allow_campaign')):raise AdminError(422,'invalid_permissions','Limites e permissões inválidos.')
  if services!={'digimais_saldo_parcela','tjba_margem'} or type(payload.get('active')) is not bool:raise AdminError(422,'invalid_permissions','Permissões inválidas.')
+ if 'allow_integrations' in payload and type(payload['allow_integrations']) is not bool:raise AdminError(422,'invalid_permissions','Permissão de integrações inválida.')
  data={key:payload[key] for key in ('name','permissions','active')}
+ if 'allow_integrations' in payload:data['allow_integrations']=payload['allow_integrations']
  if path=='/api/admin/parceiros':
   email=payload.get('email');password=payload.get('password')
   if not isinstance(email,str) or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email) or len(email)>254 or not isinstance(password,str) or not 8<=len(password)<=256:

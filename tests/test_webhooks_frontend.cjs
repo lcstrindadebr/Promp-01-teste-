@@ -3,7 +3,7 @@ const {setup}=require('./test_frontend.cjs');
 (async()=>{
  const t=setup(),source=fs.readFileSync('dist/webhooks.js','utf8');
  const mutate=source.slice(source.indexOf('async function whMutate('),source.indexOf("$('#whForm').onsubmit="));
- vm.runInContext("let webhookBusy=false,webhookGeneration=0;let seenSecret=null,successCount=0,loadCount=0;function whShowSecret(s){seenSecret=s;}async function loadWebhooks(){loadCount++;}",t.ctx);
+ vm.runInContext("let webhookBusy=false,webhookGeneration=0,integrationAllowed=true;function hasIntegrationAccess(){return integrationAllowed;}let seenSecret=null,successCount=0,loadCount=0;function whShowSecret(s){seenSecret=s;}async function loadWebhooks(){loadCount++;}",t.ctx);
  vm.runInContext(mutate,t.ctx);let finish;t.ctx.deferWebhook=()=>new Promise(r=>{finish=r});t.ctx.button={disabled:false};
  let p=vm.runInContext("whMutate(button,deferWebhook,()=>successCount++)",t.ctx);assert.equal(t.ctx.button.disabled,true);
  vm.runInContext('authEpoch++',t.ctx);finish({secret:'synthetic-secret'});await p;

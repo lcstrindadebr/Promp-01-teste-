@@ -11,5 +11,9 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');const {setup,re
  t.handler(async(u,o)=>{if(u.includes('create_individual_consulta')){payload=JSON.parse(o.body);return response('job-id')}return response([])});
  await vm.runInContext("add([{nome:'TEST',cpf:'00000000191',telefone:'11999999999'}],'digimais_saldo_parcela')",t.ctx);
  assert.equal(payload.p_servico,'digimais_saldo_parcela');assert.equal(payload.p_item.cpf,'00000000191');assert(!t.calls.some(([u,o])=>u.includes('/consulta_lotes')&&o?.method==='POST'));
- console.log('PASS: partner service/campaign/quota guards and atomic individual submission');
+ vm.runInContext("currentAccess={role:'partner',active:true,allow_integrations:false}",t.ctx);assert.equal(vm.runInContext('hasIntegrationAccess()',t.ctx),false);
+ vm.runInContext('currentAccess.allow_integrations=true',t.ctx);assert.equal(vm.runInContext('hasIntegrationAccess()',t.ctx),true);
+ vm.runInContext('currentAccess.active=false',t.ctx);assert.equal(vm.runInContext('hasIntegrationAccess()',t.ctx),false);
+ vm.runInContext("currentAccess={role:'admin',active:true}",t.ctx);assert.equal(vm.runInContext('hasIntegrationAccess()',t.ctx),true);
+ console.log('PASS: partner service/campaign/quota/integration guards and atomic individual submission');
 })().catch(e=>{console.error(e);process.exitCode=1});

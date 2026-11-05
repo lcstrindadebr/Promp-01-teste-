@@ -25,8 +25,8 @@ function resetApiSettings(){apiTokenEpoch++;switchSettings('operation');clearNew
 $('#copyApiToken').onclick=()=>copyApi($('#apiNewToken').value);$('#dismissApiToken').onclick=clearNewApiToken;
 $('#showApiToken').onclick=()=>{const hidden=$('#apiNewToken').type==='password';$('#apiNewToken').type=hidden?'text':'password';$('#showApiToken').textContent=hidden?'Ocultar':'Mostrar';};
 async function loadApiTokens(){
- if(!authenticated||apiTokensLoading)return;apiTokensLoading=true;const epoch=authEpoch;
- try{const rows=await sbRequest('/rest/v1/rpc/manage_api_tokens',{method:'POST',body:JSON.stringify({p_action:'list',p_input:{}})});if(epoch!==authEpoch)return;
+ if(!authenticated||apiTokensLoading||typeof hasIntegrationAccess==='function'&&!hasIntegrationAccess())return;apiTokensLoading=true;const epoch=authEpoch;
+ try{const rows=await sbRequest('/rest/v1/rpc/manage_api_tokens',{method:'POST',body:JSON.stringify({p_action:'list',p_input:{}})});if(epoch!==authEpoch||typeof hasIntegrationAccess==='function'&&!hasIntegrationAccess())return;
  $('#apiTokens').innerHTML=rows.length?rows.map(t=>{const expired=t.expires_at&&Date.parse(t.expires_at)<=Date.now(),disabled=t.revoked_at||expired;return `<article class="api-token-row"><div><strong>${escapeHTML(t.name)}</strong><span class="pill ${disabled?'':'ok'}">${t.revoked_at?'Revogado':expired?'Expirado':'Ativo'}</span></div><code>${escapeHTML(t.prefix)}…</code><p>${escapeHTML(t.scopes.join(' · '))}</p><small>Criado: ${escapeHTML(new Date(t.created_at).toLocaleString('pt-BR'))}<br>Validade: ${t.expires_at?escapeHTML(new Date(t.expires_at).toLocaleString('pt-BR')):'Sem expiração'}<br>Último uso: ${t.last_used_at?escapeHTML(new Date(t.last_used_at).toLocaleString('pt-BR')):'Ainda não utilizado'}</small>${disabled?'':`<button type="button" class="danger" data-revoke-api="${escapeHTML(t.id)}">Revogar</button>`}</article>`;}).join(''):'<p class="muted">Nenhum token criado. Gere um para sua primeira integração.</p>';
  }catch(e){if(epoch===authEpoch)$('#apiTokenStatus').textContent='Não foi possível carregar tokens. Confira a conexão e a atualização do banco.';}
  finally{apiTokensLoading=false;}
@@ -36,13 +36,13 @@ $('#apiTokenForm').onsubmit=async e=>{
  e.preventDefault();if(!$('#apiNewTokenPanel').hidden){$('#apiTokenStatus').textContent='Guarde o token atual e clique em Já guardei antes de gerar outro.';return;}
  const scopes=[];if($('#apiScopeRead').checked)scopes.push('read');if($('#apiScopeCampaign').checked)scopes.push('campanhas:write');if($('#apiScopeIndividual').checked)scopes.push('consultas:create');if(!scopes.length){$('#apiTokenStatus').textContent='Escolha ao menos uma permissão.';return;}
  const epoch=authEpoch,requestEpoch=++apiTokenEpoch;$('#createApiToken').disabled=true;$('#apiTokenStatus').textContent='Gerando token…';
- try{const days=$('#apiTokenExpiry').value;const r=await sbRequest('/rest/v1/rpc/manage_api_tokens',{method:'POST',body:JSON.stringify({p_action:'create',p_input:{name:$('#apiTokenName').value.trim(),scopes,expires_at:days?new Date(Date.now()+Number(days)*86400000).toISOString():null}})});if(epoch!==authEpoch||requestEpoch!==apiTokenEpoch)return;
+ try{const days=$('#apiTokenExpiry').value;const r=await sbRequest('/rest/v1/rpc/manage_api_tokens',{method:'POST',body:JSON.stringify({p_action:'create',p_input:{name:$('#apiTokenName').value.trim(),scopes,expires_at:days?new Date(Date.now()+Number(days)*86400000).toISOString():null}})});if(epoch!==authEpoch||requestEpoch!==apiTokenEpoch||typeof hasIntegrationAccess==='function'&&!hasIntegrationAccess())return;
  $('#apiNewToken').value=r.token;$('#apiNewTokenPanel').hidden=false;$('#apiTokenStatus').textContent='Token gerado. Copie e guarde antes de sair.';await loadApiTokens();
  }catch(e){if(epoch===authEpoch)$('#apiTokenStatus').textContent=e.message;}
  finally{$('#createApiToken').disabled=false;}
 };
 $('#apiTokens').onclick=async e=>{const id=e.target.dataset.revokeApi;if(!id||!confirm('Revogar este token? A integração deixará de acessar a API.'))return;const epoch=authEpoch;e.target.disabled=true;
- try{await sbRequest('/rest/v1/rpc/manage_api_tokens',{method:'POST',body:JSON.stringify({p_action:'revoke',p_input:{id}})});if(epoch!==authEpoch)return;clearNewApiToken();$('#apiTokenStatus').textContent='Token revogado.';await loadApiTokens();}catch(error){if(epoch===authEpoch)$('#apiTokenStatus').textContent=error.message;}finally{e.target.disabled=false;}};
+ try{await sbRequest('/rest/v1/rpc/manage_api_tokens',{method:'POST',body:JSON.stringify({p_action:'revoke',p_input:{id}})});if(epoch!==authEpoch||typeof hasIntegrationAccess==='function'&&!hasIntegrationAccess())return;clearNewApiToken();$('#apiTokenStatus').textContent='Token revogado.';await loadApiTokens();}catch(error){if(epoch===authEpoch)$('#apiTokenStatus').textContent=error.message;}finally{e.target.disabled=false;}};
 async function loadApiDocs(){
  if(apiCatalog.length)return;try{const response=await fetch('api-catalog.json');if(!response.ok)throw Error();apiCatalog=await response.json();$('#apiRouteSelect').innerHTML=apiCatalog.map((r,i)=>`<option value="${i}">${escapeHTML(r.method+' '+r.path+' · '+r.summary)}</option>`).join('');renderApiRoute();}catch{$('#apiDocsStatus').textContent='Não foi possível carregar a documentação. Atualize a página.';}
 }

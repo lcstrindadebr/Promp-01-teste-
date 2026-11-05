@@ -6,7 +6,7 @@ grant select,update on partner_fixture to authenticated,service_role;
 set local role service_role;
 do $$declare f record;r jsonb;begin
  select * into f from partner_fixture;
- r=public.admin_partner_manage(f.admin_uid,'create',jsonb_build_object('user_id',f.partner_uid,'email',f.partner_uid||'@partner-test.invalid','name','Partner test','active',true,'permissions','[{"service":"digimais_saldo_parcela","enabled":true,"allow_individual":true,"daily_limit":2,"allow_campaign":false},{"service":"tjba_margem","enabled":true,"allow_individual":true,"daily_limit":1,"allow_campaign":true}]'::jsonb));
+ r=public.admin_partner_manage(f.admin_uid,'create',jsonb_build_object('user_id',f.partner_uid,'email',f.partner_uid||'@partner-test.invalid','name','Partner test','active',true,'allow_integrations',true,'permissions','[{"service":"digimais_saldo_parcela","enabled":true,"allow_individual":true,"daily_limit":2,"allow_campaign":false},{"service":"tjba_margem","enabled":true,"allow_individual":true,"daily_limit":1,"allow_campaign":true}]'::jsonb));
  if r->>'role'<>'partner' then raise exception 'Wrong role';end if;
 end $$;
 reset role;

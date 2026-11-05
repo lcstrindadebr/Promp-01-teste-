@@ -8,6 +8,8 @@ Em **Configurações → Integrações → Webhooks**, crie uma integração com
 4. Salve, copie o segredo de assinatura (exibido uma única vez) e configure a validação no destino.
 5. Use **Enviar teste** e acompanhe a entrega. O teste envia dados fictícios, sem consultar o banco nem o portal do banco.
 
+Para parceiros, o administrador precisa marcar **Liberar integrações (API e webhooks)** no cadastro. Sem a liberação, a aba fica oculta, a API é bloqueada e os envios pendentes ficam suspensos até nova liberação. Administradores ativos mantêm acesso.
+
 É possível manter vários webhooks. Limites do MVP: 20 por conta; 10 testes/reenvios manuais por hora por webhook. Cada usuário gerencia somente seus webhooks e resultados. Administradores não recebem automaticamente resultados dos parceiros.
 
 ## Eventos e filtros

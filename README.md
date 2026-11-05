@@ -705,3 +705,9 @@ Configure em **Configurações → Integrações → Webhooks** ou pelo botão n
 A opção **1** do instalador também atualiza e inicia `apoiarcred-webhooks`. No Supabase já conectado, a migração foi aplicada; em outro projeto existente execute `supabase/upgrade_webhooks.sql` uma vez. Para um banco novo, o schema completo já inclui webhooks.
 
 Veja [payloads, assinatura, tentativas e instalação](docs/webhooks.md).
+
+### Liberação de integrações para parceiros
+
+Em **Configurações → Parceiros**, marque **Liberar integrações (API e webhooks)** ao criar ou editar o parceiro. Parceiros novos e existentes começam sem essa liberação; administradores ativos mantêm acesso. Desativar bloqueia a API (inclusive tokens já criados), a gestão de integrações e novos envios de webhook. Os pendentes são preservados para quando houver nova liberação; um envio já iniciado pode terminar. As consultas do painel seguem suas próprias permissões.
+
+O parceiro não visualiza **Conexão e administração** nem as orientações de troca de chaves do Supabase. A opção 1 do instalador atualiza a interface e a API administrativa. A alteração de banco já foi aplicada no projeto conectado; em outro projeto execute `supabase/upgrade_partner_integrations.sql` depois das migrações de parceiros e webhooks. O schema completo já inclui a alteração.

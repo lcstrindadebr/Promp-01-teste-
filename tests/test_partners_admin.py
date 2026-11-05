@@ -39,3 +39,13 @@ class PartnerAdminTests(unittest.TestCase):
    broken={**PAYLOAD,'permissions':[{**PAYLOAD['permissions'][0],'daily_limit':-1},PAYLOAD['permissions'][1]]}
    with self.assertRaises(api.AdminError):api.partner_admin('Bearer test-jwt','POST','/api/admin/parceiros',broken)
    self.assertEqual(call.call_count,2)
+
+ def test_integration_flag_is_forwarded_as_boolean(self):
+  for allowed in [True,False]:
+   with self.subTest(allowed=allowed),patch.object(api,'supabase_call',side_effect=[{'id':ACTOR},{'admin':True},{'role':'partner'}]) as call:
+    api.partner_admin('Bearer test-jwt','POST','/api/admin/parceiros/'+PARTNER,{**PAYLOAD,'allow_integrations':allowed})
+    self.assertIs(call.call_args.args[1]['p_input']['allow_integrations'],allowed)
+ def test_invalid_integration_flag_is_rejected(self):
+  with patch.object(api,'supabase_call',side_effect=[{'id':ACTOR},{'admin':True}]) as call:
+   with self.assertRaises(api.AdminError) as err:api.partner_admin('Bearer test-jwt','POST','/api/admin/parceiros/'+PARTNER,{**PAYLOAD,'allow_integrations':'true'})
+   self.assertEqual(err.exception.status,422);self.assertEqual(call.call_count,2)
