@@ -697,3 +697,11 @@ Validação adicional: `tests/partners_database.sql` (rollback) verifica cotas p
 tipo, não reembolso por exclusão, API/idempotência, campanhas e permissões.
 `tests/test_partners_admin.py` testa autorização, criação e falhas do gateway sem
 criar contas reais. Contas sintéticas das demais suítes SQL são admins de teste.
+
+## Webhooks de resultados
+
+Configure em **Configurações → Integrações → Webhooks** ou pelo botão no detalhe da campanha. Escolha origem/campanha, serviço, status, identificação do cliente e resultados parciais. Há teste fictício, segredo de assinatura, pausa, histórico e reenvio. Os envios usam um serviço independente dos robôs.
+
+A opção **1** do instalador também atualiza e inicia `apoiarcred-webhooks`. No Supabase já conectado, a migração foi aplicada; em outro projeto existente execute `supabase/upgrade_webhooks.sql` uma vez. Para um banco novo, o schema completo já inclui webhooks.
+
+Veja [payloads, assinatura, tentativas e instalação](docs/webhooks.md).

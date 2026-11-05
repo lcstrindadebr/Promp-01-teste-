@@ -205,7 +205,11 @@ WantedBy=multi-user.target
 EOF
 install -m 644 "$SOURCE/deploy/apoiarcred-monitor.service" /etc/systemd/system/apoiarcred-monitor.service
 install -m 644 "$SOURCE/deploy/apoiarcred-api.service" /etc/systemd/system/apoiarcred-api.service
+install -m 644 "$SOURCE/deploy/apoiarcred-webhooks.service" /etc/systemd/system/apoiarcred-webhooks.service
 systemctl daemon-reload
+systemctl enable apoiarcred-webhooks
+systemctl restart apoiarcred-webhooks
+systemctl is-active --quiet apoiarcred-webhooks
 systemctl enable apoiarcred-api
 systemctl restart apoiarcred-api
 systemctl is-active --quiet apoiarcred-api

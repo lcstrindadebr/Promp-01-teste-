@@ -15,7 +15,7 @@ cd "$REPO"
 python3 - <<'PY'
 import ast
 from pathlib import Path
-for p in [Path('vps/worker.py'),Path('vps/api.py'),Path('vps/robot_metrics.py'),Path('vps/robot.py'),Path('vps/chat_browser.py'),Path('vps/diagnose.py'),Path('vps/monitor.py'),Path('vps/tjba.py'),Path('vps/diagnose_tjba.py'),Path('vps/tjba_proxy.py')]:
+for p in [Path('vps/worker.py'),Path('vps/api.py'),Path('vps/webhooks.py'),Path('vps/robot_metrics.py'),Path('vps/robot.py'),Path('vps/chat_browser.py'),Path('vps/diagnose.py'),Path('vps/monitor.py'),Path('vps/tjba.py'),Path('vps/diagnose_tjba.py'),Path('vps/tjba_proxy.py')]:
  ast.parse(p.read_text())
 assert Path('dist/index.html').is_file()
 PY
@@ -53,7 +53,11 @@ install -d -m 755 /etc/nginx/snippets /etc/nginx/conf.d
 install -m 644 "$REPO/deploy/apoiarcred-api.nginx" /etc/nginx/snippets/apoiarcred-api.conf
 install -m 644 "$REPO/deploy/apoiarcred-api-rate.nginx" /etc/nginx/conf.d/apoiarcred-api-rate.conf
 python3 "$REPO/scripts/configure_api.py" --app "$APP"
+install -m 644 "$REPO/deploy/apoiarcred-webhooks.service" /etc/systemd/system/apoiarcred-webhooks.service
 systemctl daemon-reload
+systemctl enable apoiarcred-webhooks
+systemctl restart apoiarcred-webhooks
+systemctl is-active --quiet apoiarcred-webhooks
 systemctl enable apoiarcred-api
 systemctl restart apoiarcred-api
 systemctl is-active --quiet apoiarcred-api

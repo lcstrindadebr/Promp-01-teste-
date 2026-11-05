@@ -1,0 +1,20 @@
+[Unit]
+Description=Entregas de webhooks ApoiarCred
+Wants=network-online.target
+After=network-online.target
+[Service]
+User=apoiarcred
+WorkingDirectory=/opt/apoiarcred/vps
+EnvironmentFile=/opt/apoiarcred/.env
+ExecStart=/opt/apoiarcred/.venv/bin/python -u webhooks.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+MemoryMax=128M
+TasksMax=32
+[Install]
+WantedBy=multi-user.target
