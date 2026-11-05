@@ -1,6 +1,8 @@
 begin;
 create temporary table ux_fixture as select gen_random_uuid() uid,gen_random_uuid() other_uid,null::uuid first_lot,null::uuid second_lot;
 insert into auth.users(id,aud,role,email) select uid,'authenticated','authenticated',uid::text||'@ux-test.invalid' from ux_fixture union all select other_uid,'authenticated','authenticated',other_uid::text||'@ux-test.invalid' from ux_fixture;
+insert into apoiarcred_private.user_profiles(user_id,role,name,email) select id,'admin','Test fixture',email from auth.users where (email like '%@ux-test.invalid') and not exists(select 1 from apoiarcred_private.user_profiles p where p.user_id=auth.users.id);
+
 do $$ declare f record; a uuid; b uuid; picked public.consulta_jobs; denied boolean=false;
 begin
  select * into f from ux_fixture;

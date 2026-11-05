@@ -20,6 +20,8 @@ end $$;
 create temporary table amigoz_fixture as select gen_random_uuid() uid,gen_random_uuid() other_uid,gen_random_uuid() job,gen_random_uuid() lot;
 grant select on amigoz_fixture to authenticated;
 insert into auth.users(id,aud,role,email) select uid,'authenticated','authenticated',uid::text||'@test.invalid' from amigoz_fixture union all select other_uid,'authenticated','authenticated',other_uid::text||'@test.invalid' from amigoz_fixture;
+insert into apoiarcred_private.user_profiles(user_id,role,name,email) select id,'admin','Test fixture',email from auth.users where (email like '%@test.invalid') and not exists(select 1 from apoiarcred_private.user_profiles p where p.user_id=auth.users.id);
+
 insert into public.consulta_lotes(id,user_id,nome,tipo) select lot,uid,'TESTE','individual' from amigoz_fixture;
 insert into public.consulta_jobs(id,lote_id,user_id,nome,cpf,telefone,status,saldo_liquidacao,valor_parcela) select job,lot,uid,'TESTE','00000000191','11999999999','concluida',1000,179.37 from amigoz_fixture;
 set local role authenticated;

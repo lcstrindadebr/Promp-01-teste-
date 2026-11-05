@@ -19,7 +19,7 @@ function renderMonitoring(){
 }
 function resetMonitoring(){monitoringSnapshot=null;monitoringError='';renderMonitoring();}
 async function tickMonitoring(){
- if(!authenticated||currentPage!=='settings'||document.visibilityState==='hidden')return;
+ if(!authenticated||(currentAccess&&currentAccess.role!=='admin')||currentPage!=='settings'||document.visibilityState==='hidden')return;
  renderMonitoring();if(monitoringLoading)return;monitoringLoading=true;const epoch=authEpoch;
  try{const rows=await sbRequest('/rest/v1/vps_monitoramento?id=eq.principal&select=updated_at,payload&limit=1');if(epoch!==authEpoch)return;monitoringSnapshot=rows[0]||null;monitoringError='';}
  catch(e){if(epoch===authEpoch)monitoringError='Não foi possível atualizar as métricas. Verifique a conexão e a atualização do coletor na VPS.';}

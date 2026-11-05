@@ -1,7 +1,7 @@
 // Settings sections preserve the existing forms and their event handlers.
 let apiTokenEpoch=0,apiCatalog=[],apiTokensLoading=false;
 const settingsRoot=$('#settings');
-const settingsGroups=[['operation','Operação'],['robots','Robôs e monitoramento'],['commissions','Comissões'],['integrations','Integrações'],['account','Conta e diagnóstico']];
+const settingsGroups=[['operation','Operação'],['robots','Robôs e monitoramento'],['commissions','Comissões'],['integrations','Integrações'],['account','Conta e diagnóstico'],['partners','Parceiros']];
 const settingsNav=document.createElement('div');settingsNav.className='settings-tabs';settingsNav.setAttribute('role','tablist');settingsNav.setAttribute('aria-label','Seções das configurações');
 settingsNav.innerHTML=settingsGroups.map(([id,label],i)=>`<button type="button" id="settings-tab-${id}" role="tab" aria-controls="settings-${id}" aria-selected="${i===0}" tabindex="${i===0?0:-1}" data-settings-section="${id}">${label}</button>`).join('');
 settingsRoot.insertBefore(settingsNav,settingsRoot.querySelector('.portal-card'));
@@ -17,7 +17,7 @@ function switchSettings(id){
  if(id==='integrations'){loadApiTokens();loadApiDocs();}if(id==='robots')tickMonitoring();
 }
 settingsNav.onclick=e=>{const button=e.target.closest('[data-settings-section]');if(button)switchSettings(button.dataset.settingsSection);};
-settingsNav.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;const buttons=[...settingsNav.querySelectorAll('button')],i=buttons.indexOf(document.activeElement);if(i<0)return;e.preventDefault();const next=e.key==='Home'?0:e.key==='End'?buttons.length-1:(i+(e.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length;switchSettings(buttons[next].dataset.settingsSection);buttons[next].focus();};
+settingsNav.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;const buttons=[...settingsNav.querySelectorAll('button')].filter(b=>!b.hidden),i=buttons.indexOf(document.activeElement);if(i<0)return;e.preventDefault();const next=e.key==='Home'?0:e.key==='End'?buttons.length-1:(i+(e.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length;switchSettings(buttons[next].dataset.settingsSection);buttons[next].focus();};
 async function copyApi(text){try{await navigator.clipboard.writeText(text);toast('Copiado.');}catch{toast('Não foi possível copiar. Selecione e copie o campo.');}}
 $('#copyApiBase').onclick=()=>copyApi($('#apiBase').value);
 function clearNewApiToken(){$('#apiNewToken').value='';$('#apiNewToken').type='password';$('#apiNewTokenPanel').hidden=true;$('#showApiToken').textContent='Mostrar';}

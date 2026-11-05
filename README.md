@@ -645,3 +645,55 @@ pelo instalador: o projeto original já foi migrado; projetos próprios exigem o
 Validação: `tests/api_database.sql` roda em transação com rollback e exercita
 idempotência, importação parcial, pausa, busca, permissões e isolamento entre contas.
 `python3 -m unittest discover -s tests` cobre gateway HTTP e instalação/atualização.
+
+### Perfis de administrador e parceiro
+
+Configurações → Parceiros (somente administrador) permite criar acesso por e-mail
+e senha inicial, definir nome, ativar/desativar novos envios e configurar cada tipo:
+Digi+ saldo/parcela e ConsigX margem. Cada tipo tem liberação, individuais,
+limite diário inteiro (0 bloqueia) e permissão de campanhas independentes.
+ConsigX compartilha a mesma cota entre TJBA, DPEBA, EMBASA, SAEB e SUPREV.
+Campanhas permitidas não consomem a cota individual. O administrador é ilimitado.
+
+O parceiro vê apenas suas próprias consultas e campanhas, tipos liberados e saldo
+individual do dia. O monitor global e a gestão de parceiros são restritos ao admin.
+ConsigX mantém as credenciais de portal próprias de cada conta; não compartilha
+senhas do administrador. Liberar esse serviço não dispensa configurar/homologar
+o acesso ao portal em Operação.
+
+A cota usa America/Sao_Paulo e renova à meia-noite. Conta cada novo pedido individual
+aceito na fila, independentemente do resultado posterior; nova tentativa consome
+nova cota. Saldo e parcela Digi+ contam juntos como uma consulta. Excluir registros
+não devolve a cota. Repetir uma requisição de API com a mesma Idempotency-Key não
+consome novamente. O contador fica no banco, protegido por bloqueio transacional;
+vale na interface, API e inserções diretas autorizadas. Não é controle só visual.
+Alterar permissões vale para novos envios/retomadas; trabalhos aceitos continuam.
+
+No projeto original, a única conta existente foi configurada como administrador.
+Em outro projeto, aplique `supabase/upgrade_partners.sql` após upgrade_api.sql.
+Se houver exatamente uma conta existente, ela será o admin inicial. Em projetos
+com várias contas, o responsável pelo banco deve escolher explicitamente o admin:
+
+```sql
+insert into apoiarcred_private.user_profiles(user_id,role,name,email)
+select id,'admin',split_part(email,'@',1),email from auth.users
+where email='EMAIL_DO_ADMIN'
+on conflict(user_id) do update set role='admin',active=true;
+```
+
+Nenhum usuário pode escolher ou promover seu próprio perfil. Metadados editáveis
+de usuário não são usados para autorizar ações. O backend verifica a sessão Auth
+e o perfil do administrador antes de criar acesso com a chave privada da VPS.
+A senha vai somente ao Supabase Auth; nunca é salva em texto no cadastro de parceiro
+ou devolvida pela listagem. Falha ao configurar permissões tenta desfazer apenas a
+conta recém-criada, que permanece sem acesso se a limpeza também falhar.
+
+O cadastro administrativo usa /api/admin/parceiros (sessão de administrador),
+não aceita tokens de integração. Atualize pela opção 1 do instalador para publicar
+API e painel novos; depois Ctrl+F5 e entre novamente. Supabase original já migrado.
+Não há migração automática pelo instalador em projetos diferentes.
+
+Validação adicional: `tests/partners_database.sql` (rollback) verifica cotas por
+tipo, não reembolso por exclusão, API/idempotência, campanhas e permissões.
+`tests/test_partners_admin.py` testa autorização, criação e falhas do gateway sem
+criar contas reais. Contas sintéticas das demais suítes SQL são admins de teste.

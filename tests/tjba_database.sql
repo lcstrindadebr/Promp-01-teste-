@@ -3,6 +3,8 @@ create temporary table tjba_fixture as select gen_random_uuid() uid,gen_random_u
 grant select,update on tjba_fixture to authenticated;
 grant select on tjba_fixture to service_role;
 insert into auth.users(id,aud,role,email) select uid,'authenticated','authenticated',uid::text||'@tjba-test.invalid' from tjba_fixture union all select other_uid,'authenticated','authenticated',other_uid::text||'@tjba-test.invalid' from tjba_fixture;
+insert into apoiarcred_private.user_profiles(user_id,role,name,email) select id,'admin','Test fixture',email from auth.users where (email like '%@tjba-test.invalid') and not exists(select 1 from apoiarcred_private.user_profiles p where p.user_id=auth.users.id);
+
 set local role authenticated;
 do $$ declare f record; campaign_uuid uuid; denied boolean=false; info jsonb; begin
  select * into f from tjba_fixture;perform set_config('request.jwt.claim.sub',f.uid::text,true);

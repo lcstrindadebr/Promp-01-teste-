@@ -1,10 +1,11 @@
 // All data uses Supabase. The browser receives only a publishable/anon key.
 const sb=window.SUPABASE_CONFIG;
 const storageKey='apoiarcred-auth:'+sb.url;
+let currentAccess=null,accessRefreshing=false,accessCheckedAt=0;
 let session=null,authenticated=false,refreshing=null,loadingCloud=false,authEpoch=0;
 const statusNames={aguardando:'Aguardando',processando:'Processando',concluida:'Concluída',nao_localizado:'Não é cliente',nao_cliente:'Não é cliente',nao_encontrado:'Não encontrado',erro:'Erro',revisao:'Revisão'};
 function showLogin(message=''){
- authenticated=false;session=null;authEpoch++;if(typeof resetApiSettings==='function')resetApiSettings();if(typeof resetTjbaSettings==='function')resetTjbaSettings();importGeneration++;readingImport=false;importError='';if(typeof resetAmigoz==='function')resetAmigoz();if(typeof resetMonitoring==='function')resetMonitoring();records=[];pending=[];campaigns=[];activeCampaign=null;retryingCampaign=false;$('#campaignName').value='';navigate("home");
+ authenticated=false;session=null;currentAccess=null;accessRefreshing=false;accessCheckedAt=0;authEpoch++;if(typeof resetPartnerSettings==='function')resetPartnerSettings();if(typeof resetApiSettings==='function')resetApiSettings();if(typeof resetTjbaSettings==='function')resetTjbaSettings();importGeneration++;readingImport=false;importError='';if(typeof resetAmigoz==='function')resetAmigoz();if(typeof resetMonitoring==='function')resetMonitoring();records=[];pending=[];campaigns=[];activeCampaign=null;retryingCampaign=false;$('#campaignName').value='';navigate("home");
  $('#consultationLogPanel').open=false;sessionStorage.removeItem(storageKey);$('#appShell').hidden=true;$('#loginPage').hidden=false;
  $('#loginError').textContent=message;$('#preview').classList.add('hide');$('#file').value='';$('#import').disabled=true;render();
 }
@@ -30,7 +31,7 @@ async function fetchAll(path){
 async function createCampaign(name,items){
  if(!authenticated)throw Error('Entre na sua conta.');
  if(!name.trim()||name.trim().length>160||!items.length)throw Error('Informe o nome e selecione clientes válidos.');
- const service=selectedService(),body={p_nome:name.trim(),p_items:items.map(r=>({nome:r.nome,cpf:r.cpf,telefone:r.telefone}))};if(service!=='tjba_margem')body.p_servico=service;else body.p_convenio=selectedConvenio();
+ const service=selectedService();if(typeof assertCanSubmit==='function')assertCanSubmit(service,'campaign');const body={p_nome:name.trim(),p_items:items.map(r=>({nome:r.nome,cpf:r.cpf,telefone:r.telefone}))};if(service!=='tjba_margem')body.p_servico=service;else body.p_convenio=selectedConvenio();
  const id=await sbRequest('/rest/v1/rpc/'+(service==='tjba_margem'?'create_consigx_campaign':'create_consulta_campaign'),{method:'POST',body:JSON.stringify(body)});
  await loadCloud();return id;
 }
@@ -44,14 +45,32 @@ async function loadCloud(){
 }
 async function add(items,service=selectedService(),convenio=null){
  if(!authenticated)throw Error('Entre na sua conta.');if(items.length!==1)throw Error('Use Campanhas para importar consultas em lote.');convenio=convenio||(typeof selectedConvenio==='function'?selectedConvenio():'tjba');
- const servico=service,tjba=servico==='tjba_margem';const batches=await sbRequest('/rest/v1/'+(tjba?'tjba_lotes':'consulta_lotes'),{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify({nome:'Consulta individual',tipo:'individual',servico,...(tjba?{convenio}:{})})});
- await sbRequest('/rest/v1/'+(tjba?'tjba_jobs':'consulta_jobs'),{method:'POST',body:JSON.stringify(items.map(r=>({nome:r.nome,cpf:r.cpf,telefone:r.telefone,...(tjba?{}:{servico}),lote_id:batches[0].id,user_id:session.user.id})))});
- toast(items.length+' consulta(s) salva(s) na fila.');await loadCloud();
+ if(typeof assertCanSubmit==='function')assertCanSubmit(service,'individual');
+ await sbRequest('/rest/v1/rpc/create_individual_consulta',{method:'POST',body:JSON.stringify({p_item:items[0],p_servico:service,p_convenio:convenio})});
+ toast('Consulta salva na fila.');await loadCloud();await refreshMyAccess(true);
+
 }
-function openPanel(){authenticated=true;$('#loginPage').hidden=true;$('#appShell').hidden=false;$('#accountEmail').textContent=session.user.email;$('#authState').textContent='Conectado como '+session.user.email;$('#password').value='';$('#loginError').textContent='';loadCloud();if(typeof loadAmigozSettings==='function')loadAmigozSettings();if(typeof loadTjbaSettings==='function')loadTjbaSettings()}
+async function refreshMyAccess(force=false){
+ if(!authenticated||accessRefreshing||(!force&&Date.now()-accessCheckedAt<15000))return;
+ const epoch=authEpoch;accessRefreshing=true;
+ try{const data=await sbRequest('/rest/v1/rpc/my_access',{method:'POST',body:'{}'});if(epoch!==authEpoch)return;
+ if(!data||!['admin','partner'].includes(data.role)||!Array.isArray(data.services))throw Error('Não foi possível validar as permissões da conta.');
+ currentAccess=data;accessCheckedAt=Date.now();if(typeof applyAccessUi==='function')applyAccessUi();
+ }finally{if(epoch===authEpoch)accessRefreshing=false;}
+}
+async function openPanel(){
+ authenticated=true;const epoch=authEpoch;
+ try{await refreshMyAccess(true);if(epoch!==authEpoch)return;if(!currentAccess?.active)throw Error('Conta sem acesso ativo. Solicite liberação ao administrador.');}
+ catch(e){if(epoch===authEpoch)showLogin(e.message);return;}
+ $('#loginPage').hidden=true;$('#appShell').hidden=false;$('#accountEmail').textContent=session.user.email;
+ $('#authState').textContent='Conectado como '+session.user.email;$('#password').value='';$('#loginError').textContent='';loadCloud();
+ if(typeof applyAccessUi==='function')applyAccessUi();
+ if(typeof loadAmigozSettings==='function')loadAmigozSettings();if(typeof loadTjbaSettings==='function')loadTjbaSettings();
+}
+
 $('#login').onsubmit=async e=>{
  e.preventDefault();const button=$('#loginSubmit');button.disabled=true;$('#loginError').textContent='Entrando…';
- try{const data=await raw('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email:$('#email').value.trim(),password:$('#password').value})});authEpoch++;saveSession(data);openPanel()}catch(e){showLogin(e.status===400?'E-mail ou senha inválidos. Confira também a confirmação da conta.':e.message)}finally{button.disabled=false}
+ try{const data=await raw('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email:$('#email').value.trim(),password:$('#password').value})});authEpoch++;saveSession(data);await openPanel()}catch(e){showLogin(e.status===400?'E-mail ou senha inválidos. Confira também a confirmação da conta.':e.message)}finally{button.disabled=false}
 };
 $('#logout').onclick=async()=>{
  const token=session?.access_token;showLogin();$('#password').value='';
@@ -59,9 +78,11 @@ $('#logout').onclick=async()=>{
 };
 async function restoreSession(){
  try{const stored=sessionStorage.getItem(storageKey);if(!stored)return;session=JSON.parse(stored);$('#loginError').textContent='Verificando sessão…';await refreshSession();
- const user=await raw('/auth/v1/user',{headers:{Authorization:'Bearer '+session.access_token}});session.user=user;saveSession(session);openPanel();
+ const user=await raw('/auth/v1/user',{headers:{Authorization:'Bearer '+session.access_token}});session.user=user;saveSession(session);await openPanel();
  }catch{showLogin('Entre novamente para acessar o sistema.')}
 }
 // Discard credentials from versions that did not distinguish Supabase projects.
 sessionStorage.removeItem('sb-session');
 restoreSession();setInterval(loadCloud,2000);
+
+setInterval(()=>{if(authenticated&&document.visibilityState!=='hidden')refreshMyAccess().catch(()=>{});},15000);

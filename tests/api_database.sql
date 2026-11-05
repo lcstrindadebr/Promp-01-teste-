@@ -2,6 +2,8 @@ begin;
 create temporary table api_fixture(uid uuid,other_uid uuid,token text,cid uuid);
 insert into api_fixture values(gen_random_uuid(),gen_random_uuid(),null,null);
 insert into auth.users(id,aud,role,email) select uid,'authenticated','authenticated',uid::text||'@api-test.invalid' from api_fixture union all select other_uid,'authenticated','authenticated',other_uid::text||'@api-test.invalid' from api_fixture;
+insert into apoiarcred_private.user_profiles(user_id,role,name,email) select id,'admin','Test fixture',email from auth.users where (email like '%@api-test.invalid') and not exists(select 1 from apoiarcred_private.user_profiles p where p.user_id=auth.users.id);
+
 grant select,update on api_fixture to authenticated,service_role;
 select set_config('request.jwt.claim.sub',(select uid::text from api_fixture),true);
 set local role authenticated;

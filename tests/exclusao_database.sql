@@ -2,6 +2,8 @@ begin;
 create temporary table deletion_fixture as select gen_random_uuid() uid,gen_random_uuid() other_uid,gen_random_uuid() lot,gen_random_uuid() job;
 grant select on deletion_fixture to authenticated;
 insert into auth.users(id,aud,role,email) select uid,'authenticated','authenticated',uid::text||'@test.invalid' from deletion_fixture union all select other_uid,'authenticated','authenticated',other_uid::text||'@test.invalid' from deletion_fixture;
+insert into apoiarcred_private.user_profiles(user_id,role,name,email) select id,'admin','Test fixture',email from auth.users where (email like '%@test.invalid') and not exists(select 1 from apoiarcred_private.user_profiles p where p.user_id=auth.users.id);
+
 insert into public.consulta_lotes(id,user_id,nome,tipo) select lot,uid,'TESTE EXCLUSAO','campanha' from deletion_fixture;
 insert into public.consulta_jobs(id,lote_id,user_id,nome,cpf,telefone) select job,lot,uid,'TESTE','00123456789','11999999999' from deletion_fixture;
 insert into public.amigoz_simulacoes(user_id,job_id,resultado) select uid,job,'{}' from deletion_fixture;

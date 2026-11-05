@@ -12,6 +12,68 @@ def rpc(payload):
  request=urllib.request.Request(url,data=json.dumps(payload).encode(),headers=headers,method='POST')
  with urllib.request.urlopen(request,timeout=20) as response:return json.loads(response.read())
 
+def supabase_call(path,payload=None,method='POST',bearer=None):
+ key=os.environ['SUPABASE_SERVICE_ROLE_KEY'];headers={'apikey':key,'Content-Type':'application/json'}
+ if bearer:headers['Authorization']='Bearer '+bearer
+ elif not key.startswith('sb_secret_'):headers['Authorization']='Bearer '+key
+ req=urllib.request.Request(os.environ['SUPABASE_URL'].rstrip('/')+path,
+  data=json.dumps(payload).encode() if payload is not None else None,headers=headers,method=method)
+ with urllib.request.urlopen(req,timeout=20) as response:
+  body=response.read();return json.loads(body) if body else None
+
+class AdminError(Exception):
+ def __init__(self,status,code,message):self.status=status;self.code=code;self.message=message
+
+def partner_admin(auth,method,path,payload):
+ if not auth.startswith('Bearer ') or auth[7:].startswith('apc_'):raise AdminError(401,'session_required','Entre com sua conta de administrador.')
+ try:user=supabase_call('/auth/v1/user',method='GET',bearer=auth[7:])
+ except urllib.error.HTTPError:raise AdminError(401,'invalid_session','Sessão inválida. Entre novamente.')
+ actor=user.get('id')
+ if not actor:raise AdminError(401,'invalid_session','Sessão inválida.')
+ def manage(action,data=None):return supabase_call('/rest/v1/rpc/admin_partner_manage',dict(p_actor=actor,p_action=action,p_input=data or {}))
+ try:manage('check')
+ except urllib.error.HTTPError as error:
+  if error.code in (401,403):raise AdminError(403,'admin_required','Apenas administradores podem gerenciar parceiros.')
+  raise
+ if method=='GET' and path=='/api/admin/parceiros':return 200,{'data':manage('list')}
+ if method!='POST':raise AdminError(404,'not_found','Rota não encontrada.')
+ name=payload.get('name');permissions=payload.get('permissions')
+ if not isinstance(name,str) or not 1<=len(name.strip())<=160 or not isinstance(permissions,list) or len(permissions)!=2:
+  raise AdminError(422,'invalid_partner','Informe nome e as permissões dos dois tipos de higienização.')
+ services=set()
+ for rule in permissions:
+  if not isinstance(rule,dict):raise AdminError(422,'invalid_permissions','Permissões inválidas.')
+  service=rule.get('service')
+  if service not in ('digimais_saldo_parcela','tjba_margem'):raise AdminError(422,'invalid_permissions','Tipo de higienização inválido.')
+  services.add(service);limit=rule.get('daily_limit')
+  if type(limit) is not int or not 0<=limit<=100000 or any(type(rule.get(k)) is not bool for k in ('enabled','allow_individual','allow_campaign')):raise AdminError(422,'invalid_permissions','Limites e permissões inválidos.')
+ if services!={'digimais_saldo_parcela','tjba_margem'} or type(payload.get('active')) is not bool:raise AdminError(422,'invalid_permissions','Permissões inválidas.')
+ data={key:payload[key] for key in ('name','permissions','active')}
+ if path=='/api/admin/parceiros':
+  email=payload.get('email');password=payload.get('password')
+  if not isinstance(email,str) or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email) or len(email)>254 or not isinstance(password,str) or not 8<=len(password)<=256:
+   raise AdminError(422,'invalid_credentials','Informe e-mail válido e senha de 8 a 256 caracteres.')
+  try:created=supabase_call('/auth/v1/admin/users',dict(email=email.strip().lower(),password=password,email_confirm=True))
+  except urllib.error.HTTPError as error:
+   if error.code in (400,422):raise AdminError(422,'account_not_created','Não foi possível criar a conta. Confira se o e-mail já existe e se a senha atende às regras do projeto.')
+   raise
+  created=created.get('user',created)
+  user_id=str(uuid.UUID(created['id']));data.update(user_id=user_id,email=created.get('email',email))
+  try:result=manage('create',data)
+  except Exception:
+   try:supabase_call('/auth/v1/admin/users/'+user_id,method='DELETE')
+   except Exception:pass
+   raise AdminError(503,'profile_not_saved','Não foi possível configurar as permissões. A conta não recebeu acesso. Confira a lista antes de tentar novamente.')
+  return 201,{'data':result}
+ match=re.fullmatch(r'/api/admin/parceiros/([a-f0-9-]{36})',path)
+ if match:
+  data['user_id']=str(uuid.UUID(match.group(1)))
+  try:return 200,{'data':manage('update',data)}
+  except urllib.error.HTTPError as error:
+   if error.code in (400,403,404,422):raise AdminError(422,'profile_not_saved','Não foi possível alterar este parceiro. Confira o cadastro e as permissões.')
+   raise
+ raise AdminError(404,'not_found','Rota não encontrada.')
+
 class Server(ThreadingHTTPServer):
  daemon_threads=True;request_queue_size=32
  def __init__(self,*args,**kwargs):self.slots=threading.BoundedSemaphore(16);super().__init__(*args,**kwargs)
@@ -41,9 +103,10 @@ class Handler(BaseHTTPRequestHandler):
   self.request_id=str(uuid.uuid4());target=urlsplit(self.path)
   if self.command=='GET' and target.path=='/api/health':
    return self.send_json(200,{'status':'ok','version':'1'})
-  if not target.path.startswith('/api/v1/') or '%' in target.path:return self.error(404,'not_found','Rota não encontrada.')
+  if not target.path.startswith(('/api/v1/','/api/admin/')) or '%' in target.path:return self.error(404,'not_found','Rota não encontrada.')
   auth=self.headers.get('Authorization','')
-  if not re.fullmatch(r'Bearer apc_[a-f0-9]{64}',auth):return self.error(401,'invalid_token','Envie Authorization: Bearer SEU_TOKEN.')
+  admin=target.path.startswith('/api/admin/')
+  if not admin and not re.fullmatch(r'Bearer apc_[a-f0-9]{64}',auth):return self.error(401,'invalid_token','Envie Authorization: Bearer SEU_TOKEN.')
   token=auth[7:];payload={}
   if self.headers.get('Transfer-Encoding'):return self.error(400,'invalid_body','Envie Content-Length e JSON.')
   if self.command=='POST':
@@ -62,9 +125,12 @@ class Handler(BaseHTTPRequestHandler):
   key=self.headers.get('Idempotency-Key')
   if key is not None and (not 1<=len(key)<=128 or not re.fullmatch(r'[A-Za-z0-9_.:-]+',key)):return self.error(400,'invalid_idempotency_key','Use chave de 1 a 128 caracteres: letras, números, ponto, dois-pontos, hífen ou sublinhado.')
   try:
+   if admin:
+    status,body=partner_admin(auth,self.command,target.path,payload);body['request_id']=self.request_id;return self.send_json(status,body)
    result=rpc(dict(p_hash=hashlib.sha256(token.encode()).hexdigest(),p_method=self.command,p_route=target.path[len('/api/v1'):],p_payload=payload,p_key=key))
    status=int(result['status']);body=result['body'];body['request_id']=self.request_id
-   self.send_json(status,body,**({'Idempotency_Replayed':'true'} if result.get('replayed') else {}),**({'Retry_After':'60'} if status==429 else {}))
+   self.send_json(status,body,**({'Idempotency_Replayed':'true'} if result.get('replayed') else {}),**({'Retry_After':'60'} if status==429 and body.get('error',{}).get('code')=='rate_limit' else {}))
+  except AdminError as e:self.error(e.status,e.code,e.message)
   except (urllib.error.URLError,socket.timeout,TimeoutError):self.error(503,'upstream_unavailable','API temporariamente indisponível. Tente novamente com a mesma Idempotency-Key.')
   except Exception:self.error(500,'internal_error','Não foi possível concluir a requisição.')
  def do_GET(self):self.handle_route()

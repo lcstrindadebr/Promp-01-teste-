@@ -4,6 +4,8 @@ grant all on campaign_fixture to authenticated;
 insert into auth.users(id,aud,role,email)
 select owner_id,'authenticated','authenticated',owner_id::text||'@campaign-test.invalid' from campaign_fixture
 union all select other_id,'authenticated','authenticated',other_id::text||'@campaign-test.invalid' from campaign_fixture;
+insert into apoiarcred_private.user_profiles(user_id,role,name,email) select id,'admin','Test fixture',email from auth.users where (email like '%@campaign-test.invalid') and not exists(select 1 from apoiarcred_private.user_profiles p where p.user_id=auth.users.id);
+
 set local role authenticated;
 do $$
 declare owner_uuid uuid; other_uuid uuid; cid uuid; refused boolean:=false;

@@ -406,3 +406,14 @@ Resposta 200:
 ## Instalação
 
 Projeto Supabase original já atualizado. Em outro projeto, aplique supabase/upgrade_api.sql após as migrações anteriores. Atualize a VPS pela opção 1 do instalador. Serviço apoiarcred-api escuta somente em 127.0.0.1:8877, publicado pelo Nginx em /api/. Sem porta pública adicional e sem Docker. Logs: journalctl -u apoiarcred-api -n 50. GET /api/health verifica processo; autenticação/dados exigem token. Nenhum token é gerado automaticamente.
+
+## Parceiros e cotas
+
+As permissões do token não ampliam as permissões da conta parceira. Novos pedidos
+individuais respeitam o limite diário de cada serviço (Digi+ ou ConsigX), com
+renovação à meia-noite em America/Sao_Paulo. HTTP 429 com error.code=daily_limit
+indica cota esgotada; 403 partner_permission indica serviço/modalidade bloqueado.
+Campanhas também precisam de permissão no perfil. Idempotência evita cobrança
+repetida da mesma operação. Retentativa com chave nova é nova solicitação.
+A administração de parceiros exige sessão de administrador em /api/admin/parceiros;
+não pode ser feita por um token de integração.
