@@ -23,5 +23,23 @@ const {setup,response}=require('./test_frontend.cjs');
  assert(t.get('#campaignPrevPage').disabled);
  assert.equal(fs.readFileSync('dist/modelo-tjba.csv','utf8').replace(/^\uFEFF/,'').trim().split(/\r?\n/)[0],'cpf');
  assert.equal(fs.readFileSync('dist/modelo-importacao.csv','utf8').replace(/^\uFEFF/,'').trim().split(/\r?\n/)[0],'nome;cpf;telefone');
+ const eta=vm.runInContext(`(()=>{
+  const now=Date.parse('2026-11-07T20:00:00Z');
+  const rows=[120,90,60,30].map(seconds=>({status:'Concluída',consultado_em:new Date(now-seconds*1000).toISOString()}));
+  return [
+   campaignEta({},rows,6,1,now),
+   campaignEta({paused:true},rows,6,1,now),
+   campaignEta({},rows,6,0,now),
+   campaignEta({},rows.slice(0,2),6,1,now),
+   campaignEta({},rows,6,1,now+180000),
+   campaignEta({},rows,0,0,now)
+  ];
+ })()`,t.ctx);
+ assert.match(eta[0],/Conclusão estimada em 4 min/);
+ assert.match(eta[1],/pausada/);
+ assert.match(eta[2],/processamento estiver em andamento/);
+ assert.match(eta[3],/Calculando/);
+ assert.match(eta[4],/Calculando/);
+ assert.match(eta[5],/finalizada/);
  console.log('PASS: stable row order, all-service campaign list, pause states, status filters and owner-scoped pause request');
 })().catch(e=>{console.error(e);process.exit(1)});

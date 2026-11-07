@@ -7,6 +7,33 @@ const originalCampaignRecords=campaignRecords;
 campaignRecords=function(id){return orderedClients(originalCampaignRecords(id));};
 function campaignPhase(c,rows){return c.paused?'paused':rows.some(r=>['Aguardando','Processando'].includes(r.status))?'active':'done';}
 function campaignPhaseLabel(c,rows){const running=rows.filter(r=>r.status==='Processando').length;return c.paused?(running?'Pausando · consultas em andamento terminando':'Pausada'):campaignPhase(c,rows)==='done'?'Finalizada':running?'Em andamento':'Na fila';}
+function campaignEta(campaign, rows, pending, running, now=Date.now()){
+ if(!pending)return rows.length?'Campanha finalizada.':'';
+ if(campaign.paused)return 'Previsão suspensa enquanto a campanha estiver pausada.';
+ if(!running)return 'Previsão disponível quando o processamento estiver em andamento.';
+ // Use completions from this campaign only, including outcomes that need review.
+ const windowMs=10*60_000;
+ let count=0,first=now,last=0;
+ for(const row of rows){
+  if(row.status==='Aguardando'||row.status==='Processando')continue;
+  const finished=Date.parse(row.consultado_em);
+  if(!Number.isFinite(finished)||finished<now-windowMs||finished>now)continue;
+  count++;
+  first=Math.min(first,finished);
+  last=Math.max(last,finished);
+ }
+ if(count<3||last-first<30_000||now-last>2*60_000){
+  return 'Calculando previsão com as próximas consultas.';
+ }
+ const interval=(now-first)/(count-1);
+ const minutes=Math.max(1,Math.ceil(pending*interval/60_000));
+ const finish=new Date(now+minutes*60_000);
+ const hours=Math.floor(minutes/60),remaining=minutes%60;
+ const duration=hours?hours+' h'+(remaining?' '+remaining+' min':''):minutes+' min';
+ const time=finish.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+ const date=finish.toDateString()===new Date(now).toDateString()?'':finish.toLocaleDateString('pt-BR')+' às ';
+ return 'Conclusão estimada em '+duration+' ('+date+time+').';
+}
 function queryDescription(c){return serviceLabel(c.servico)+(c.servico==='tjba_margem'?' · '+convenioLabel(c.convenio):'');}
 function resultProgress(r){const p=Math.max(0,Math.min(100,Number(r.progress)||0));return ['Aguardando','Processando'].includes(r.status)?`<div class="progress-line"><progress max="100" value="${p}" aria-label="Progresso da consulta"></progress><small>${p}%</small></div>`:'';}
 function resultActions(r){return `${['Erro','Revisão'].includes(r.status)?`<button data-retry="${escapeHTML(r.id)}">Tentar novamente</button>`:''}${r.servico==='tjba_margem'?`<button data-tjba-history="${escapeHTML(r.id)}">Histórico</button>`:typeof amigozAction==='function'?amigozAction(r):''}<button class="danger" data-delete-job="${escapeHTML(r.id)}">Excluir</button>`;}
@@ -24,6 +51,8 @@ renderCampaigns=function(){
  $('#campaignState').textContent=queryDescription(c)+' · '+campaignPhaseLabel(c,rows);
  $('#campaignProgress').innerHTML=`<div><strong>${pct}% processado</strong><span>${n.total-n.waiting} de ${n.total} clientes</span></div><progress max="100" value="${pct}" aria-label="Progresso total da campanha"></progress>`;
  const running=rows.filter(r=>r.status==='Processando');$('#campaignLive').textContent=running.length?running.map(r=>'Consultando: '+r.nome+' · '+r.cpf).join(' | '):c.paused?'Campanha pausada. Retome para continuar pelos clientes pendentes.':n.waiting?'Aguardando sua vez na fila. Campanhas anteriores são processadas primeiro.':'Processamento finalizado. Confira os resultados ou repita apenas erros e revisões.';
+ const eta=campaignEta(c,rows,n.waiting,running.length);
+ if($('#campaignEta').textContent!==eta)$('#campaignEta').textContent=eta;
  $('#pauseCampaign').disabled=changingCampaign||(!n.waiting&&!c.paused);$('#pauseCampaign').textContent=c.paused?'Retomar campanha':'Pausar campanha';
  const search=$('#campaignClientSearch').value.trim().toLowerCase(),filter=$('#campaignClientStatus').value;
  const key=JSON.stringify([c.id,search,filter]);
