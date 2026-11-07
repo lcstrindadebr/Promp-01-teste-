@@ -4,7 +4,7 @@ function convenioLabel(value){return convenioLabels[value||'tjba']||'Convênio d
 let tjbaAccess=null;
 const tjbaStatusLabels={consultado:'Consultado',nao_encontrado:'Não encontrado',revisao_matricula:'Revisão de matrícula',revisao_margens:'Revisão de margens',sessao_expirada:'Acesso ao portal',erro:'Erro'};
 function tjbaAccessSlot(){
- return currentAccess?.role==='admin'?Number($('#tjbaAccessSlot').value||0):0;
+ return currentAccess?.role==='admin'?Number($('#tjbaAccessSlot').value||1):0;
 }
 function selectedTjbaAccess(){
  const slot=tjbaAccessSlot();
@@ -19,7 +19,6 @@ function closeTjbaAccessEditor(){
 function renderTjbaAccess(){
  closeTjbaAccessEditor();
  const access=selectedTjbaAccess();
- const shared=tjbaAccess.shared;
  const admin=currentAccess?.role==='admin';
  $('#tjbaAccessPicker').hidden=!admin;
  $('#editTjbaAccess').disabled=false;
@@ -28,8 +27,9 @@ function renderTjbaAccess(){
  if(access.username&&access.enabled){
   $('#tjbaCredentialStatus').textContent='Acesso ativo · '+access.username;
  }else if(tjbaAccessSlot()){
-  const saved=access.username?'Exclusivo desativado ('+access.username+'). ':'';
-  $('#tjbaCredentialStatus').textContent=saved+(shared.enabled?'Usa o acesso compartilhado · '+shared.username:'Acesso compartilhado indisponível.');
+  $('#tjbaCredentialStatus').textContent=access.username
+   ? 'Inativo no ConsigX · '+access.username
+   : 'Inativo no ConsigX · cadastre e habilite um acesso para este robô.';
  }else{
   $('#tjbaCredentialStatus').textContent=access.username?'Acesso desativado · '+access.username:'Nenhum acesso cadastrado.';
  }
@@ -37,7 +37,7 @@ function renderTjbaAccess(){
 function resetTjbaSettings(){
  tjbaAccess=null;
  closeTjbaAccessEditor();
- $('#tjbaAccessSlot').value='0';
+ $('#tjbaAccessSlot').value='1';
  $('#tjbaAccessSlot').disabled=false;
  $('#tjbaAccessPicker').hidden=true;
  $('#editTjbaAccess').hidden=false;
@@ -75,7 +75,7 @@ $('#editTjbaAccess').onclick=()=>{
  $('#tjbaUsername').value=access.username||'';
  $('#tjbaPassword').value='';
  $('#tjbaEnabled').checked=access.enabled??true;
- $('#tjbaEnabledLabel').textContent=slot?'Usar login exclusivo no robô '+slot:'Habilitar acesso compartilhado';
+ $('#tjbaEnabledLabel').textContent=slot?'Usar login exclusivo no robô '+slot:'Habilitar acesso ConsigX';
  $('#tjbaPasswordHelp').textContent=access.username?'Deixe a senha em branco para manter a atual. Se trocar o usuário, informe a senha.':'Informe a senha para cadastrar o acesso.';
  $('#editTjbaAccess').hidden=true;
  $('#tjbaCredentials').hidden=false;

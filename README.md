@@ -452,7 +452,7 @@ de repetição é por campanha. CPFs são armazenados com 11 dígitos, sem pontu
 
 Os três robôs alternam Digi+ e ConsigX. No ConsigX, cada login de portal
 tem uma consulta ativa por vez para evitar que novas sessões derrubem a consulta
-em andamento. Logins distintos podem ser processados em paralelo. Em Configurações → Operação → Acesso ao portal ConsigX, o administrador pode cadastrar um login por robô para as campanhas da própria conta. Robôs sem login exclusivo usam o acesso principal. As senhas ficam no Vault.
+em andamento. Logins distintos podem ser processados em paralelo. Em Configurações → Operação → Acesso ao portal ConsigX, o administrador pode cadastrar um login por robô para as campanhas da própria conta. Só recebem consultas ConsigX os robôs com login próprio habilitado. O acesso único do parceiro é atendido pelo Robô 1. As senhas ficam no Vault.
 
 O serviço começa com um robô ativo e libera os demais após períodos de folga.
 A cada 5 segundos, verifica CPU e RAM da VPS. Com RAM disponível abaixo de 256 MiB
@@ -721,3 +721,5 @@ Em projetos Supabase existentes, aplique `supabase/upgrade_admin_campaign_limits
 A migração `supabase/upgrade_shared_robots.sql` habilita a reserva paralela do ConsigX por login. A tabela de clientes das campanhas exibe 50 registros por página.
 
 Para a tela unificada de acesso ConsigX, aplique `supabase/upgrade_consigx_access_editor.sql` após a migração dos três robôs. A tela usa os acessos e as senhas já cadastrados no Vault.
+
+A migração `supabase/upgrade_consigx_require_robot_login.sql` exige credencial própria habilitada para cada robô nas consultas do administrador.
