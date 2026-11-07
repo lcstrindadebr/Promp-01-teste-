@@ -1,6 +1,7 @@
 """Supabase queue worker. Service key remains exclusively on the VPS."""
 import asyncio,json,os,time,urllib.request,urllib.error
 from datetime import datetime,timezone
+from collections import defaultdict
 URL=os.environ['SUPABASE_URL'].rstrip('/')
 KEY=os.environ['SUPABASE_SERVICE_ROLE_KEY']
 MODE=os.environ.get('ROBOT_MODE','disabled')
@@ -47,7 +48,12 @@ async def process_digimais(job,adapter):
 async def process_tjba(job,adapter):
  from tjba import job_result
  if MODE!='live':return job_result({'status':'sessao_expirada','observacoes':'Robô desativado. Ative somente após homologação.'})
- credentials=await asyncio.to_thread(request,'rpc/get_tjba_credentials',{'p_user_id':job['user_id']})
+ payload={'p_user_id':job['user_id']}
+ route='rpc/get_tjba_credentials'
+ if job.get('robot_slot'):
+  route='rpc/get_tjba_robot_credentials'
+  payload['p_slot']=job['robot_slot']
+ credentials=await asyncio.to_thread(request,route,payload)
  queue=asyncio.Queue(maxsize=1)
  async def report(percent,stage):
   if getattr(adapter,'telemetry',None):adapter.telemetry.report(percent)
@@ -61,27 +67,56 @@ async def process_tjba(job,adapter):
    finally:queue.task_done()
  writer=asyncio.create_task(flush())
  try:
-  result=await adapter.run(job,credentials,report);await queue.join();return result
+  username=(credentials or {}).get('username','').strip().casefold()
+  if username and credentials.get('enabled') and hasattr(adapter,'login_locks'):
+   # Keep the portal login exclusive even if credentials change after queue reservation.
+   async with adapter.login_locks[username]:
+    adapter.portal_user=username
+    for peer in adapter.peers:
+     if peer is not adapter and getattr(peer,'portal_user',None)==username:
+      peer.portal_user=None
+      await peer.close()
+    result=await adapter.run(job,credentials,report)
+  else:
+   result=await adapter.run(job,credentials,report)
+  await queue.join()
+  return result
  finally:
   credentials=None;writer.cancel()
   try:await writer
   except asyncio.CancelledError:pass
 
-async def primary_loop():
- from tjba import Session
+async def robot_loop(index, capacity, sessions):
  from robot import DigiSession
- adapter=Session();digi=DigiSession();last_queue="tjba"
- slot=robot_metrics.slots[0] if robot_metrics else None
+ adapter=sessions[index]
+ digi=DigiSession()
+ last_queue='tjba' if index % 2 == 0 else 'digimais'
+ slot=robot_metrics.slots[index]
  adapter.telemetry=slot;digi.telemetry=slot
  try:
   while True:
    try:
+    if index >= capacity.target:
+     slot.state='resource_paused'
+     slot.service=None
+     await adapter.close()
+     await digi.close()
+     await asyncio.sleep(3)
+     continue
+    if slot.state=='resource_paused':
+     slot.state='idle'
     queues=['digimais','tjba'] if last_queue=='tjba' else ['tjba','digimais']
     jobs=[]
     for queue_name in queues:
-     jobs=await asyncio.to_thread(request,'rpc/claim_tjba_job' if queue_name=='tjba' else 'rpc/claim_consulta_job',{})
+     if index >= capacity.target:
+      break
+     route='rpc/claim_tjba_job_for_robot' if queue_name=='tjba' else 'rpc/claim_consulta_job'
+     payload={'p_slot':index+1} if queue_name=='tjba' else {}
+     jobs=await asyncio.to_thread(request,route,payload)
      if jobs:last_queue=queue_name;break
     if not jobs:
+     if index >= capacity.target:
+      continue
      if slot and slot.state=='queue_error':slot.state='idle'
      await adapter.close_idle();await digi.close_idle();await asyncio.sleep(3);continue
     job=jobs[0]
@@ -107,57 +142,69 @@ async def primary_loop():
  finally:
   await adapter.close();await digi.close()
 
-async def digimais_loop():
- """Second executor claims Digi+ only. No shared Playwright/browser state."""
- from robot import DigiSession
- digi=DigiSession()
- slot=robot_metrics.slots[1] if robot_metrics and len(robot_metrics.slots)>1 else None
- digi.telemetry=slot
- try:
-  while True:
-   try:
-    jobs=await asyncio.to_thread(request,'rpc/claim_consulta_job',{})
-    if not jobs:
-     if slot and slot.state=='queue_error':slot.state='idle'
-     await digi.close_idle();await asyncio.sleep(3);continue
-    job=jobs[0]
-    if slot:slot.begin('consigx' if job.get('servico')=='tjba_margem' else 'digimais')
-    try:result=await process_digimais(job,digi)
-    except Exception:result={'status':'erro','message':'Falha interna no robô. Verificar a instalação e conectividade da VPS.'}
-    if slot:slot.saving(result)
-    save_started=time.monotonic()
-    result['consultado_em']=datetime.now(timezone.utc).isoformat()
-    # Hold this slot until persistence succeeds. Never repeat the bank query.
-    while True:
-     try:
-      await asyncio.to_thread(request,'consulta_jobs?id=eq.'+job['id'],result,'PATCH');break
-     except Exception:
-      print('Falha ao salvar resultado Digi+; tentando somente a gravação.',flush=True)
-      await asyncio.sleep(10)
-    if slot:
-     print(f"DURAÇÃO | {slot.name} | processamento={slot.duration:.1f}s | gravação={time.monotonic()-save_started:.1f}s",flush=True)
-     slot.saved()
-   except Exception:
-    if slot:slot.state='queue_error'
-    print('Fila Digi+ indisponível; nova tentativa em 10 segundos.',flush=True)
-    await asyncio.sleep(10)
+class RobotCapacity:
+ """Park secondary slots under pressure, then ramp up after sustained recovery."""
+ def __init__(self, maximum):
+  self.maximum=maximum
+  self.target=1
+  self.hot_samples=0
+  self.healthy_samples=0
 
- finally:await digi.close()
+ def observe(self, ram, cpu):
+  mib=1024**2
+  low=ram['available'] < max(256*mib, ram['total']*.15)
+  self.hot_samples=self.hot_samples+1 if cpu is not None and cpu>=95 else 0
+  healthy=ram['available'] >= max(512*mib, ram['total']*.25) and cpu is not None and cpu<=75
+  self.healthy_samples=self.healthy_samples+1 if healthy else 0
+  if low or self.hot_samples>=3:
+   self.target=max(1,self.target-1)
+   self.hot_samples=0
+   self.healthy_samples=0
+  elif self.healthy_samples>=6:
+   self.target=min(self.maximum,self.target+1)
+   self.healthy_samples=0
+
+ async def watch(self):
+  from monitor import cpu_ticks, cpu_percent, memory
+  previous=None
+  while True:
+   before=self.target
+   try:
+    current=cpu_ticks()
+    self.observe(memory(),cpu_percent(previous,current) if previous else None)
+    previous=current
+   except (OSError,ValueError,KeyError,IndexError):
+    self.target=1
+    self.healthy_samples=self.hot_samples=0
+    previous=None
+   if self.target!=before:
+    print(f'Capacidade dos robôs: {before} → {self.target}.',flush=True)
+   await asyncio.sleep(5)
 
 async def main_async():
  global robot_metrics
  from robot_metrics import RobotMetrics
- workers=os.environ.get('DIGIMAIS_WORKERS','2')
- if workers not in ('1','2'):raise ValueError('DIGIMAIS_WORKERS deve ser 1 ou 2.')
- robot_metrics=RobotMetrics(int(workers))
- print('Executores Digi+: '+workers+'; ConsigX permanece serial; máximo de 2 navegadores.',flush=True)
- heartbeat=asyncio.create_task(robot_metrics.publish_loop())
- tasks=[asyncio.create_task(primary_loop())]
- if workers=='2':tasks.append(asyncio.create_task(digimais_loop()))
- try:await asyncio.gather(*tasks)
+ from tjba import Session
+ workers=os.environ.get('ROBOT_WORKERS',os.environ.get('DIGIMAIS_WORKERS','3'))
+ if workers not in ('1','2','3'):
+  raise ValueError('ROBOT_WORKERS deve ser 1, 2 ou 3.')
+ maximum=int(workers)
+ capacity=RobotCapacity(maximum)
+ robot_metrics=RobotMetrics(maximum)
+ sessions=[Session() for _ in range(maximum)]
+ login_locks=defaultdict(asyncio.Lock)
+ for adapter in sessions:
+  adapter.peers=sessions
+  adapter.login_locks=login_locks
+ print(f'Até {maximum} robôs para Digi+ e ConsigX, com ajuste automático de capacidade.',flush=True)
+ background=[asyncio.create_task(robot_metrics.publish_loop()),asyncio.create_task(capacity.watch())]
+ tasks=[asyncio.create_task(robot_loop(index,capacity,sessions)) for index in range(maximum)]
+ try:
+  await asyncio.gather(*tasks,*background)
  finally:
-  for task in tasks+[heartbeat]:task.cancel()
-  await asyncio.gather(*tasks,heartbeat,return_exceptions=True)
+  for task in tasks+background:
+   task.cancel()
+  await asyncio.gather(*tasks,*background,return_exceptions=True)
 
 def main():asyncio.run(main_async())
 if __name__=='__main__':main()

@@ -40,8 +40,7 @@ class Slot:
 
 class RobotMetrics:
  def __init__(self,workers,path=STATE_PATH):
-  self.path=Path(path);self.started_at=stamp();self.slots=[Slot('principal')]
-  if workers==2:self.slots.append(Slot('digimais-2'))
+  self.path=Path(path);self.started_at=stamp();self.slots=[Slot(f'robo-{index+1}') for index in range(workers)]
  def payload(self):return dict(updated_at=stamp(),started_at=self.started_at,slots=[s.snapshot() for s in self.slots])
  def write(self,data):
   self.path.parent.mkdir(parents=True,exist_ok=True)

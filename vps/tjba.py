@@ -326,13 +326,14 @@ class Session:
  """One live browser per worker; owner-scoped session and bounded login retries."""
  def __init__(self):self.pw=None;self.browser=None;self.context=None;self.page=None;self.identity=None;self.blocked=None;self.last_used=0
  async def close(self):
-  if self.browser:
-   try:await self.browser.close()
-   except Exception:pass
-  if self.pw:
-   try:await self.pw.stop()
-   except Exception:pass
+  browser,pw=self.browser,self.pw
   self.pw=self.browser=self.context=self.page=None;self.identity=None
+  if browser:
+   try:await browser.close()
+   except Exception:pass
+  if pw:
+   try:await pw.stop()
+   except Exception:pass
  async def close_idle(self):
   if self.browser and time.monotonic()-self.last_used>120:await self.close()
  async def run(self,job,credentials,on_progress):

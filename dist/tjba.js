@@ -4,8 +4,9 @@ function convenioLabel(value){return convenioLabels[value||'tjba']||'Convênio d
 // Browser reads only credential metadata; administrative inspection stays in SQL.
 let tjbaConfigured=false;
 const tjbaStatusLabels={consultado:'Consultado',nao_encontrado:'Não encontrado',revisao_matricula:'Revisão de matrícula',revisao_margens:'Revisão de margens',sessao_expirada:'Acesso ao portal',erro:'Erro'};
-function resetTjbaSettings(){tjbaConfigured=false;$('#tjbaUsername').value='';$('#tjbaPassword').value='';$('#tjbaEnabled').checked=false;$('#tjbaCredentialStatus').textContent='';$('#tjbaHistoryPanel').hidden=true;$('#tjbaHistoryRows').innerHTML='';}
+function resetTjbaSettings(){resetTjbaRobotSettings();tjbaConfigured=false;$('#tjbaUsername').value='';$('#tjbaPassword').value='';$('#tjbaEnabled').checked=false;$('#tjbaCredentialStatus').textContent='';$('#tjbaHistoryPanel').hidden=true;$('#tjbaHistoryRows').innerHTML='';}
 async function loadTjbaSettings(){
+ if(currentAccess?.role==='admin'&&currentAccess.active)loadTjbaRobotSettings();
  const epoch=authEpoch;try{const info=await sbRequest('/rest/v1/rpc/tjba_credentials_status',{method:'POST',body:'{}'});if(epoch!==authEpoch)return;
  tjbaConfigured=Boolean(info.configured);$('#tjbaUsername').value=info.username||'';$('#tjbaEnabled').checked=Boolean(info.enabled);$('#tjbaCredentialStatus').textContent=info.configured?(info.enabled?'Acesso salvo · consultas habilitadas':'Acesso salvo · aguardando homologação'):'Cadastre seu acesso ao portal.';
  if(info.configured)$('#tjbaCredentialStatus').textContent+=' · Versão da senha: '+(info.password_version??0)+(info.password_changed_at?' · Alterada em '+new Date(info.password_changed_at).toLocaleString('pt-BR'):' · Data de alteração anterior não registrada');
@@ -20,6 +21,55 @@ $('#tjbaCredentials').onsubmit=async e=>{
  }catch{if(epoch===authEpoch)$('#tjbaCredentialStatus').textContent='Não foi possível salvar. Confira usuário e senha; ao trocar o usuário, informe a senha novamente.';}
  finally{password='';if(epoch===authEpoch)$('#saveTjba').disabled=false;}
 };
+const tjbaRobotSlots=[1,2,3];
+function resetTjbaRobotSettings(){
+ $('#tjbaRobotSettings').hidden=true;
+ $('#tjbaRobotSettings').open=false;
+ $('#tjbaRobotSettingsStatus').textContent='';
+ for(const slot of tjbaRobotSlots){
+  $('#tjbaRobotUsername'+slot).value='';
+  $('#tjbaRobotPassword'+slot).value='';
+  $('#tjbaRobotEnabled'+slot).checked=false;
+  $('#tjbaRobotSave'+slot).disabled=false;
+  $('#tjbaRobotStatus'+slot).textContent='';
+ }
+}
+async function loadTjbaRobotSettings(){
+ const epoch=authEpoch;
+ $('#tjbaRobotSettings').hidden=false;
+ try{
+  const entries=await sbRequest('/rest/v1/rpc/manage_tjba_robot_credentials',{method:'POST',body:'{}'});
+  if(epoch!==authEpoch||!Array.isArray(entries))return;
+  for(const entry of entries){
+   if(!tjbaRobotSlots.includes(entry.slot))continue;
+   $('#tjbaRobotUsername'+entry.slot).value=entry.username;
+   $('#tjbaRobotEnabled'+entry.slot).checked=entry.enabled;
+   $('#tjbaRobotStatus'+entry.slot).textContent=entry.enabled?'Login exclusivo ativo.':'Usando o login principal.';
+  }
+  $('#tjbaRobotSettingsStatus').textContent='';
+ }catch{
+  if(epoch===authEpoch)$('#tjbaRobotSettingsStatus').textContent='Não foi possível carregar os logins dos robôs.';
+ }
+}
+for(const slot of tjbaRobotSlots){
+ $('#tjbaRobotForm'+slot).onsubmit=async event=>{
+  event.preventDefault();
+  const epoch=authEpoch,button=$('#tjbaRobotSave'+slot),status=$('#tjbaRobotStatus'+slot);
+  const password=$('#tjbaRobotPassword'+slot);
+  const enabled=$('#tjbaRobotEnabled'+slot).checked;
+  const body=JSON.stringify({p_slot:slot,p_username:$('#tjbaRobotUsername'+slot).value.trim(),p_password:password.value,p_enabled:enabled});
+  password.value='';
+  button.disabled=true;
+  try{
+   await sbRequest('/rest/v1/rpc/manage_tjba_robot_credentials',{method:'POST',body});
+   if(epoch===authEpoch)status.textContent=enabled?'Login exclusivo salvo.':'Usando o login principal.';
+  }catch(error){
+   if(epoch===authEpoch)status.textContent=error.message;
+  }finally{
+   if(epoch===authEpoch)button.disabled=false;
+  }
+ };
+}
 function setTableHead(service,id){
  const labels=service==='tjba_margem'?['Cliente / CPF','Matrícula','Tipo de servidor','Situação','Empréstimo disponível','Cartão disponível','Status','Data','Observações','Ações']:['Cliente / CPF','Status','Saldo devedor','Total de parcelas','Valor da parcela','Higienização / Data','Ações'];
  $('#'+id).innerHTML='<tr>'+labels.map(l=>'<th>'+l+'</th>').join('')+'</tr>';

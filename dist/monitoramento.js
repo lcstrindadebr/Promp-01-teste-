@@ -37,13 +37,13 @@ function renderRobotHealth(data,collectorFresh){
  const enabled=data?.robot_mode==='live';
  $('#robotsStatus').textContent=!data?'Aguardando dados':!fresh?'Sem comunicação':!enabled?'Desativados':'Em operação';
  $('#robotsStatus').className='pill '+(fresh&&enabled?'ok':'err');
- const slots=Array.isArray(robots?.slots)?robots.slots.slice(0,2):[];
+ const slots=Array.isArray(robots?.slots)?robots.slots.slice(0,3):[];
  $('#robotsCards').innerHTML=slots.length?slots.map((s,index)=>{
-  const label=!fresh?'Sem comunicação':!enabled?'Consultas desativadas':({idle:'Disponível',consulting:'Consultando',saving:'Salvando resultado',queue_error:'Falha de conexão com a fila'})[s.state]||'Estado indisponível';
-  const service=s.service==='digimais'?'Digi+':s.service==='consigx'?'ConsigX':index===0?'Digi+ / ConsigX':'Digi+';
+  const label=!fresh?'Sem comunicação':!enabled?'Consultas desativadas':({idle:'Disponível',resource_paused:'Pausado por recursos',consulting:'Consultando',saving:'Salvando resultado',queue_error:'Falha de conexão com a fila'})[s.state]||'Estado indisponível';
+  const service=s.service==='digimais'?'Digi+':s.service==='consigx'?'ConsigX':'Digi+ / ConsigX';
   const running=fresh&&enabled&&['consulting','saving'].includes(s.state),pct=metricPercent(s.progress);
   const activity=Date.parse(s.last_activity||''),inactive=Math.max(0,(Date.now()-activity)/1000);
-  return `<article class="robot-health-slot"><div class="heading"><h3>Executor ${index+1}</h3><span class="pill ${!fresh||s.state==='queue_error'?'err':running?'run':enabled?'ok':''}">${escapeHTML(label)}</span></div><p>${service}${index===0?' · compartilhado':''}</p>${running?`<strong>${robotDuration(s.elapsed_seconds)} em execução</strong><div class="progress-line"><progress max="100" value="${pct??0}" aria-label="Progresso do executor ${index+1}"></progress><small>${pct??0}%</small></div>`:`<strong>${!fresh?'Estado atual não confirmado':!enabled?'Execução desativada':'Aguardando próxima consulta'}</strong>`}<small>Última consulta: ${robotDuration(s.last_duration_seconds)}</small>${running&&Number.isFinite(inactive)&&inactive>60?`<small class="robot-delay">Sem nova etapa há ${robotDuration(inactive)}. Aguardando resposta ou gravação.</small>`:''}</article>`;
+  return `<article class="robot-health-slot"><div class="heading"><h3>Executor ${index+1}</h3><span class="pill ${!fresh||s.state==='queue_error'?'err':running?'run':enabled?'ok':''}">${escapeHTML(label)}</span></div><p>${service}</p>${running?`<strong>${robotDuration(s.elapsed_seconds)} em execução</strong><div class="progress-line"><progress max="100" value="${pct??0}" aria-label="Progresso do executor ${index+1}"></progress><small>${pct??0}%</small></div>`:`<strong>${!fresh?'Estado atual não confirmado':!enabled?'Execução desativada':s.state==='resource_paused'?'Aguardando recursos da VPS':'Aguardando próxima consulta'}</strong>`}<small>Última consulta: ${robotDuration(s.last_duration_seconds)}</small>${running&&Number.isFinite(inactive)&&inactive>60?`<small class="robot-delay">Sem nova etapa há ${robotDuration(inactive)}. Aguardando resposta ou gravação.</small>`:''}</article>`;
  }).join(''):'<p class="muted">O estado dos executores aparece após atualizar o robô e o coletor pelo instalador.</p>';
  const count=key=>slots.reduce((n,s)=>n+Math.max(0,Number(s[key])||0),0);
  const total=count('finished_last_hour'),conclusive=count('conclusive_last_hour');

@@ -32,7 +32,7 @@ def robot_activity(path='/run/apoiarcred-robots/state.json'):
   keys=('id','service','state','progress','elapsed_seconds','last_duration_seconds','last_activity',
         'finished_last_hour','conclusive_last_hour','errors_last_hour','review_last_hour','average_seconds')
   return dict(updated_at=data.get('updated_at'),started_at=data.get('started_at'),
-   slots=[{key:s.get(key) for key in keys} for s in data['slots'][:2] if isinstance(s,dict)])
+   slots=[{key:s.get(key) for key in keys} for s in data['slots'][:3] if isinstance(s,dict)])
  except (OSError,ValueError,TypeError):return None
 
 def snapshot(previous,current):

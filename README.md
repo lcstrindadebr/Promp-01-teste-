@@ -450,13 +450,19 @@ O CPF pode aparecer em campanhas diferentes para uma nova consulta intencional;
 o resultado histórico de outra campanha não é tratado como atualizado. A prevenção
 de repetição é por campanha. CPFs são armazenados com 11 dígitos, sem pontuação.
 
-O slot principal continua alternando Digi+ e ConsigX. O slot adicional processa
-somente Digi+. Assim há até dois navegadores no serviço; se o principal estiver
-no ConsigX, um Digi+ continua trabalhando. ConsigX mantém uma única sessão.
+Os três robôs alternam Digi+ e ConsigX. No ConsigX, cada login de portal
+tem uma consulta ativa por vez para evitar que novas sessões derrubem a consulta
+em andamento. Logins distintos podem ser processados em paralelo. Em Configurações → Operação → Acesso ao portal ConsigX → Logins ConsigX por robô, o administrador pode cadastrar um login por robô para as campanhas da própria conta. Robôs sem login exclusivo usam o acesso principal. As senhas ficam no Vault.
 
-Para voltar a um executor, adicione `DIGIMAIS_WORKERS=1` ao arquivo privado
-`/opt/apoiarcred/.env` e reinicie `systemctl restart apoiarcred-robo` quando não houver
-consultas em execução. Para dois, use `DIGIMAIS_WORKERS=2` ou remova essa variável.
+O serviço começa com um robô ativo e libera os demais após períodos de folga.
+A cada 5 segundos, verifica CPU e RAM da VPS. Com RAM disponível abaixo de 256 MiB
+ou 15% do total (o maior valor), ou CPU acima de 95% por três coletas,
+suspende um robô adicional. O robô termina e grava a consulta atual antes de fechar
+o navegador. Após seis coletas com CPU de até 75% e RAM disponível de pelo menos
+512 MiB e 25% do total, libera um robô por vez. Um robô permanece ativo.
+`ROBOT_WORKERS` define o máximo entre 1 e 3 e substitui a configuração legada
+`DIGIMAIS_WORKERS` quando ambas estiverem presentes. Sem configuração, o máximo é 3.
+
 A opção 1 do auto instalador publica o novo worker e preserva o .env/proxy/SSL.
 No projeto Supabase original o índice já foi aplicado; outros projetos precisam
 executar `supabase/upgrade_digimais_concurrency.sql`. A migração não apaga duplicados:
@@ -588,10 +594,8 @@ de trocar o código. Validação sem tráfego ao banco: `python3 -m unittest dis
 
 ### Monitoramento de atividade dos robôs
 
-Configurações → Atividade dos robôs mostra os dois executores, serviço atual,
-progresso, tempo em execução e duração da última consulta. O executor principal
-alterna Digi+ e ConsigX; o segundo é exclusivo Digi+. Indica separadamente
-consultando, salvando, disponível, fila indisponível e sem comunicação.
+Configurações → Atividade dos robôs mostra até três executores, serviço atual,
+progresso, duração e pausas por pressão de recursos.
 A atualização é a cada 5 segundos, enquanto Configurações estiver aberta.
 
 O worker escreve um estado agregado em `/run/apoiarcred-robots/state.json`,
@@ -713,3 +717,5 @@ Em **Configurações → Parceiros**, marque **Liberar integrações (API e webh
 O parceiro não visualiza **Conexão e administração** nem as orientações de troca de chaves do Supabase. A opção 1 do instalador atualiza a interface e a API administrativa. A alteração de banco já foi aplicada no projeto conectado; em outro projeto execute `supabase/upgrade_partner_integrations.sql` depois das migrações de parceiros e webhooks. O schema completo já inclui a alteração.
 
 Em projetos Supabase existentes, aplique `supabase/upgrade_admin_campaign_limits.sql` para habilitar campanhas sem limite de registros para administradores.
+
+A migração `supabase/upgrade_shared_robots.sql` habilita a reserva paralela do ConsigX por login. A tabela de clientes das campanhas exibe 50 registros por página.
