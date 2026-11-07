@@ -1,75 +1,113 @@
 const convenioLabels={tjba:'TJBA',dpeba:'DPEBA',embasa:'EMBASA',saeb:'Governo BA · SAEB',suprev:'SUPREV'};
 function selectedConvenio(){return $('#convenioSelect')?.value||'tjba';}
 function convenioLabel(value){return convenioLabels[value||'tjba']||'Convênio desconhecido';}
-// Browser reads only credential metadata; administrative inspection stays in SQL.
-let tjbaConfigured=false;
+let tjbaAccess=null;
 const tjbaStatusLabels={consultado:'Consultado',nao_encontrado:'Não encontrado',revisao_matricula:'Revisão de matrícula',revisao_margens:'Revisão de margens',sessao_expirada:'Acesso ao portal',erro:'Erro'};
-function resetTjbaSettings(){resetTjbaRobotSettings();tjbaConfigured=false;$('#tjbaUsername').value='';$('#tjbaPassword').value='';$('#tjbaEnabled').checked=false;$('#tjbaCredentialStatus').textContent='';$('#tjbaHistoryPanel').hidden=true;$('#tjbaHistoryRows').innerHTML='';}
+function tjbaAccessSlot(){
+ return currentAccess?.role==='admin'?Number($('#tjbaAccessSlot').value||0):0;
+}
+function selectedTjbaAccess(){
+ const slot=tjbaAccessSlot();
+ return (slot?tjbaAccess?.robots.find(entry=>entry.slot===slot):tjbaAccess?.shared)||{};
+}
+function closeTjbaAccessEditor(){
+ $('#tjbaCredentials').hidden=true;
+ $('#tjbaUsername').value='';
+ $('#tjbaPassword').value='';
+ $('#tjbaEnabled').checked=false;
+}
+function renderTjbaAccess(){
+ closeTjbaAccessEditor();
+ const access=selectedTjbaAccess();
+ const shared=tjbaAccess.shared;
+ const admin=currentAccess?.role==='admin';
+ $('#tjbaAccessPicker').hidden=!admin;
+ $('#editTjbaAccess').disabled=false;
+ $('#editTjbaAccess').hidden=false;
+ $('#editTjbaAccess').textContent=access.username?'Editar acesso':'Cadastrar acesso';
+ if(access.username&&access.enabled){
+  $('#tjbaCredentialStatus').textContent='Acesso ativo · '+access.username;
+ }else if(tjbaAccessSlot()){
+  const saved=access.username?'Exclusivo desativado ('+access.username+'). ':'';
+  $('#tjbaCredentialStatus').textContent=saved+(shared.enabled?'Usa o acesso compartilhado · '+shared.username:'Acesso compartilhado indisponível.');
+ }else{
+  $('#tjbaCredentialStatus').textContent=access.username?'Acesso desativado · '+access.username:'Nenhum acesso cadastrado.';
+ }
+}
+function resetTjbaSettings(){
+ tjbaAccess=null;
+ closeTjbaAccessEditor();
+ $('#tjbaAccessSlot').value='0';
+ $('#tjbaAccessSlot').disabled=false;
+ $('#tjbaAccessPicker').hidden=true;
+ $('#editTjbaAccess').hidden=false;
+ $('#editTjbaAccess').disabled=true;
+ $('#editTjbaAccess').textContent='Editar acesso';
+ $('#saveTjba').disabled=false;
+ $('#cancelTjbaAccess').disabled=false;
+ $('#tjbaCredentialStatus').textContent='';
+ $('#tjbaHistoryPanel').hidden=true;
+ $('#tjbaHistoryRows').innerHTML='';
+}
+function requestTjbaAccess(input={}){
+ return sbRequest('/rest/v1/rpc/manage_consigx_access',{method:'POST',body:JSON.stringify(input)});
+}
 async function loadTjbaSettings(){
- if(currentAccess?.role==='admin'&&currentAccess.active)loadTjbaRobotSettings();
- const epoch=authEpoch;try{const info=await sbRequest('/rest/v1/rpc/tjba_credentials_status',{method:'POST',body:'{}'});if(epoch!==authEpoch)return;
- tjbaConfigured=Boolean(info.configured);$('#tjbaUsername').value=info.username||'';$('#tjbaEnabled').checked=Boolean(info.enabled);$('#tjbaCredentialStatus').textContent=info.configured?(info.enabled?'Acesso salvo · consultas habilitadas':'Acesso salvo · aguardando homologação'):'Cadastre seu acesso ao portal.';
- if(info.configured)$('#tjbaCredentialStatus').textContent+=' · Versão da senha: '+(info.password_version??0)+(info.password_changed_at?' · Alterada em '+new Date(info.password_changed_at).toLocaleString('pt-BR'):' · Data de alteração anterior não registrada');
- }catch{if(epoch===authEpoch)$('#tjbaCredentialStatus').textContent='Não foi possível carregar o acesso TJBA. Verifique a atualização do banco.';}
-}
-$('#tjbaCredentials').onsubmit=async e=>{
- e.preventDefault();const epoch=authEpoch;let password=$('#tjbaPassword').value;const username=$('#tjbaUsername').value.trim(),enabled=$('#tjbaEnabled').checked;$('#tjbaPassword').value='';$('#saveTjba').disabled=true;
- try{
- if(!username||(!tjbaConfigured&&!password))throw Error('missing');
- await sbRequest('/rest/v1/rpc/save_tjba_credentials',{method:'POST',body:JSON.stringify({p_username:username,p_password:password,p_enabled:enabled})});password='';
- if(epoch!==authEpoch)return;tjbaConfigured=true;await loadTjbaSettings();
- }catch{if(epoch===authEpoch)$('#tjbaCredentialStatus').textContent='Não foi possível salvar. Confira usuário e senha; ao trocar o usuário, informe a senha novamente.';}
- finally{password='';if(epoch===authEpoch)$('#saveTjba').disabled=false;}
-};
-const tjbaRobotSlots=[1,2,3];
-function resetTjbaRobotSettings(){
- $('#tjbaRobotSettings').hidden=true;
- $('#tjbaRobotSettings').open=false;
- $('#tjbaRobotSettingsStatus').textContent='';
- for(const slot of tjbaRobotSlots){
-  $('#tjbaRobotUsername'+slot).value='';
-  $('#tjbaRobotPassword'+slot).value='';
-  $('#tjbaRobotEnabled'+slot).checked=false;
-  $('#tjbaRobotSave'+slot).disabled=false;
-  $('#tjbaRobotStatus'+slot).textContent='';
- }
-}
-async function loadTjbaRobotSettings(){
  const epoch=authEpoch;
- $('#tjbaRobotSettings').hidden=false;
+ $('#editTjbaAccess').disabled=true;
  try{
-  const entries=await sbRequest('/rest/v1/rpc/manage_tjba_robot_credentials',{method:'POST',body:'{}'});
-  if(epoch!==authEpoch||!Array.isArray(entries))return;
-  for(const entry of entries){
-   if(!tjbaRobotSlots.includes(entry.slot))continue;
-   $('#tjbaRobotUsername'+entry.slot).value=entry.username;
-   $('#tjbaRobotEnabled'+entry.slot).checked=entry.enabled;
-   $('#tjbaRobotStatus'+entry.slot).textContent=entry.enabled?'Login exclusivo ativo.':'Usando o login principal.';
-  }
-  $('#tjbaRobotSettingsStatus').textContent='';
+  const access=await requestTjbaAccess();
+  if(epoch!==authEpoch)return;
+  if(!access?.shared||!Array.isArray(access.robots))throw Error('Resposta inválida.');
+  tjbaAccess=access;
+  renderTjbaAccess();
  }catch{
-  if(epoch===authEpoch)$('#tjbaRobotSettingsStatus').textContent='Não foi possível carregar os logins dos robôs.';
+  if(epoch!==authEpoch)return;
+  $('#tjbaCredentialStatus').textContent='Não foi possível carregar o acesso ConsigX.';
+  $('#editTjbaAccess').textContent='Tentar novamente';
+  $('#editTjbaAccess').disabled=false;
  }
 }
-for(const slot of tjbaRobotSlots){
- $('#tjbaRobotForm'+slot).onsubmit=async event=>{
-  event.preventDefault();
-  const epoch=authEpoch,button=$('#tjbaRobotSave'+slot),status=$('#tjbaRobotStatus'+slot);
-  const password=$('#tjbaRobotPassword'+slot);
-  const enabled=$('#tjbaRobotEnabled'+slot).checked;
-  const body=JSON.stringify({p_slot:slot,p_username:$('#tjbaRobotUsername'+slot).value.trim(),p_password:password.value,p_enabled:enabled});
-  password.value='';
-  button.disabled=true;
-  try{
-   await sbRequest('/rest/v1/rpc/manage_tjba_robot_credentials',{method:'POST',body});
-   if(epoch===authEpoch)status.textContent=enabled?'Login exclusivo salvo.':'Usando o login principal.';
-  }catch(error){
-   if(epoch===authEpoch)status.textContent=error.message;
-  }finally{
-   if(epoch===authEpoch)button.disabled=false;
+$('#tjbaAccessSlot').onchange=renderTjbaAccess;
+$('#editTjbaAccess').onclick=()=>{
+ if(!tjbaAccess)return loadTjbaSettings();
+ const access=selectedTjbaAccess(),slot=tjbaAccessSlot();
+ $('#tjbaUsername').value=access.username||'';
+ $('#tjbaPassword').value='';
+ $('#tjbaEnabled').checked=access.enabled??true;
+ $('#tjbaEnabledLabel').textContent=slot?'Usar login exclusivo no robô '+slot:'Habilitar acesso compartilhado';
+ $('#tjbaPasswordHelp').textContent=access.username?'Deixe a senha em branco para manter a atual. Se trocar o usuário, informe a senha.':'Informe a senha para cadastrar o acesso.';
+ $('#editTjbaAccess').hidden=true;
+ $('#tjbaCredentials').hidden=false;
+ $('#tjbaUsername').focus?.();
+};
+$('#cancelTjbaAccess').onclick=renderTjbaAccess;
+$('#tjbaCredentials').onsubmit=async event=>{
+ event.preventDefault();
+ const epoch=authEpoch,button=$('#saveTjba');
+ if(button.disabled||!tjbaAccess)return;
+ const password=$('#tjbaPassword');
+ const input={p_slot:tjbaAccessSlot(),p_username:$('#tjbaUsername').value.trim(),p_password:password.value,p_enabled:$('#tjbaEnabled').checked};
+ password.value='';
+ button.disabled=true;
+ $('#tjbaAccessSlot').disabled=true;
+ $('#cancelTjbaAccess').disabled=true;
+ try{
+  const access=await requestTjbaAccess(input);
+  if(epoch!==authEpoch)return;
+  tjbaAccess=access;
+  renderTjbaAccess();
+ }catch(error){
+  if(epoch===authEpoch)$('#tjbaCredentialStatus').textContent=error.message;
+ }finally{
+  input.p_password='';
+  if(epoch===authEpoch){
+   button.disabled=false;
+   $('#tjbaAccessSlot').disabled=false;
+   $('#cancelTjbaAccess').disabled=false;
   }
- };
-}
+ }
+};
 function setTableHead(service,id){
  const labels=service==='tjba_margem'?['Cliente / CPF','Matrícula','Tipo de servidor','Situação','Empréstimo disponível','Cartão disponível','Status','Data','Observações','Ações']:['Cliente / CPF','Status','Saldo devedor','Total de parcelas','Valor da parcela','Higienização / Data','Ações'];
  $('#'+id).innerHTML='<tr>'+labels.map(l=>'<th>'+l+'</th>').join('')+'</tr>';

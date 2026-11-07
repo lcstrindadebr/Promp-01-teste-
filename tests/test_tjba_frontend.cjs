@@ -5,9 +5,36 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');const {setup,re
  await t.get('#file').onchange({target:{files:[{name:'tjba.csv',size:30,text:async()=> 'cpf\n123456789\n00000000191'}]}});
  assert.equal(vm.runInContext('pending.length',t.ctx),2);assert.equal(vm.runInContext('pending[0].cpf',t.ctx),'00123456789');
  vm.runInContext("authenticated=true;session={access_token:'test',expires_at:Date.now()/1000+3600,user:{id:'owner'}}",t.ctx);let created, saved;
- t.handler(async(u,o)=>{if(u.includes('create_consigx_campaign')){created=JSON.parse(o.body);return response('campaign')}if(u.includes('save_tjba_credentials')){saved=JSON.parse(o.body);return response(null)}if(u.includes('tjba_credentials_status'))return response({configured:true,username:'test',enabled:false});return response([])});
+ const metadata={shared:{configured:true,username:'test',enabled:true},robots:[{slot:2,username:'robot-two',enabled:true}]};
+ vm.runInContext("currentAccess={role:'admin',active:true}",t.ctx);
+ t.handler(async(u,o)=>{
+  if(u.includes('create_consigx_campaign')){created=JSON.parse(o.body);return response('campaign')}
+  if(u.includes('manage_consigx_access')){
+   const input=JSON.parse(o.body);
+   if(input.p_slot!==undefined)saved=input;
+   return response(metadata);
+  }
+  return response([]);
+ });
  t.get('#convenioSelect').value='embasa';t.get('#campaignName').value='EMBASA';await t.get('#import').onclick();assert.equal(created.p_items.length,2);assert.equal(created.p_convenio,'embasa');assert(!('p_servico' in created));
- t.get('#tjbaUsername').value='test';t.get('#tjbaPassword').value='fake-secret';t.get('#tjbaEnabled').checked=false;await t.get('#tjbaCredentials').onsubmit({preventDefault(){}});assert.equal(saved.p_password,'fake-secret');assert.equal(t.get('#tjbaPassword').value,'');assert(!t.get('#tjbaCredentialStatus').textContent.includes('fake-secret'));
+ await vm.runInContext('loadTjbaSettings()',t.ctx);
+ assert(t.get('#tjbaCredentials').hidden);
+ t.get('#editTjbaAccess').onclick();
+ assert.equal(t.get('#tjbaUsername').value,'test');
+ t.get('#tjbaPassword').value='unsaved';
+ t.get('#tjbaAccessSlot').value='2';
+ t.get('#tjbaAccessSlot').onchange();
+ assert(t.get('#tjbaCredentials').hidden);
+ assert.equal(t.get('#tjbaPassword').value,'');
+ t.get('#editTjbaAccess').onclick();
+ assert.equal(t.get('#tjbaUsername').value,'robot-two');
+ t.get('#tjbaPassword').value='fake-secret';
+ await t.get('#tjbaCredentials').onsubmit({preventDefault(){}});
+ assert.equal(saved.p_slot,2);
+ assert.equal(saved.p_password,'fake-secret');
+ assert.equal(t.get('#tjbaPassword').value,'');
+ assert(t.get('#tjbaCredentials').hidden);
+ assert(!t.get('#tjbaCredentialStatus').textContent.includes('fake-secret'));
  vm.runInContext("records=[{id:'t',servico:'tjba_margem',cpf:'00123456789',nome:'TESTE',status:'Concluída',tjba_status:'consultado',emprestimo_disponivel:'0.00',cartao_disponivel:'-10.25',matricula:'000123',date:'2026-11-02',progress:100},{id:'d',servico:'digimais_saldo_parcela',nome:'DIGI',status:'Concluída',saldo:999,valorParcela:55}];render()",t.ctx);
  assert(t.get('#rows').innerHTML.includes('000123'));assert(t.get('#rows').innerHTML.includes('0,00'));assert(/-R\$[^<]*10,25/.test(t.get('#rows').innerHTML));assert(!t.get('#rows').innerHTML.includes('DIGI'));assert(!t.get('#rows').innerHTML.includes('Simular Amigoz'));
  t.get('#filter').value='tjba:revisao_matricula';vm.runInContext('render()',t.ctx);assert(!t.get('#rows').innerHTML.includes('000123'));
