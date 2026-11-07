@@ -56,7 +56,7 @@ nome;cpf;telefone
 NOME COMPLETO DO CLIENTE;00000000000;11999999999
 ```
 
-Substitua o exemplo pelos clientes. CPF e telefone devem ser texto para preservar zeros à esquerda. O painel aceita até 1.000 registros, valida a planilha e mostra linhas que precisam de correção antes da importação. A linha de exemplo não é enviada ao robô. Os arquivos devem ter no máximo 2 MB.
+Substitua o exemplo pelos clientes. CPF e telefone devem ser texto para preservar zeros à esquerda. O painel valida a planilha e mostra linhas que precisam de correção antes da importação. A linha de exemplo não é enviada ao robô. Os arquivos devem ter no máximo 2 MB.
 
 ## Atualizar sem abrir o menu
 
@@ -195,7 +195,7 @@ A lista principal e o CSV de resultados usam mensagens resumidas.
   com saldo, total de parcelas, valor da parcela e progresso.
 - **Campanhas:** informe um nome, baixe o modelo padrão e importe o CSV. O nome e
   os clientes são salvos juntos; uma falha na importação não cria campanha vazia.
-  Cada campanha admite até 1.000 clientes. CPFs repetidos são indicados na prévia.
+  Administradores podem importar campanhas sem limite de registros. Para parceiros, a importação é de até 1.000 clientes. CPFs repetidos são indicados na prévia.
 - Selecione uma campanha para ver seus resultados e o relatório: consultas
   solicitadas, clientes identificados, não clientes, erros, revisões e pendências.
   O relatório é atualizado enquanto o robô trabalha e fica finalizado quando
@@ -247,7 +247,7 @@ O Supabase original já foi atualizado. Em outro projeto existente, execute `sup
 
 ### Importação de campanhas: Excel, CSV e TSV
 
-Aceita `.xlsx`, `.xls`, `.csv` (vírgula ou ponto e vírgula) e `.tsv` (tabulação). Limites: 2 MB e 1.000 clientes. No Excel, coloque os dados na primeira aba, com cabeçalho na primeira linha: `nome`, `cpf`, `telefone`. Também são reconhecidos `Nome completo`, `Celular` e `Telefone com DDD`. Substitua a linha de exemplo antes de importar. CPF e telefone devem ser texto; CPFs numéricos curtos recebem zeros à esquerda até completar 11 dígitos.
+Aceita `.xlsx`, `.xls`, `.csv` (vírgula ou ponto e vírgula) e `.tsv` (tabulação). Para parceiros, a importação aceita até 2 MB e 1.000 clientes. Para administradores, o painel não impõe esses limites. No Excel, coloque os dados na primeira aba, com cabeçalho na primeira linha: `nome`, `cpf`, `telefone`. Também são reconhecidos `Nome completo`, `Celular` e `Telefone com DDD`. Substitua a linha de exemplo antes de importar. CPF e telefone devem ser texto; CPFs numéricos curtos recebem zeros à esquerda até completar 11 dígitos.
 
 O botão é liberado depois da leitura, com nome de campanha e ao menos uma linha válida. Erros ficam visíveis abaixo do botão, com detalhes por linha. Linhas inválidas e CPFs duplicados não são enviados; revise a prévia antes de criar a campanha. O leitor Excel SheetJS CE 0.20.3 é distribuído localmente em `dist/vendor`, com licença; o navegador não depende de CDN para importar.
 
@@ -711,3 +711,5 @@ Veja [payloads, assinatura, tentativas e instalação](docs/webhooks.md).
 Em **Configurações → Parceiros**, marque **Liberar integrações (API e webhooks)** ao criar ou editar o parceiro. Parceiros novos e existentes começam sem essa liberação; administradores ativos mantêm acesso. Desativar bloqueia a API (inclusive tokens já criados), a gestão de integrações e novos envios de webhook. Os pendentes são preservados para quando houver nova liberação; um envio já iniciado pode terminar. As consultas do painel seguem suas próprias permissões.
 
 O parceiro não visualiza **Conexão e administração** nem as orientações de troca de chaves do Supabase. A opção 1 do instalador atualiza a interface e a API administrativa. A alteração de banco já foi aplicada no projeto conectado; em outro projeto execute `supabase/upgrade_partner_integrations.sql` depois das migrações de parceiros e webhooks. O schema completo já inclui a alteração.
+
+Em projetos Supabase existentes, aplique `supabase/upgrade_admin_campaign_limits.sql` para habilitar campanhas sem limite de registros para administradores.

@@ -31,6 +31,16 @@ function textFile(name,text){return {name,size:Buffer.byteLength(text),text:asyn
  [{name:'corrompido.xlsx',size:4,arrayBuffer:async()=>new Uint8Array([80,75,0,0]).buffer},'Não foi possível abrir']]){
  await t.get('#file').onchange({target:{files:[file]}});assert(t.get('#import').disabled);assert(t.get('#importStatus').textContent.includes(reason),t.get('#importStatus').textContent);t.get('#campaignName').oninput();assert(t.get('#importStatus').textContent.includes(reason),'Name edit must preserve file error');
  }
+ // An administrator can import more than 5,000 rows in a single campaign.
+ const admin=setup();admin.ctx.XLSX=XLSX;
+ vm.runInContext("authenticated=true;currentAccess={role:'admin',active:true};session={access_token:'x',expires_at:Date.now()/1000+3600}",admin.ctx);
+ const large=excelFile('xlsx',[['nome','cpf','telefone'],...Array.from({length:5001},(_,i)=>['TESTE',String(i+1).padStart(11,'0'),'11999999999'])]);
+ let submitted;
+ admin.handler(async(u,o)=>{if(u.includes('/rpc/create_consulta_campaign')){submitted=JSON.parse(o.body);return response('large-campaign');}return response([]);});
+ admin.get('#campaignName').value='Campanha grande';
+ await admin.get('#file').onchange({target:{files:[large]}});
+ await admin.get('#import').onclick();
+ assert.equal(submitted.p_items.length,5001);
  // A slow old file must never overwrite the newly selected file.
  let release;const slow={name:'slow.csv',size:100,text:()=>new Promise(r=>release=r)};
  const old=t.get('#file').onchange({target:{files:[slow]}});

@@ -11,7 +11,7 @@ Sem CORS: use integrações no servidor. OpenAPI: /openapi.json.
 
 ## Fluxo de campanhas
 1. POST /campanhas cria pausada.
-2. POST /campanhas/{id}/leads adiciona de 1 a 1000 leads por envio (máximo 2 MB).
+2. POST /campanhas/{id}/leads adiciona leads a uma campanha pausada. Parceiros podem enviar até 1.000 leads por requisição. Administradores podem enviar qualquer quantidade, respeitando o tamanho de 2 MB por requisição.
 3. Confira accepted, duplicates e rejected; linhas inválidas não impedem as válidas.
 4. POST /campanhas/{id}/iniciar libera a fila. Para adicionar novos leads, pause primeiro.
 5. GET /campanhas/{id} consulta relatório; GET /campanhas/{id}/leads lista resultados.

@@ -82,13 +82,14 @@ $('#file').onchange=async e=>{
  try{
  const file=e.target.files[0];if(!file){syncImportButton('Selecione uma planilha.');return;}
  if(file.name&&!/\.(csv|tsv|xlsx|xls)$/i.test(file.name))throw Error('Formato não suportado. Envie CSV, TSV, XLSX ou XLS.');
- if(file.size>2000000)throw Error('Arquivo acima de 2 MB. Divida a planilha em arquivos menores.');
+ const admin=typeof currentAccess!=='undefined'&&currentAccess?.role==='admin'&&currentAccess.active===true;
+ if(!admin&&file.size>2000000)throw Error('Arquivo acima de 2 MB. Divida a planilha em arquivos menores.');
  let rows;
  if(/\.xlsx?$/i.test(file.name||'')){
  if(typeof XLSX==='undefined')throw Error('O leitor de Excel não carregou. Atualize a página e tente novamente.');
- let book;try{book=XLSX.read(await file.arrayBuffer(),{type:'array',sheetRows:1002,cellFormula:false,cellHTML:false,cellText:false});}catch{throw Error('Não foi possível abrir o Excel. Confira se o arquivo está íntegro e sem senha.');}
+ let book;try{book=XLSX.read(await file.arrayBuffer(),{type:'array',...(admin?{}:{sheetRows:1002}),cellFormula:false,cellHTML:false,cellText:false});}catch{throw Error('Não foi possível abrir o Excel. Confira se o arquivo está íntegro e sem senha.');}
  const sheet=book.Sheets[book.SheetNames[0]];if(!sheet)throw Error('A planilha não contém abas.');
- const range=sheet['!fullref']||sheet['!ref'];if(range&&XLSX.utils.decode_range(range).e.r>1000)throw Error('A primeira aba deve conter até 1.000 clientes e o cabeçalho. Remova linhas extras ou divida o arquivo.');
+ const range=sheet['!fullref']||sheet['!ref'];if(!admin&&range&&XLSX.utils.decode_range(range).e.r>1000)throw Error('A primeira aba deve conter até 1.000 clientes e o cabeçalho. Remova linhas extras ou divida o arquivo.');
  rows=XLSX.utils.sheet_to_json(sheet,{header:1,raw:true,defval:'',blankrows:false}).map(row=>row.map(value=>String(value??'')));
  }else{
  let text=(await file.text()).replace(/^\uFEFF/,'').replace(/^sep=[;,]\r?\n/i,'');
@@ -100,7 +101,7 @@ $('#file').onchange=async e=>{
  const headers=rows.shift().map(importHeader),missing=(selectedService()==='tjba_margem'?['cpf']:['nome','cpf','telefone']).filter(h=>!headers.includes(h));
  if(missing.length)throw Error('Colunas ausentes: '+missing.join(', ')+'. Use o modelo padrão e salve como CSV UTF-8.');
  if(new Set(headers).size!==headers.length)throw Error('Há títulos de colunas repetidos. Mantenha uma coluna nome, cpf e telefone.');
- if(rows.length>1000)throw Error('Envie até 1.000 registros por campanha.');
+ if(!admin&&rows.length>1000)throw Error('Envie até 1.000 registros por campanha.');
  if(!rows.length)throw Error('A planilha contém apenas o cabeçalho. Adicione os clientes antes de enviar.');
  const errors=[],seen=new Set(),valid=[];
  rows.forEach((row,i)=>{try{
