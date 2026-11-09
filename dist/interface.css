@@ -106,3 +106,42 @@ nav button[hidden],.settings-tabs button[hidden],#newCampaignPanel[hidden],#part
 #convenioPicker .field { display: block; margin: 0 0 6px; }
 #convenioPicker select { display: block; width: 100%; }
 #convenioPicker small { display: block; margin-top: 8px; }
+
+/* Os dados do convênio ficam alinhados à esquerda da consulta. */
+#home.individual-picker-ready #serviceContext .service-main { display: block; }
+.consigx-fields {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr);
+  gap: 16px;
+  max-width: 740px;
+}
+.consigx-fields > div, .amigoz-form-fields > div { min-width: 0; }
+#convenioPicker .consigx-fields select { max-width: none; }
+.amigoz-consult-card { width: 100%; }
+.amigoz-consult-heading { margin-bottom: 24px; }
+.amigoz-consult-heading h2 { margin: 0 0 6px; font-size: 22px; }
+.amigoz-consult-heading p { margin: 0; color: var(--consult-secondary); }
+.amigoz-form-group {
+  margin: 0 0 20px;
+  padding: 12px 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  min-inline-size: 0;
+  max-width: 760px;
+}
+.amigoz-form-group legend { padding-right: 12px; font-size: 15px; font-weight: 700; }
+.amigoz-form-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px 16px; }
+.amigoz-form-fields .field { display: block; margin: 0 0 6px; }
+.amigoz-form-fields input, .amigoz-form-fields select { width: 100%; }
+.amigoz-field-wide { grid-column: 1 / -1; }
+#amigozConvenioHint { margin: 8px 0 0; }
+#amigozConvenioHint:empty, #amigozConsultStatus:empty, #amigozConsultResults:empty { display: none; }
+#amigozConsultStatus { margin: 0; color: var(--consult-secondary); }
+#amigozConsultResults { display: grid; gap: 16px; margin-top: 20px; }
+#amigozConsultResults > section { padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--consult-surface); }
+#amigozConsultResults h3 { margin: 0 0 8px; }
+#amigozConsultResults dl { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 6px 12px; max-width: 520px; }
+#amigozConsultResults dd { margin: 0; font-weight: 650; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .consigx-fields, .amigoz-form-fields { grid-template-columns: minmax(0,1fr); gap: 12px; }
+}

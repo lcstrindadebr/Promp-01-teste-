@@ -23,20 +23,29 @@ amigozPicker.innerHTML=`<fieldset class="consultation-options">
 $('#individualChoice').appendChild(amigozPicker);
 let individualProvider='existing';
 const amigozConsultPanel=document.createElement('section');
-amigozConsultPanel.className='card';amigozConsultPanel.hidden=true;
-amigozConsultPanel.innerHTML=`<h2>Consulta individual Amigoz</h2>
+amigozConsultPanel.className='card amigoz-consult-card';amigozConsultPanel.hidden=true;
+amigozConsultPanel.innerHTML=`<header class="amigoz-consult-heading"><h2>Consulta Amigoz</h2>
+ <p>Consulte o saque complementar, a margem consignável ou ambos.</p></header>
  <form id="amigozConsultForm">
-  <label class="field" for="amigozMode">O que consultar</label><select id="amigozMode"><option value="saque">Saque complementar</option><option value="margem">Margem</option><option value="ambos">Saque complementar + margem</option></select>
-  <label class="field" for="amigozState">Estado</label><select id="amigozState" required><option value="">Selecione o estado</option></select>
-  <label class="field" for="amigozConvenio">Convênio</label><select id="amigozConvenio" required disabled><option value="">Selecione o convênio</option></select>
-  <p id="amigozConvenioHint" class="muted"></p>
-  <label class="field" for="amigozConsultCpf">CPF</label><input id="amigozConsultCpf" inputmode="numeric" placeholder="000.000.000-00" required>
-  <div id="amigozExtraMargin" hidden>
-   <label class="field" for="amigozRegistration">Matrícula</label><input id="amigozRegistration" maxlength="256">
-   <div id="amigozServerPasswordField" hidden><label class="field" for="amigozServerPassword">Senha do servidor</label><input id="amigozServerPassword" type="password" autocomplete="off" maxlength="256"></div>
-  </div>
-  <div class="actions"><button type="submit" class="primary">Consultar Amigoz</button></div>
- </form><p id="amigozConsultStatus" role="status"></p><div id="amigozConsultResults"></div>`;
+  <fieldset class="amigoz-form-group"><legend>Modalidade e convênio</legend>
+   <div class="amigoz-form-fields">
+    <div class="amigoz-field-wide"><label class="field" for="amigozMode">Modalidade</label><select id="amigozMode"><option value="saque">Saque complementar</option><option value="margem">Margem consignável</option><option value="ambos">Saque complementar + margem</option></select></div>
+    <div><label class="field" for="amigozState">Estado</label><select id="amigozState" required><option value="">Selecione o estado</option></select></div>
+    <div><label class="field" for="amigozConvenio">Convênio</label><select id="amigozConvenio" aria-describedby="amigozConvenioHint" required disabled><option value="">Selecione o estado primeiro</option></select></div>
+   </div>
+   <p id="amigozConvenioHint" class="muted"></p>
+  </fieldset>
+  <fieldset class="amigoz-form-group"><legend>Dados do cliente</legend>
+   <div class="amigoz-form-fields">
+    <div><label class="field" for="amigozConsultCpf">CPF</label><input id="amigozConsultCpf" inputmode="numeric" placeholder="000.000.000-00" required></div>
+    <div id="amigozExtraMargin" class="amigoz-form-fields amigoz-field-wide" hidden>
+     <div><label class="field" for="amigozRegistration">Matrícula</label><input id="amigozRegistration" maxlength="256"></div>
+     <div id="amigozServerPasswordField" hidden><label class="field" for="amigozServerPassword">Senha do servidor</label><input id="amigozServerPassword" type="password" autocomplete="off" maxlength="256"></div>
+    </div>
+   </div>
+  </fieldset>
+  <div class="actions"><button type="submit" class="primary">Consultar Amigoz</button><p id="amigozConsultStatus" role="status"></p></div>
+ </form><div id="amigozConsultResults"></div>`;
 const standardConsultCard=$('#single').closest('.card');
 standardConsultCard.before(amigozConsultPanel);
 const stateLabelsAmigoz={AC:'Acre',AL:'Alagoas',AM:'Amazonas',CE:'Ceará',ES:'Espírito Santo',GO:'Goiás',MA:'Maranhão',MG:'Minas Gerais',MS:'Mato Grosso do Sul',MT:'Mato Grosso',PA:'Pará',PB:'Paraíba',PE:'Pernambuco',PI:'Piauí',PR:'Paraná',RJ:'Rio de Janeiro',RN:'Rio Grande do Norte',RO:'Rondônia',RR:'Roraima',SC:'Santa Catarina',SE:'Sergipe',SP:'São Paulo',TO:'Tocantins',BR:'Federal / Nacional'};
@@ -133,7 +142,7 @@ function updateAmigozConvenio(){
 }
 $('#amigozState').onchange=()=>{
  const uf=$('#amigozState').value;
- optionsAmigoz($('#amigozConvenio'),'Selecione o convênio',amigozCatalog.filter(row=>row.uf===uf).map(row=>[row.id,row.nome]));
+ optionsAmigoz($('#amigozConvenio'),uf?'Selecione o convênio':'Selecione o estado primeiro',amigozCatalog.filter(row=>row.uf===uf).map(row=>[row.id,row.nome]));
  $('#amigozConvenio').disabled=!uf;$('#amigozConvenio').onchange();
 };
 $('#amigozConvenio').onchange=()=>{$('#amigozRegistration').value='';$('#amigozServerPassword').value='';updateAmigozConvenio();};
