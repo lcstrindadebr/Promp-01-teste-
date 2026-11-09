@@ -1,3 +1,4 @@
+(()=>{
 const amigozConfigPanel=$('#settings-amigoz-api');
 amigozConfigPanel.innerHTML=`<section class="card">
  <h2>Integração Amigoz</h2><p>Configure a API e valide o login e o Corban antes da primeira consulta.</p>
@@ -175,3 +176,4 @@ showLogin=function(...args){
  previousAmigozLogout(...args);updateAmigozPanel();
 };
 updateAmigozPanel();
+})();
