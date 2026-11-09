@@ -10,9 +10,18 @@ amigozConfigPanel.innerHTML=`<section class="card">
   <div class="actions"><button class="primary" type="submit">Salvar credenciais</button><button id="amigozApiTest" type="button">Testar conexão salva</button></div>
  </form><p id="amigozConfigStatus" role="status"></p>
 </section>`;
-const amigozPicker=document.createElement('section');
-amigozPicker.className='card';amigozPicker.hidden=true;
-amigozPicker.innerHTML=`<label class="field" for="individualProvider">Provedor da consulta individual</label><select id="individualProvider"><option value="existing">Digi+ / ConsigX</option><option value="amigoz">Amigoz</option></select>`;
+const amigozPicker=document.createElement('div');
+amigozPicker.className='consultation-picker';amigozPicker.hidden=true;
+amigozPicker.innerHTML=`<fieldset class="consultation-options">
+ <legend>O que você quer consultar?</legend>
+ <div class="consultation-options-grid">
+  <label><input type="radio" name="consultationProvider" value="digimais_saldo_parcela" checked><span><strong>Digi+</strong><small>Saldo devedor e parcela</small></span></label>
+  <label><input type="radio" name="consultationProvider" value="tjba_margem"><span><strong>ConsigX</strong><small>Margem consignável</small></span></label>
+  <label><input type="radio" name="consultationProvider" value="amigoz"><span><strong>Amigoz</strong><small>Saque complementar e margem</small></span></label>
+ </div>
+</fieldset>`;
+$('#individualChoice').appendChild(amigozPicker);
+let individualProvider='existing';
 const amigozConsultPanel=document.createElement('section');
 amigozConsultPanel.className='card';amigozConsultPanel.hidden=true;
 amigozConsultPanel.innerHTML=`<h2>Consulta individual Amigoz</h2>
@@ -29,7 +38,7 @@ amigozConsultPanel.innerHTML=`<h2>Consulta individual Amigoz</h2>
   <div class="actions"><button type="submit" class="primary">Consultar Amigoz</button></div>
  </form><p id="amigozConsultStatus" role="status"></p><div id="amigozConsultResults"></div>`;
 const standardConsultCard=$('#single').closest('.card');
-standardConsultCard.before(amigozPicker,amigozConsultPanel);
+standardConsultCard.before(amigozConsultPanel);
 const stateLabelsAmigoz={AC:'Acre',AL:'Alagoas',AM:'Amazonas',CE:'Ceará',ES:'Espírito Santo',GO:'Goiás',MA:'Maranhão',MG:'Minas Gerais',MS:'Mato Grosso do Sul',MT:'Mato Grosso',PA:'Pará',PB:'Paraíba',PE:'Pernambuco',PI:'Piauí',PR:'Paraná',RJ:'Rio de Janeiro',RN:'Rio Grande do Norte',RO:'Rondônia',RR:'Roraima',SC:'Santa Catarina',SE:'Sergipe',SP:'São Paulo',TO:'Tocantins',BR:'Federal / Nacional'};
 let amigozCatalog=[],amigozBusy=false,amigozConfigBusy=false;
 const amigozIsAdmin=()=>Boolean(authenticated&&currentAccess?.active&&currentAccess.role==='admin');
@@ -49,17 +58,29 @@ async function amigozRequest(route,body){
  return value.data;
 }
 function updateAmigozPanel(){
- const admin=amigozIsAdmin(),home=currentPage==='home',enabled=amigozCanConsult()&&home;
+ const admin=amigozIsAdmin(),home=currentPage==='home',allowed=amigozCanConsult();
  $('#settings-tab-amigoz-api').hidden=!admin;
- amigozPicker.hidden=!enabled;
- if(!amigozCanConsult()){
+ amigozPicker.hidden=!home||!authenticated;
+ if(!allowed){
   $('#amigozConsultResults').replaceChildren();
   $('#amigozServerPassword').value='';
-  $('#individualProvider').value='existing';
+  individualProvider='existing';
  }
- const showing=enabled&&$('#individualProvider').value==='amigoz';
+ const standard=$('#serviceSelect');
+ for(const radio of amigozPicker.querySelectorAll('input')){
+  const isAmigoz=radio.value==='amigoz';
+  radio.disabled=isAmigoz?!allowed:![...standard.options].some(option=>option.value===radio.value&&!option.disabled);
+  radio.closest('label').hidden=radio.disabled;
+  radio.checked=radio.value===(individualProvider==='amigoz'?'amigoz':standard.value);
+ }
+ const showing=allowed&&home&&individualProvider==='amigoz';
  amigozConsultPanel.hidden=!showing;
  standardConsultCard.hidden=showing;
+ $('#home').classList.toggle('individual-amigoz',showing);
+ $('#results').hidden=showing;
+ $('#consultationSummaryTitle').textContent=standard.value==='tjba_margem'?'Resumo ConsigX':'Resumo Digi+';
+ $('#home').classList.toggle('individual-picker-ready',!amigozPicker.hidden);
+ $('#home').classList.toggle('individual-consigx',!showing&&standard.value==='tjba_margem');
  $('#serviceContext').classList.toggle('amigoz-context-hidden',showing);
 }
 const amigozPreviousAccess=applyAccessUi;
@@ -118,9 +139,15 @@ $('#amigozState').onchange=()=>{
 $('#amigozConvenio').onchange=()=>{$('#amigozRegistration').value='';$('#amigozServerPassword').value='';updateAmigozConvenio();};
 $('#amigozMode').onchange=updateAmigozConvenio;
 $('#amigozConsultCpf').onblur=e=>{e.target.value=formatCpf(digits(e.target.value));};
-$('#individualProvider').onchange=async()=>{
+amigozPicker.onchange=async e=>{
+ const choice=e.target.value;
+ individualProvider=choice==='amigoz'?'amigoz':'existing';
+ if(individualProvider==='existing'){
+  $('#serviceSelect').value=choice;
+  $('#serviceSelect').onchange?.();
+ }
  updateAmigozPanel();
- if($('#individualProvider').value!=='amigoz'||amigozCatalog.length)return;
+ if(individualProvider!=='amigoz'||amigozCatalog.length)return;
  const epoch=authEpoch;
  try{
   const list=await amigozRequest('convenios');
@@ -177,7 +204,7 @@ $('#amigozConsultForm').onsubmit=async e=>{
 };
 const previousAmigozLogout=showLogin;
 showLogin=function(...args){
- amigozCatalog=[];$('#amigozConsultForm').reset();$('#amigozApiConfig').reset();$('#individualProvider').value='existing';
+ amigozCatalog=[];$('#amigozConsultForm').reset();$('#amigozApiConfig').reset();individualProvider='existing';
  $('#amigozConsultResults').replaceChildren();$('#amigozConsultStatus').textContent='';$('#amigozConfigStatus').textContent='';
  optionsAmigoz($('#amigozState'),'Selecione o estado',[]);$('#amigozState').onchange();
  previousAmigozLogout(...args);updateAmigozPanel();

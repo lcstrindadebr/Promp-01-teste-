@@ -55,3 +55,49 @@ nav button[hidden],.settings-tabs button[hidden],#newCampaignPanel[hidden],#part
 .partner-quota-banner{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:0}.partner-quota-banner button{flex-shrink:0;padding:2px 10px;font-size:20px}
 
 .amigoz-context-hidden{display:none!important}#amigozConsultResults pre{white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* Consulta individual: provedor, dados e resultado seguem a ordem da tarefa. */
+#home {
+  --consult-surface: #fcfefd;
+  --consult-selected: #edf6ef;
+  --consult-focus: #116447;
+  --consult-ink: #193f2e;
+  --consult-secondary: #466357;
+}
+.consultation-header { margin: 0 0 24px; }
+.consultation-header h1 { margin: 0; font-size: clamp(28px, 4vw, 36px); line-height: 1.15; }
+.consultation-header p { color: var(--consult-secondary); margin: 8px 0 0; }
+.consultation-options { border: 0; margin: 0 0 20px; min-inline-size: 0; padding: 0; }
+.consultation-options legend { color: var(--consult-ink); font-size: 15px; font-weight: 700; margin-bottom: 12px; padding: 0; }
+.consultation-options-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 12px; }
+.consultation-options-grid label { position: relative; min-width: 0; cursor: pointer; }
+.consultation-options-grid input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.consultation-options-grid label > span { display: grid; gap: 4px; align-content: center; min-height: 76px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--consult-surface); }
+.consultation-options-grid strong { color: var(--consult-ink); font-size: 15px; }
+.consultation-options-grid small { color: var(--consult-secondary); font-size: 13px; }
+.consultation-options-grid input:checked + span { border-color: var(--consult-focus); background: var(--consult-selected); box-shadow: inset 0 0 0 1px var(--consult-focus); }
+.consultation-options-grid input:focus-visible + span { outline: 3px solid var(--consult-focus); outline-offset: 3px; }
+.consultation-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, 270px); gap: 20px; align-items: start; }
+.consultation-forms { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.consultation-forms .card { margin: 0; min-width: 0; }
+.consultation-summary { border: 1px solid var(--line); border-radius: 8px; padding: 16px; background: var(--consult-surface); }
+.consultation-summary h2 { margin: 0 0 8px; }
+.consultation-summary .stats { display: grid; grid-template-columns: 1fr; gap: 0; margin: 0; }
+.consultation-summary .stat { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 4px 8px; padding: 8px 0; border: 0; border-radius: 0; background: transparent; }
+.consultation-summary .stat + .stat { border-top: 1px solid var(--line); }
+.consultation-summary .stat strong { font-size: 19px; font-variant-numeric: tabular-nums; }
+.consultation-summary .stat small { grid-column: 1 / -1; color: var(--consult-secondary); }
+#home.individual-picker-ready:not(.individual-consigx) #individualServiceContext { display: none; }
+#home.individual-picker-ready #serviceContext { display: block; margin: 0 0 16px; border-radius: 8px; }
+#home.individual-picker-ready #serviceContext .service-main { padding: 12px 16px; }
+#home.individual-picker-ready #serviceContext .service-main > :not(#convenioPicker) { display: none; }
+#home.individual-picker-ready #convenioPicker { margin-top: 0 !important; }
+.consultation-forms button.primary { min-height: 44px; }
+@media (max-width: 760px) {
+  .consultation-workspace { grid-template-columns: 1fr; gap: 16px; }
+  .consultation-options-grid { grid-template-columns: 1fr; gap: 8px; }
+  .consultation-options-grid label > span { min-height: 56px; }
+}
+
+#home.individual-amigoz .consultation-workspace{grid-template-columns:minmax(0,1fr)}
+#home.individual-amigoz .consultation-summary{display:none}
