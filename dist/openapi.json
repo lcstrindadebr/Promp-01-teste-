@@ -578,7 +578,7 @@
     "/campanhas/{id}/leads": {
       "get": {
         "summary": "Leads da campanha",
-        "description": "Permissão necessária: read.",
+        "description": "Permissão necessária: read. Por padrão, 50 leads por página. Com all=true, retorna data e total sem paginação.",
         "operationId": "get_campanhas_id_leads",
         "security": [
           {
@@ -619,6 +619,17 @@
             "in": "query",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "all",
+            "in": "query",
+            "description": "Use all=true para retornar todos os leads. Pode combinar com status. Não combine com page ou page_size. A resposta contém data e total.",
+            "schema": {
+              "type": "boolean",
+              "enum": [
+                true
+              ]
             }
           }
         ],
@@ -899,6 +910,157 @@
                     "referencia_externa": "contato-123"
                   }
                 ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/campanhas/{id}/leads/status/{status}": {
+      "get": {
+        "summary": "Listar todos os leads com um status",
+        "description": "Permissão read. Retorna todos os leads com o status solicitado, inclusive durante a execução da campanha.",
+        "operationId": "get_campanha_leads_por_status",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "status",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "aguardando",
+                "processando",
+                "concluida",
+                "nao_cliente",
+                "nao_localizado",
+                "nao_encontrado",
+                "erro",
+                "revisao",
+                "interrompida"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [
+                    {
+                      "id": "00000000-0000-4000-8000-000000000002",
+                      "campanha_id": "00000000-0000-4000-8000-000000000001",
+                      "cpf": "00000000000",
+                      "status": "concluida",
+                      "progress": 100,
+                      "resultado": {
+                        "saldo_liquidacao": 1000,
+                        "total_parcelas": 24,
+                        "valor_parcela": 100
+                      }
+                    }
+                  ],
+                  "total": 1
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição ou chave de idempotência inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido, revogado ou expirado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Rota ou registro não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Campanha em execução ou conflito de idempotência",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 120 requisições/minuto por token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível: tente novamente com a mesma chave",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
               }
             }
           }

@@ -101,7 +101,7 @@
   {
     "method": "GET",
     "path": "/campanhas/{id}/leads",
-    "summary": "Leads da campanha",
+    "summary": "Leads da campanha (use ?all=true para todos)",
     "scope": "read",
     "body": null,
     "status": 200,
@@ -125,6 +125,31 @@
         "page_size": 50,
         "total": 1
       }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/campanhas/{id}/leads/status/{status}",
+    "summary": "Listar todos os leads com um status (ex.: concluida)",
+    "scope": "read",
+    "body": null,
+    "status": 200,
+    "response": {
+      "data": [
+        {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "campanha_id": "00000000-0000-4000-8000-000000000001",
+          "cpf": "00000000000",
+          "status": "concluida",
+          "progress": 100,
+          "resultado": {
+            "saldo_liquidacao": 1000,
+            "total_parcelas": 24,
+            "valor_parcela": 100
+          }
+        }
+      ],
+      "total": 1
     }
   },
   {

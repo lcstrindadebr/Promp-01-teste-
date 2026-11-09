@@ -122,7 +122,9 @@ class Handler(BaseHTTPRequestHandler):
    except (ValueError,UnicodeError):return self.error(400,'invalid_json','Envie um objeto JSON válido.')
   else:
    query=parse_qs(target.query,keep_blank_values=True)
-   if any(k not in ('page','page_size','servico','paused','status') or len(v)!=1 for k,v in query.items()):return self.error(422,'invalid_filter','Filtros inválidos. CPF deve ser enviado por POST /leads/buscar.')
+   allowed=('page','page_size','servico','paused','status')
+   if re.fullmatch(r'/api/v1/campanhas/[^/]+/leads',target.path):allowed+=('all',)
+   if any(k not in allowed or len(v)!=1 for k,v in query.items()):return self.error(422,'invalid_filter','Filtros inválidos. CPF deve ser enviado por POST /leads/buscar.')
    payload={k:v[0] for k,v in query.items()}
   key=self.headers.get('Idempotency-Key')
   if key is not None and (not 1<=len(key)<=128 or not re.fullmatch(r'[A-Za-z0-9_.:-]+',key)):return self.error(400,'invalid_idempotency_key','Use chave de 1 a 128 caracteres: letras, números, ponto, dois-pontos, hífen ou sublinhado.')

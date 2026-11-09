@@ -35,6 +35,31 @@ do $$declare f record;r jsonb;h text;lid uuid;begin
  r=public.api_execute(h,'POST','/leads/buscar','{"cpf":"000.000.001-91"}');
  if jsonb_array_length(r->'body'->'data')<>1 then raise exception 'CPF search: %',r;end if;
  r=public.api_execute(h,'POST','/campanhas/'||f.cid||'/iniciar','{}','start-a');
+ -- Exercise the production RPC against a running campaign and a large result set.
+ insert into public.consulta_jobs(user_id,lote_id,nome,cpf,telefone,status)
+ select f.uid,f.cid,'Fixture',lpad((100000+i)::text,11,'0'),'11999999999','concluida'
+ from generate_series(1,1205) i;
+ r=public.api_execute(h,'GET','/campanhas/'||f.cid||'/leads');
+ if jsonb_array_length(r->'body'->'data')<>50 or (r->'body'->'pagination'->>'total')::int<>1206 then
+  raise exception 'Legacy pagination changed';
+ end if;
+ r=public.api_execute(h,'GET','/campanhas/'||f.cid||'/leads','{"all":"true"}');
+ if jsonb_array_length(r->'body'->'data')<>1206 or (r->'body'->>'total')::int<>1206 then
+  raise exception 'Full listing truncated';
+ end if;
+ r=public.api_execute(h,'GET','/campanhas/'||f.cid||'/leads/status/concluida');
+ if jsonb_array_length(r->'body'->'data')<>1205 or (r->'body'->>'total')::int<>1205 or
+    exists(select 1 from jsonb_array_elements(r->'body'->'data') lead where lead->>'status' is distinct from 'concluida') then
+  raise exception 'Full status listing incorrect';
+ end if;
+ r=public.api_execute(h,'GET','/campanhas/'||f.cid||'/leads/status/erro');
+ if r->'body'->'data' is distinct from '[]'::jsonb or (r->'body'->>'total')::int<>0 then
+  raise exception 'Empty status listing incorrect';
+ end if;
+ r=public.api_execute(h,'GET','/campanhas/'||f.cid||'/leads/status/invalido');
+ if (r->>'status')::int<>422 then raise exception 'Invalid status accepted';end if;
+ r=apoiarcred_private.api_route(f.other_uid,'GET','/campanhas/'||f.cid||'/leads/status/concluida','{}');
+ if (r->>'status')::int<>404 then raise exception 'Campaign exposed to another account';end if;
  r=public.api_execute(h,'POST','/campanhas/'||f.cid||'/leads','{"leads":[{"nome":"TEST","cpf":"00000000272","telefone":"11999999999"}]}','lead-running');
  if (r->>'status')::int<>409 then raise exception 'Running campaign accepted: %',r;end if;
  r=public.api_execute(h,'POST','/campanhas/'||f.cid||'/pausar','{}','pause-a');

@@ -30,11 +30,21 @@ class ApiHTTPTests(unittest.TestCase):
   with patch.object(api,'rpc') as rpc:
    self.assertEqual(self.call('/api/v1/campanhas?cpf=00000000000',headers={'Authorization':'Bearer '+TOKEN})[0],422)
    self.assertEqual(self.call('/api/v1/campanhas','POST',{},headers={'Authorization':'Bearer '+TOKEN})[0],415);rpc.assert_not_called()
+ def test_campaign_full_listing_and_status_route(self):
+  auth={'Authorization':'Bearer '+TOKEN}
+  path='/campanhas/00000000-0000-4000-8000-000000000001/leads'
+  leads=[{'id':str(i),'status':'concluida'} for i in range(1000)]
+  with patch.object(api,'rpc',return_value={'status':200,'body':{'data':leads,'total':1000}}) as rpc:
+   status,body,_=self.call('/api/v1'+path+'?all=true',headers=auth)
+   self.assertEqual((status,len(body['data']),body['total']),(200,1000,1000))
+   self.assertEqual(rpc.call_args.args[0]['p_payload'],{'all':'true'})
+   self.assertEqual(self.call('/api/v1'+path+'/status/concluida',headers=auth)[0],200)
+   self.assertEqual(rpc.call_args.args[0]['p_route'],path+'/status/concluida')
  def test_outage_hides_internal_details(self):
   with patch.object(api,'rpc',side_effect=urllib.error.URLError('private-secret')):
    status,body,_=self.call('/api/v1/campanhas',headers={'Authorization':'Bearer '+TOKEN});self.assertEqual(status,503);self.assertNotIn('private-secret',json.dumps(body))
  def test_sql_only_execute_service_and_openapi_routes_match(self):
-  spec=json.loads((Path(__file__).resolve().parents[1]/'dist/openapi.json').read_text());self.assertEqual(sum(len(x) for x in spec['paths'].values()),13)
+  spec=json.loads((Path(__file__).resolve().parents[1]/'dist/openapi.json').read_text());self.assertEqual(sum(len(x) for x in spec['paths'].values()),14)
 
 class ApiNginxTests(unittest.TestCase):
  def test_ssl_preserved_and_config_idempotent(self):

@@ -169,7 +169,10 @@ Resposta 200:
 
 ## GET /campanhas/{id}/leads
 
-Leads da campanha. Permissão: read.
+Leads da campanha. Permissão: read. Sem parâmetros, retorna 50 por página.
+Para todos os leads, use `GET /campanhas/{id}/leads?all=true`. Pode combinar
+`all=true&status=concluida`. Nesse modo a resposta é `{"data":[...],"total":N}`.
+Use a listagem paginada em telas que carregam os resultados sob demanda.
 
 ```bash
 curl --request GET 'https://SEU_SUBDOMINIO/api/v1/campanhas/{id}/leads' \
@@ -201,6 +204,21 @@ Resposta 200:
   }
 }
 ```
+
+## GET /campanhas/{id}/leads/status/{status}
+
+Lista todos os leads com o status informado, em uma única resposta. Permissão
+`read`. A campanha pode estar rodando. Para buscar clientes Digi+ com consulta
+concluída, use `concluida`. Resultados parciais têm seu próprio status.
+
+```bash
+curl --request GET 'https://SEU_SUBDOMINIO/api/v1/campanhas/{id}/leads/status/concluida' \
+  --header 'Authorization: Bearer SEU_TOKEN'
+```
+
+A resposta contém `data` com os leads e `total` com a quantidade retornada.
+Sem correspondências, retorna `{"data":[],"total":0}`. Status inválido retorna
+422. Use os códigos de status da API, como `erro`, `revisao` e `nao_cliente`.
 
 ## POST /campanhas/{id}/leads
 
@@ -406,7 +424,7 @@ Resposta 200:
 
 ## Instalação
 
-Projeto Supabase original já atualizado. Em outro projeto, aplique supabase/upgrade_api.sql após as migrações anteriores. Atualize a VPS pela opção 1 do instalador. Serviço apoiarcred-api escuta somente em 127.0.0.1:8877, publicado pelo Nginx em /api/. Sem porta pública adicional e sem Docker. Logs: journalctl -u apoiarcred-api -n 50. GET /api/health verifica processo; autenticação/dados exigem token. Nenhum token é gerado automaticamente.
+Projeto Supabase original já atualizado. Em outro projeto, aplique as migrações da API em ordem, incluindo `supabase/upgrade_api_campaign_leads.sql` para a listagem completa. Atualize a VPS pela opção 1 do instalador. Serviço apoiarcred-api escuta somente em 127.0.0.1:8877, publicado pelo Nginx em /api/. Sem porta pública adicional e sem Docker. Logs: journalctl -u apoiarcred-api -n 50. GET /api/health verifica processo; autenticação/dados exigem token. Nenhum token é gerado automaticamente.
 
 ## Parceiros e cotas
 

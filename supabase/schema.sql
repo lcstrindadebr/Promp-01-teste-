@@ -1893,7 +1893,7 @@ create or replace function apoiarcred_private.api_route(uid uuid,method text,rou
 language plpgsql security invoker set search_path='' as $$
 <<vars>>
 declare parts text[]=string_to_array(trim(both '/' from route),'/'); cid uuid; item_id uuid; c record;
- service text; convenio text; lots text; jobs text; item jsonb; idx integer=0; cpf text; nome text; phone text; ref text;
+ service text; convenio text; lead_status text; lots text; jobs text; item jsonb; idx integer=0; cpf text; nome text; phone text; ref text;
  accepted jsonb='[]';duplicates jsonb='[]';rejected jsonb='[]';data jsonb;counts jsonb; total integer; n integer;
  page integer=greatest(1,coalesce((p->>'page')::integer,1));size integer=least(100,greatest(1,coalesce((p->>'page_size')::integer,50)));
 begin
@@ -1925,6 +1925,35 @@ begin
    return apoiarcred_private.api_response(202,jsonb_build_object('id',item_id,'campanha_id',cid,'status','aguardando'));
   end if;
   return apoiarcred_private.api_response(201,jsonb_build_object('id',cid,'nome',nome,'servico',service,'convenio',case when service='tjba_margem' then convenio else null end,'paused',true));
+ end if;
+ -- Full campaign reads take one snapshot and use the same owner and token checks.
+ if method='GET' and parts[1]='campanhas' and parts[3]='leads' and
+    ((cardinality(parts)=3 and p ? 'all') or (cardinality(parts)=5 and parts[4]='status')) then
+  if cardinality(parts)=5 then
+   if p<>'{}'::jsonb then
+    return apoiarcred_private.api_error(422,'invalid_filter','Informe o status na rota, sem filtros adicionais.');
+   end if;
+   lead_status=parts[5];
+  else
+   if p->>'all' is distinct from 'true' or p ? 'page' or p ? 'page_size' then
+    return apoiarcred_private.api_error(422,'invalid_filter','Use all=true sem page ou page_size.');
+   end if;
+   lead_status=p->>'status';
+  end if;
+  if lead_status is not null and lead_status not in
+     ('aguardando','processando','concluida','nao_cliente','nao_localizado','nao_encontrado','erro','revisao','interrompida') then
+   return apoiarcred_private.api_error(422,'invalid_status','Status de lead inválido.');
+  end if;
+  cid=parts[2]::uuid;
+  if not exists(select 1 from apoiarcred_private.api_campaign_rows
+                where id=cid and user_id=uid and tipo='campanha') then
+   return apoiarcred_private.api_error(404,'not_found','Campanha não encontrada.');
+  end if;
+  select coalesce(jsonb_agg(to_jsonb(x)-'user_id' order by x.queue_order,x.created_at desc,x.id),'[]'::jsonb)
+  into data
+  from apoiarcred_private.api_lead_rows x
+  where x.user_id=uid and x.campanha_id=cid and (lead_status is null or x.status=lead_status);
+  return apoiarcred_private.api_response(200,jsonb_build_object('data',data,'total',jsonb_array_length(data)));
  end if;
  if parts[1]='campanhas' and cardinality(parts) between 2 and 3 then
   cid=parts[2]::uuid;
