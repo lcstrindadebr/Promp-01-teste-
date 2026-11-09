@@ -45,12 +45,15 @@ def parse_response(text, *, ended=False, cpf_sent=False, kind="saldo"):
  return None
 
 INPUTS='input:not([type="hidden"]):not([type="file"]):not([type="checkbox"])'
+COBRANCA=re.compile(r'^Central\s+de\s+cobran[çc]a$',re.I)
 CONSIGNADO=re.compile(r'^Empr[ée]stimo\s+consignado$',re.I)
+
+MENU_INICIAL=re.compile(f'(?:{COBRANCA.pattern})|(?:{CONSIGNADO.pattern})',re.I)
 
 async def wait_menu(chat, name, timeout, *, registration=False):
  """Observe the actual state instead of waiting blindly on an absent button."""
  deadline=time.monotonic()+timeout/1000
- button=chat.get_by_role('button',name=name)
+ button=chat.get_by_role('button',name=name).first
  while time.monotonic()<deadline:
   text=normalize(await chat.locator('body').inner_text(timeout=3000))
   check_access(text)
@@ -67,7 +70,7 @@ async def wait_menu(chat, name, timeout, *, registration=False):
  raise RobotError('O banco não disponibilizou a próxima opção do atendimento no prazo.')
 
 async def start_chat(chat, client, timeout):
- if await chat.get_by_role('button',name=CONSIGNADO).is_visible():return
+ if await chat.get_by_role('button',name=MENU_INICIAL).first.is_visible():return
  fields=chat.locator(INPUTS)
  # The live widget validates on keyboard events; fill alone leaves phone "required".
  for index,value in enumerate((client['nome'],re.sub(r'\D','',client['telefone']))):
@@ -76,7 +79,7 @@ async def start_chat(chat, client, timeout):
   await field.press_sequentially(value,delay=20,timeout=10000)
   await field.press('Tab')
  await chat.get_by_role('button',name='Enviar',exact=True).click(timeout=5000)
- await wait_menu(chat,CONSIGNADO,timeout,registration=True)
+ await wait_menu(chat,MENU_INICIAL,timeout,registration=True)
 
 class DigiSession:
  """One browser per CPF by default; each chat gets a clean context.
@@ -168,11 +171,16 @@ async def run_once(client,timeout=60000,on_progress=None,kind="saldo",session=No
   chat=await open_direct_chat(context,timeout=timeout,report=emit)
   await emit(30,'Preencher nome e telefone')
   await start_chat(chat,client,timeout)
-  await emit(40,'Selecionar empréstimo consignado')
-  await chat.get_by_role('button',name=CONSIGNADO).click(timeout=5000)
-  await emit(50,'Selecionar boleto')
-  boleto=await wait_menu(chat,re.compile(r'^Boleto$',re.I),timeout)
-  await boleto.click(timeout=5000)
+  cobranca=chat.get_by_role('button',name=COBRANCA)
+  if await cobranca.is_visible():
+   await emit(40,'Selecionar Central de cobrança')
+   await cobranca.click(timeout=5000)
+  else:
+   await emit(40,'Selecionar empréstimo consignado')
+   await chat.get_by_role('button',name=CONSIGNADO).click(timeout=5000)
+   await emit(50,'Selecionar boleto')
+   boleto=await wait_menu(chat,re.compile(r'^Boleto$',re.I),timeout)
+   await boleto.click(timeout=5000)
   await emit(60,'Aguardar solicitação do CPF')
   # Match normalized text across nested elements/nonbreaking spaces.
   await chat.wait_for_function("() => /para te localizar.*cpf/i.test(document.body.innerText.replace(/\\s+/g,' '))",timeout=timeout)

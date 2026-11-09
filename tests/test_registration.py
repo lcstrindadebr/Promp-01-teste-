@@ -13,6 +13,8 @@ class Field:
  async def inner_text(self,**kwargs):return self.chat.text
 class Button:
  def __init__(self,chat,name):self.chat=chat;self.name=name
+ @property
+ def first(self):return self
  async def is_visible(self):return self.chat.ready
  async def click(self,**kwargs):
   self.chat.submissions+=1

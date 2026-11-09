@@ -6,6 +6,8 @@ import robot
 class Timeout(Exception):pass
 class Locator:
  def __init__(self,page,name):self.page=page;self.name=name
+ @property
+ def first(self):return self
  def nth(self,i):return Locator(self.page,self.name+str(i))
  async def fill(self,value):self.page.actions.append(('fill',self.name,value))
  async def press_sequentially(self,value,**kwargs):self.page.actions.append(('type',self.name,value))
@@ -27,6 +29,7 @@ class Locator:
  async def is_visible(self):
   if 'Saldo' in self.name or 'Parcela' in self.name:return self.page.fail=='positive' and self.page.sent and not self.page.finished
   if self.name=='Visualizar Chat':return self.page.finished and not self.page.history
+  if self.name==str(robot.COBRANCA):return self.page.registered and self.page.fail is not True
   return ('consignado' in self.name and self.page.registered) or 'Boleto' in self.name
  async def inner_text(self,**kwargs):
   if self.page.fail=='positive':
@@ -76,12 +79,12 @@ class Engine:
   self.browser.context.home.actions.append(('launch',tuple(kw.get('args',[]))))
   return self.browser
 class FlowTests(unittest.IsolatedAsyncioTestCase):
- async def execute(self,fail=False):
+ async def execute(self,fail=False,kind="saldo"):
   actions=[];events=[];engine=Engine(Browser(actions,fail))
   fake=types.ModuleType('playwright.async_api');fake.async_playwright=lambda:engine;fake.TimeoutError=Timeout
   async def progress(percent,stage):events.append((percent,stage))
   with patch.dict(sys.modules,{'playwright':types.ModuleType('playwright'),'playwright.async_api':fake}):
-   result=await robot.run_once({'nome':'CLIENTE TESTE','cpf':'00123456789','telefone':'11999999999'},on_progress=progress)
+   result=await robot.run_once({'nome':'CLIENTE TESTE','cpf':'00123456789','telefone':'11999999999'},on_progress=progress,kind=kind)
   return result,actions,events
  async def test_complete_negative_flow_and_format(self):
   result,actions,events=await self.execute();self.assertEqual(result['status'],'nao_cliente');self.assertEqual(result['progress'],100)
@@ -95,7 +98,15 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
   self.assertEqual(result['status'],'concluida');self.assertEqual(result['progress'],100)
   self.assertEqual(result['saldo_liquidacao'],1234.56);self.assertEqual(result['total_parcelas'],24)
   self.assertIn(('click','Visualizar Chat'),actions)
+  self.assertIn(('click',str(robot.COBRANCA)),actions)
+  self.assertNotIn(('click',str(robot.CONSIGNADO)),actions)
+  self.assertFalse(any(a[0]=='click' and 'Boleto' in a[1] for a in actions))
   self.assertEqual(sum(a==('click','button.send[type="submit"]') for a in actions),1)
+ async def test_parcela_uses_same_short_route(self):
+  result,actions,_=await self.execute('positive',kind='parcela')
+  self.assertEqual(result['valor_parcela'],123.40)
+  self.assertIn(('click',str(robot.COBRANCA)),actions)
+  self.assertFalse(any(a[0]=='click' and 'Boleto' in a[1] for a in actions))
  async def test_timeout_includes_exact_stage_not_nonclient(self):
   result,actions,events=await self.execute(True);self.assertEqual(result['status'],'erro');self.assertEqual(result['progress'],50);self.assertIn('Selecionar boleto',result['message'])
 if __name__=='__main__':unittest.main()

@@ -60,7 +60,7 @@ async def find_chat_scope(context,page):
             # Fast DOM presence checks; filling will still auto-wait for visibility.
             if await scope.locator('input:not([type="hidden"]):not([type="file"]):not([type="checkbox"])').count()>=2:
                 return scope
-            if await scope.get_by_role('button',name='Empréstimo consignado',exact=True).count():return scope
+            if await scope.get_by_role('button',name=re.compile(r'^(Empréstimo consignado|Central de cobrança)$',re.I)).count():return scope
     return None
 
 async def open_chat(context,page,timeout=60000):
