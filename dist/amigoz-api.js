@@ -16,7 +16,7 @@ amigozPicker.innerHTML=`<fieldset class="consultation-options">
  <legend>O que você quer consultar?</legend>
  <div class="consultation-options-grid">
   <label><input type="radio" name="consultationProvider" value="digimais_saldo_parcela" checked><span><strong>Digi+</strong><small>Saldo devedor e parcela</small></span></label>
-  <label><input type="radio" name="consultationProvider" value="tjba_margem"><span><strong>ConsigX</strong><small>Margem consignável</small></span></label>
+  <label><input type="radio" name="consultationProvider" value="tjba_margem"><span><strong>ConsigX</strong><small>Margem consignável · Bahia (BA)</small></span></label>
   <label><input type="radio" name="consultationProvider" value="amigoz"><span><strong>Amigoz</strong><small>Saque complementar e margem</small></span></label>
  </div>
 </fieldset>`;

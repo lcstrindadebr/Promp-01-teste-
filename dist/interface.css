@@ -101,3 +101,8 @@ nav button[hidden],.settings-tabs button[hidden],#newCampaignPanel[hidden],#part
 
 #home.individual-amigoz .consultation-workspace{grid-template-columns:minmax(0,1fr)}
 #home.individual-amigoz .consultation-summary{display:none}
+
+#convenioPicker { margin-top: 16px; }
+#convenioPicker .field { display: block; margin: 0 0 6px; }
+#convenioPicker select { display: block; width: 100%; }
+#convenioPicker small { display: block; margin-top: 8px; }
