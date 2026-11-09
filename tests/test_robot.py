@@ -17,6 +17,15 @@ class ResponseTests(unittest.TestCase):
   self.assertEqual(r['status'],'nao_cliente');self.assertNotIn('saldo_liquidacao',r)
  def test_partial_response(self):
   self.assertIsNone(parse_response('Saldo para quitação hoje: R$ 6.014,63'))
+ def test_full_balance_survives_closure_and_inactivity_text(self):
+  result=parse_response('Valor Saldo: R$ 1234.56 Total de parcelas: 24. Atendimento encerrado por falta de interação.',ended=True,cpf_sent=True)
+  self.assertEqual(result['status'],'concluida')
+  self.assertEqual(result['saldo_liquidacao'],1234.56)
+ def test_closed_with_only_balance_keeps_amount(self):
+  result=parse_response('Valor Saldo: R$ 1234.56. Atendimento encerrado.',ended=True,cpf_sent=True)
+  self.assertEqual(result['status'],'revisao')
+  self.assertEqual(result['saldo_liquidacao'],1234.56)
+  self.assertNotIn('total_parcelas',result)
  def test_unrecognized_not_success(self):self.assertIsNone(parse_response('Aguarde um momento.'))
  def test_expired(self):self.assertEqual(parse_response('Seu atendimento foi encerrado por falta de interação.')['status'],'erro')
  def test_formatted_cpf(self):

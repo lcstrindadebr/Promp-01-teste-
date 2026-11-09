@@ -733,8 +733,14 @@ O log de Configurações registra a etapa e o código observado, como
 Na VPS, consulte `sudo journalctl -u apoiarcred-robo -n 100 --no-pager`.
 
 Em falhas transitórias antes do envio da consulta, o executor recria a sessão e
-tenta mais uma vez. Após o envio, o resultado vai para erro ou revisão e a
-consulta precisa de conferência. Se o saldo Digi+ já foi obtido, ele é preservado.
+tenta mais uma vez. No Digi+, o robô prioriza **Central de cobrança** e tenta
+**Empréstimo consignado → Boleto** em uma nova sessão se a primeira rota falhar
+ou encerrar sem resposta. Se começou por consignado, a segunda tentativa é pela
+Central de cobrança. Isso vale para saldo e parcela separadamente. Se o saldo já
+foi salvo, somente a parcela é repetida. A segunda rota é dispensada quando há
+resultado conclusivo, CPF recusado ou verificação humana. Um saldo informado
+é preservado mesmo quando faltam dados. Se a consulta da parcela for
+interrompida, o painel indica que o saldo foi obtido.
 Se falhar a gravação final, o robô repete só a gravação. Após nova falha
 transitória, o executor aguarda 30 segundos antes de reservar outra consulta
 da mesma fila. Erros de senha, bloqueio e verificação humana exigem revisão.

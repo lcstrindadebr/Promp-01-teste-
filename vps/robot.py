@@ -14,39 +14,45 @@ def normalize(text):return re.sub(r'\s+',' ',text).strip()
 
 def parse_response(text, *, ended=False, cpf_sent=False, kind="saldo"):
  text=normalize(text);lower=text.casefold()
- # Technical failures must never be classified as absence of a client.
- if 'encerrado por falta de interação' in lower:
-  return {'status':'interrompida' if cpf_sent else 'erro','message':'Sessão encerrada por falta de interação.'}
- if re.search(r'\b(?:erro|falha|indisponível)\b|tente novamente|não foi possível',lower):
-  return {'status':'revisao','message':'O chat informou uma falha; revisar a consulta.'}
- if re.search(r'não foi informado um cpf válido|cpf inválido',lower):
-  return {'status':'revisao','message':'O banco recusou o CPF como inválido. Confira os dados antes de nova consulta.'}
- if 'documento não foi localizado para esse produto' in lower:
-  return {'status':'nao_cliente','message':'Documento não localizado para esse produto no chat.'}
+ inactive='encerrado por falta de interação' in lower
+ technical_error=re.search(r'\b(?:erro|falha|indisponível)\b|tente novamente|não foi possível',lower)
  if kind=='parcela':
   match=re.search(r'valor\s+(?:da?\s+)?parcela\s*[:\-]?\s*R\$\s*((?:\d{1,3}(?:\.\d{3})+|\d+),\d{1,2}|\d+(?:\.\d{1,2})?)(?!\d|[.,]\d)',text,re.I)
   if match:
    amount=match.group(1)
    value=Decimal(amount.replace('.','').replace(',','.') if ',' in amount else amount)
    return {'status':'concluida','valor_parcela':float(value),'message':'Valor da parcela informado pelo chat.'}
-  if ended and cpf_sent:return {'status':'interrompida','message':'Chat encerrado após o CPF sem informar o valor da parcela.'}
-  return None
- saldo=re.search(r'(?:valor\s+(?:do\s+)?saldo|saldo\s*(?:para\s*)?(?:de\s*)?(?:quitação|liquidação)(?:\s*(?:hoje|atual))?)\s*[:\-]?\s*R\$\s*((?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}|\d+\.\d{2})(?!\d|[.,]\d)',text,re.I)
- parcelas=re.search(r'(?:total|quantidade|número)\s*(?:de\s*)?parcelas\s*[:\-]?\s*(\d+)',text,re.I)
- if saldo and parcelas:
-  amount=saldo.group(1)
-  value=Decimal(amount.replace('.','').replace(',','.') if ',' in amount else amount);n=int(parcelas.group(1))
-  if value<0 or not 0<=n<=1000:raise RobotError('Resposta fora dos limites esperados; revisar manualmente.')
-  return {'status':'concluida','saldo_liquidacao':float(value),'total_parcelas':n,'message':'Saldo informado pelo chat na data desta consulta.'}
- if ended and cpf_sent:
-  if saldo or parcelas:
-   return {'status':'revisao','message':'Atendimento encerrado com resposta parcial de saldo/parcelas.'}
-  return {'status':'interrompida','message':'Chat encerrado após o CPF sem resposta conclusiva.'}
+ else:
+  saldo=re.search(r'(?:valor\s+(?:do\s+)?saldo|saldo\s*(?:para\s*)?(?:de\s*)?(?:quitação|liquidação)(?:\s*(?:hoje|atual))?)\s*[:\-]?\s*R\$\s*((?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}|\d+\.\d{2})(?!\d|[.,]\d)',text,re.I)
+  parcelas=re.search(r'(?:total|quantidade|número)\s*(?:de\s*)?parcelas\s*[:\-]?\s*(\d+)',text,re.I)
+  if saldo:
+   amount=saldo.group(1)
+   value=Decimal(amount.replace('.','').replace(',','.') if ',' in amount else amount)
+   if parcelas:
+    n=int(parcelas.group(1))
+    if not 0<=n<=1000:raise RobotError('Resposta fora dos limites esperados; revisar manualmente.')
+    return {'status':'concluida','saldo_liquidacao':float(value),'total_parcelas':n,'message':'Saldo informado pelo chat na data desta consulta.'}
+  if cpf_sent and (saldo or parcelas) and (ended or inactive or technical_error):
+   result={'status':'revisao','message':'Resposta parcial de saldo e parcelas.','diagnostico':failure('retorno_portal','SALDO_PARCIAL')}
+   if saldo:result.update(saldo_liquidacao=float(value),message='Saldo informado. Total de parcelas não confirmado.')
+   return result
+ # Technical failures must never be classified as absence of a client.
+ if inactive:
+  return {'status':'interrompida' if cpf_sent else 'erro','message':'Sessão encerrada por falta de interação.'}
+ if technical_error:
+  return {'status':'revisao','message':'O chat informou uma falha; revisar a consulta.'}
+ if re.search(r'não foi informado um cpf válido|cpf inválido',lower):
+  return {'status':'revisao','message':'O banco recusou o CPF como inválido. Confira os dados antes de nova consulta.'}
+ if 'documento não foi localizado para esse produto' in lower:
+  return {'status':'nao_cliente','message':'Documento não localizado para esse produto no chat.'}
+ if ended and cpf_sent:return {'status':'interrompida','message':'Consulta interrompida.'}
  return None
 
 INPUTS='input:not([type="hidden"]):not([type="file"]):not([type="checkbox"])'
 COBRANCA=re.compile(r'^Central\s+de\s+cobran[çc]a$',re.I)
 CONSIGNADO=re.compile(r'^Empr[ée]stimo\s+consignado$',re.I)
+
+ROUTES={'central_cobranca':'Central de cobrança','emprestimo_consignado':'Empréstimo consignado → Boleto'}
 
 MENU_INICIAL=re.compile(f'(?:{COBRANCA.pattern})|(?:{CONSIGNADO.pattern})',re.I)
 
@@ -140,8 +146,8 @@ class DigiSession:
    if self.jobs>=self.max_jobs:await self.close()
    self.busy=False;self.last_used=time.monotonic()
 
-async def run_once(client,timeout=60000,on_progress=None,kind="saldo",session=None):
- progress=0;stage='Iniciar navegador';context=None;cpf_submitted=False
+async def run_once(client,timeout=60000,on_progress=None,kind="saldo",session=None,route=None):
+ progress=0;stage='Iniciar navegador';context=None;cpf_submitted=False;active_route=None
  owned=session is None
  if owned:session=DigiSession()
  async def emit(percent,label):
@@ -159,8 +165,8 @@ async def run_once(client,timeout=60000,on_progress=None,kind="saldo",session=No
    if 'falta de interação' in message:code='CHAT_ENCERRADO_INATIVIDADE'
    if 'chat informou uma falha' in message:code='FALHA_INFORMADA_PELO_CHAT'
    result['diagnostico']=failure('retorno_portal',code)
-   result['message']=f'{label(result["diagnostico"])} {message}'
-  result.update(progress=progress,stage=stage)
+   if result['status']!='interrompida':result['message']=f'{label(result["diagnostico"])} {message}'
+  result.update(progress=progress,stage=stage,rota=active_route)
   if result.get('diagnostico'):result['diagnostico']['etapa']=stage
   return result
  try:
@@ -173,7 +179,8 @@ async def run_once(client,timeout=60000,on_progress=None,kind="saldo",session=No
   await emit(30,'Preencher nome e telefone')
   await start_chat(chat,client,timeout)
   cobranca=chat.get_by_role('button',name=COBRANCA)
-  if await cobranca.is_visible():
+  active_route=route or ('central_cobranca' if await cobranca.is_visible() else 'emprestimo_consignado')
+  if active_route=='central_cobranca':
    await emit(40,'Selecionar Central de cobrança')
    await cobranca.click(timeout=5000)
   else:
@@ -215,12 +222,14 @@ async def run_once(client,timeout=60000,on_progress=None,kind="saldo",session=No
  except Exception as error:
   diagnostic=diagnose(error)
   if isinstance(error,RobotError):
-   diagnostic=failure('portal' if cpf_submitted else 'dados','RESPOSTA_NAO_RECONHECIDA' if cpf_submitted else 'ENTRADA_INVALIDA')
+   if cpf_submitted:diagnostic=failure('portal','RESPOSTA_NAO_RECONHECIDA')
+   elif active_route and stage!='Aguardar solicitação do CPF':diagnostic=failure('portal','MENU_ROTA_INDISPONIVEL')
+   else:diagnostic=failure('dados','ENTRADA_INVALIDA')
   diagnostic['etapa']=stage
   diagnostic['repetir']=diagnostic['transitorio'] and not cpf_submitted
   message=str(error) if isinstance(error,(RobotError,NavigationIssue)) else 'Falha na etapa '+stage+'.'
   return {'status':'revisao' if isinstance(error,(RobotError,NavigationIssue)) else 'erro',
-          'message':f'{label(diagnostic)} {message}','diagnostico':diagnostic,'progress':progress,'stage':stage}
+          'message':f'{label(diagnostic)} {message}','diagnostico':diagnostic,'progress':progress,'stage':stage,'rota':active_route}
  finally:
   if context:
    try:await context.close()
@@ -229,8 +238,50 @@ async def run_once(client,timeout=60000,on_progress=None,kind="saldo",session=No
 
 
 
+def route_can_retry(result):
+ diagnostic=result.get('diagnostico') or {}
+ if diagnostic.get('categoria') in ('acesso_portal','dados','tls','proxy_autenticacao','proxy_configuracao','autenticacao_http'):
+  return False
+ if diagnostic.get('codigo') in ('CPF_RECUSADO','HTTP_429','VERIFICACAO_HUMANA'):
+  return False
+ return result['status'] in ('erro','interrompida') or (
+  result['status']=='revisao' and diagnostic.get('codigo') in (
+   'CHAT_SEM_RESULTADO','CHAT_ENCERRADO_INATIVIDADE','FALHA_INFORMADA_PELO_CHAT',
+   'RESPOSTA_NAO_RECONHECIDA','MENU_ROTA_INDISPONIVEL','SALDO_PARCIAL'
+  )
+ )
+
+async def run_with_alternate_route(client,timeout,report,kind,**options):
+ first=await run_once(client,timeout,report,kind=kind,**options)
+ route=first.get('rota')
+ if route not in ROUTES or not route_can_retry(first):return first
+ alternate='emprestimo_consignado' if route=='central_cobranca' else 'central_cobranca'
+ executor=getattr(getattr(options.get('session'),'telemetry',None),'name','executor')
+ diagnostic=first.get('diagnostico')
+ reason=label(diagnostic) if diagnostic else first['status']
+ print(f'ROTA ALTERNATIVA | {executor} · Digi+ · {kind} | {reason} | {ROUTES[route]} → {ROUTES[alternate]}',flush=True)
+
+ async def alternate_progress(percent,stage):
+  await report(max(percent,first.get('progress',0)),f'Rota alternativa: {stage}')
+
+ second=await run_once(client,timeout,alternate_progress,kind=kind,route=alternate,**options)
+ final=dict(second)
+ if first['status']=='interrompida' and (second.get('diagnostico') or {}).get('codigo')!='SALDO_PARCIAL' and route_can_retry(second):
+  final.update(status='interrompida',message='Consulta interrompida.')
+ if 'saldo_liquidacao' in first and second['status']!='concluida' and 'saldo_liquidacao' not in second:
+  final.update(status='revisao',saldo_liquidacao=first['saldo_liquidacao'],
+               message='Saldo informado na primeira rota. Total de parcelas não confirmado.')
+ final['tentativa_anterior']=first
+ final['rota_alternativa']=alternate
+ diagnostic=second.get('diagnostico') or (first.get('diagnostico') if final['status']=='revisao' else None)
+ if diagnostic:final['diagnostico']=dict(diagnostic,repetir=False)
+ final['progress']=max(first.get('progress',0),second.get('progress',0))
+ final['recuperacao']=f'Rota alternativa tentada: {ROUTES[alternate]}.'
+ return final
+
+
 async def run(client,timeout=60000,on_progress=None,on_checkpoint=None,session=None):
- """Two clean chat contexts, one job; persist balance before querying installment."""
+ """Persist balance before querying installment, with one alternate route per stage."""
  options={"session":session} if session is not None else {}
  async def progress(percent,label):
   if on_progress:
@@ -238,11 +289,10 @@ async def run(client,timeout=60000,on_progress=None,on_checkpoint=None,session=N
    if inspect.isawaitable(result):await result
  async def first_progress(percent,label):await progress(percent//2,'1/2 Saldo: '+label)
  async def second_progress(percent,label):await progress(50+percent//2,'2/2 Parcela: '+label)
- first=await run_once(client,timeout,first_progress,kind='saldo',**options)
- combined={k:v for k,v in first.items() if k not in ('progress','stage','diagnostico')}
+ first=await run_with_alternate_route(client,timeout,first_progress,kind='saldo',**options)
+ combined={k:v for k,v in first.items() if k not in ('progress','stage','diagnostico','rota','rota_alternativa','tentativa_anterior','recuperacao')}
  combined.update(resultado_saldo=first,progress=first.get('progress',0)//2,stage='1/2 Saldo: '+first.get('stage',''))
  if first['status']!='concluida':
-  # Do not start another session after an inconclusive or blocked first call.
   if first['status']=='nao_cliente':combined.update(progress=100,stage='Não é cliente')
   return combined
  combined.update(status='processando',progress=50,stage='Saldo salvo; iniciando consulta da parcela')
@@ -256,9 +306,9 @@ async def run(client,timeout=60000,on_progress=None,on_checkpoint=None,session=N
    combined.update(status='revisao',message=f'{label(diagnostic)} Saldo obtido; gravação parcial não confirmada. A parcela não foi consultada.')
    return combined
  try:
-  second=await run_once(client,timeout,second_progress,kind='parcela',**options)
+  second=await run_with_alternate_route(client,timeout,second_progress,kind='parcela',**options)
   diagnostic=second.get('diagnostico')
-  if diagnostic and diagnostic.get('repetir'):
+  if diagnostic and diagnostic.get('repetir') and not second.get('rota') and not second.get('tentativa_anterior'):
    executor=getattr(getattr(session,'telemetry',None),'name','Digi+')
    print(f'FALHA | {executor} · Digi+ · parcela | {label(diagnostic)} | Recriando sessão e repetindo somente a parcela.',flush=True)
    if session is not None:await session.close()
@@ -272,7 +322,9 @@ async def run(client,timeout=60000,on_progress=None,on_checkpoint=None,session=N
  combined.update(resultado_parcela=second,progress=50+second.get('progress',0)//2,stage='2/2 Parcela: '+second.get('stage',''))
  if second['status']=='concluida':
   combined.update(valor_parcela=second['valor_parcela'],status='concluida',progress=100,stage='Saldo e parcela consultados',message='Saldo, total de parcelas e valor da parcela informados pelo chat.')
+ elif second['status']=='interrompida':
+  combined.update(status='interrompida',message='Saldo obtido. Consulta da parcela interrompida.')
  else:
-  combined.update(status='interrompida' if second['status']=='interrompida' else 'revisao',message='Saldo preservado. Consulta da parcela: '+second.get('message','sem resultado conclusivo.'))
- if second.get('recuperacao'):combined['message']+=' '+second['recuperacao']
+  combined.update(status='revisao',message='Saldo preservado. Consulta da parcela: '+second.get('message','sem resultado conclusivo.'))
+ if second.get('recuperacao') and combined['status']!='interrompida':combined['message']+=' '+second['recuperacao']
  return combined

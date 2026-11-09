@@ -48,7 +48,56 @@ class TwoQueriesTests(unittest.IsolatedAsyncioTestCase):
   with patch('robot.run_once',new=AsyncMock(side_effect=[SALDO,interrupted])):
    result=await run(CLIENT)
   self.assertEqual(result['status'],'interrompida')
+  self.assertEqual(result['message'],'Saldo obtido. Consulta da parcela interrompida.')
   self.assertEqual(result['saldo_liquidacao'],1234.56)
+ async def test_interrupted_saldo_switches_route_and_stops_on_confirmed_nonclient(self):
+  first={'status':'interrompida','rota':'central_cobranca','progress':85}
+  second={'status':'nao_cliente','rota':'emprestimo_consignado','progress':100}
+  with patch('robot.run_once',new=AsyncMock(side_effect=[first,second])) as one:
+   result=await run(CLIENT)
+  self.assertEqual([call.kwargs for call in one.await_args_list],[
+   {'kind':'saldo'},{'kind':'saldo','route':'emprestimo_consignado'}])
+  self.assertEqual(result['status'],'nao_cliente')
+  self.assertEqual(result['resultado_saldo']['tentativa_anterior'],first)
+  self.assertNotIn('rota',result)
+
+ async def test_parcela_uses_other_route_on_error_and_keeps_saldo(self):
+  fail={'status':'erro','rota':'emprestimo_consignado','diagnostico':{'categoria':'portal','codigo':'TEMPO_EXCEDIDO','repetir':True}}
+  success={'status':'concluida','rota':'central_cobranca','valor_parcela':99}
+  with patch('robot.run_once',new=AsyncMock(side_effect=[SALDO,fail,success])) as one:
+   result=await run(CLIENT)
+  self.assertEqual([call.kwargs for call in one.await_args_list],[
+   {'kind':'saldo'},{'kind':'parcela'},{'kind':'parcela','route':'central_cobranca'}])
+  self.assertEqual(result['valor_parcela'],99)
+  self.assertEqual(result['saldo_liquidacao'],1234.56)
+
+ async def test_failed_alternate_preserves_interruption_and_disables_job_retry(self):
+  first={'status':'interrompida','rota':'central_cobranca','progress':85}
+  second={'status':'erro','rota':'emprestimo_consignado','diagnostico':{'categoria':'portal','codigo':'TEMPO_EXCEDIDO','repetir':True}}
+  with patch('robot.run_once',new=AsyncMock(side_effect=[first,second])) as one:
+   result=await run(CLIENT)
+  self.assertEqual(one.await_count,2)
+  self.assertEqual(result['status'],'interrompida')
+  self.assertEqual(result['message'],'Consulta interrompida.')
+  self.assertFalse(result['resultado_saldo']['diagnostico']['repetir'])
+
+ async def test_partial_balance_is_preserved_when_alternate_cannot_confirm_it(self):
+  partial=parse_response('Valor Saldo: R$ 1234.56',ended=True,cpf_sent=True)
+  partial['rota']='central_cobranca'
+  with patch('robot.run_once',new=AsyncMock(side_effect=[partial,{'status':'nao_cliente'}])) as one:
+   result=await run(CLIENT)
+  self.assertEqual(one.await_count,2)
+  self.assertEqual(result['status'],'revisao')
+  self.assertEqual(result['saldo_liquidacao'],1234.56)
+  self.assertNotIn('total_parcelas',result)
+
+ async def test_route_does_not_retry_refused_cpf_or_human_verification(self):
+  for code in ('CPF_RECUSADO','VERIFICACAO_HUMANA'):
+   result={'status':'revisao','rota':'central_cobranca','diagnostico':{'codigo':code}}
+   with self.subTest(code=code),patch('robot.run_once',new=AsyncMock(return_value=result)) as one:
+    await run(CLIENT)
+    self.assertEqual(one.await_count,1)
+
  async def test_failed_checkpoint_prevents_second_call(self):
   with patch('robot.run_once',new=AsyncMock(return_value=SALDO)) as one:
    result=await run(CLIENT,on_checkpoint=AsyncMock(side_effect=OSError()))
