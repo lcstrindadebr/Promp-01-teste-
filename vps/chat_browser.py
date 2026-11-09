@@ -7,7 +7,11 @@ CHAT_URL='https://widget.voltdigital.com.br/br/14603de1a63fa6c1331d69c278d6d32f2
 # The bank failed HTTP/2 on the VPS; use HTTP/1.1 over verified TLS.
 CHROMIUM_ARGS=('--disable-dev-shm-usage','--disable-http2','--disable-quic')
 
-class NavigationIssue(Exception):pass
+class NavigationIssue(Exception):
+    def __init__(self, message, *, http_status=None, diagnostic_code=None):
+        super().__init__(message)
+        self.http_status = http_status
+        self.diagnostic_code = diagnostic_code
 
 def describe_error(exc):
     text=str(exc)
@@ -18,9 +22,9 @@ def describe_error(exc):
     return type(exc).__name__+' sem código de rede. Execute Diagnosticar robô no instalador.'
 
 def check_access(text,status=None):
+    if status and status>=400:raise NavigationIssue(f'O site retornou HTTP {status}.',http_status=status)
     if re.search(r'verify you are human|verifique.{0,30}human|checking your browser|just a moment|\bcaptcha\b|access denied|automated traffic|unusual traffic',text,re.I):
-        raise NavigationIssue('O site exige verificação adicional ou recusou este navegador. Revisão humana necessária.')
-    if status and status>=400:raise NavigationIssue(f'O site retornou HTTP {status}; verifique o acesso na VPS.')
+        raise NavigationIssue('O site exige verificação adicional ou recusou este navegador. Revisão humana necessária.',diagnostic_code='VERIFICACAO_HUMANA')
 
 async def body_text(page):
     return await page.locator('body').inner_text(timeout=5000)
@@ -34,7 +38,8 @@ async def open_bank(context,timeout=60000,report=None):
         await page.add_locator_handler(locator,dismiss)
     if report:await report(10,'Abrir site do banco')
     response=await page.goto(BANK_URL,wait_until='domcontentloaded',timeout=timeout)
-    check_access(await body_text(page),response.status if response else None)
+    check_access('',response.status if response else None)
+    check_access(await body_text(page))
     if report:await report(20,'Abrir widget do chat')
     return page
 
@@ -79,7 +84,8 @@ async def open_direct_chat(context,timeout=60000,report=None):
     page=await context.new_page();page.set_default_timeout(timeout)
     if report:await report(10,'Abrir chat direto do banco')
     response=await page.goto(CHAT_URL,wait_until='domcontentloaded',timeout=timeout)
-    check_access(await body_text(page),response.status if response else None)
+    check_access('',response.status if response else None)
+    check_access(await body_text(page))
     if report:await report(20,'Aguardar formulário do chat')
     deadline=time.monotonic()+timeout/1000
     while time.monotonic()<deadline:
@@ -87,4 +93,4 @@ async def open_direct_chat(context,timeout=60000,report=None):
         scope=await find_chat_scope(context,page)
         if scope:return scope
         await asyncio.sleep(.2)
-    raise NavigationIssue('O chat direto abriu, mas não exibiu formulário ou menu no prazo esperado.')
+    raise NavigationIssue('O chat direto abriu, mas não exibiu formulário ou menu no prazo esperado.',diagnostic_code='FORMULARIO_INDISPONIVEL')

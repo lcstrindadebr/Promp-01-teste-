@@ -1,7 +1,8 @@
 """Digi+ UI workflow with real step progress and explicit result classification."""
 import asyncio, inspect, re, time
 from decimal import Decimal
-from chat_browser import CHROMIUM_ARGS, CHAT_URL, NavigationIssue, describe_error, open_direct_chat, check_access
+from chat_browser import CHROMIUM_ARGS, CHAT_URL, NavigationIssue, open_direct_chat, check_access
+from robot_failures import diagnose, failure, label
 class RobotError(Exception):pass
 
 def format_cpf(value):
@@ -137,8 +138,7 @@ class DigiSession:
    self.busy=False;self.last_used=time.monotonic()
 
 async def run_once(client,timeout=60000,on_progress=None,kind="saldo",session=None):
- from playwright.async_api import TimeoutError as PlaywrightTimeout
- progress=0;stage='Iniciar navegador';context=None
+ progress=0;stage='Iniciar navegador';context=None;cpf_submitted=False
  owned=session is None
  if owned:session=DigiSession()
  async def emit(percent,label):
@@ -149,7 +149,16 @@ async def run_once(client,timeout=60000,on_progress=None,kind="saldo",session=No
    if inspect.isawaitable(result):await result
  async def finish(result):
   if result['status'] in ('concluida','nao_cliente'):await emit(100,'Concluída' if result['status']=='concluida' else 'Não é cliente')
-  result.update(progress=progress,stage=stage);return result
+  if result['status'] in ('erro','revisao') and not result.get('diagnostico'):
+   message=result.get('message','')
+   code='CPF_RECUSADO' if 'CPF como inválido' in message else 'CHAT_SEM_RESULTADO'
+   if 'falta de interação' in message:code='CHAT_ENCERRADO_INATIVIDADE'
+   if 'chat informou uma falha' in message:code='FALHA_INFORMADA_PELO_CHAT'
+   result['diagnostico']=failure('retorno_portal',code)
+   result['message']=f'{label(result["diagnostico"])} {message}'
+  result.update(progress=progress,stage=stage)
+  if result.get('diagnostico'):result['diagnostico']['etapa']=stage
+  return result
  try:
   await emit(5,'Iniciar navegador')
   if session.browser is None:await session.prepare(client.get('user_id'))
@@ -170,13 +179,14 @@ async def run_once(client,timeout=60000,on_progress=None,kind="saldo",session=No
   field=chat.get_by_placeholder('Digitar...',exact=True)
   await field.fill(format_cpf(client['cpf']))
   # Observed actual send button; Enter is no longer assumed to submit.
+  cpf_submitted=True  # A click can submit even if Playwright subsequently times out.
   await chat.locator('button.send[type="submit"]').click()
   await emit(70,'CPF enviado; aguardando resposta')
   selected_saldo=False;end_seen=None;history_opened=False;deadline=time.monotonic()+timeout/1000
   while time.monotonic()<deadline:
    text=await chat.locator('body').inner_text()
    if re.search(r'verifique.{0,30}human|captcha|checking your browser|access denied',text,re.I):
-    return await finish({'status':'revisao','message':'Verificação adicional no site; intervenção humana necessária.'})
+    return await finish({'status':'revisao','message':'[acesso_portal / VERIFICACAO_HUMANA] Verificação adicional no site; intervenção humana necessária.','diagnostico':failure('acesso_portal','VERIFICACAO_HUMANA')})
    ended=bool(re.search(r'a sessão de chat acabou|esse atendimento foi encerrado',normalize(text),re.I)) or await chat.get_by_role('button',name='Novo Chat',exact=True).count()>0
    # Let any last message settle after the close event, without resending CPF.
    if ended:
@@ -193,11 +203,15 @@ async def run_once(client,timeout=60000,on_progress=None,kind="saldo",session=No
     await emit(85,'Valor de parcela solicitado; aguardando resposta' if kind=='parcela' else 'Saldo de liquidação solicitado; aguardando valores')
    await asyncio.sleep(.5)
   raise RobotError('Não houve resposta final reconhecida após o envio. Não é possível classificar como não cliente.')
- except PlaywrightTimeout:
-  return {'status':'erro','message':f'Tempo excedido: {stage} ({progress}%). Nenhum resultado conclusivo.','progress':progress,'stage':stage}
- except (RobotError,NavigationIssue) as e:return {'status':'revisao','message':str(e),'progress':progress,'stage':stage}
- except Exception as e:
-  return {'status':'erro','message':f'Falha na etapa {stage}: {describe_error(e)}.','progress':progress,'stage':stage}
+ except Exception as error:
+  diagnostic=diagnose(error)
+  if isinstance(error,RobotError):
+   diagnostic=failure('portal' if cpf_submitted else 'dados','RESPOSTA_NAO_RECONHECIDA' if cpf_submitted else 'ENTRADA_INVALIDA')
+  diagnostic['etapa']=stage
+  diagnostic['repetir']=diagnostic['transitorio'] and not cpf_submitted
+  message=str(error) if isinstance(error,(RobotError,NavigationIssue)) else 'Falha na etapa '+stage+'.'
+  return {'status':'revisao' if isinstance(error,(RobotError,NavigationIssue)) else 'erro',
+          'message':f'{label(diagnostic)} {message}','diagnostico':diagnostic,'progress':progress,'stage':stage}
  finally:
   if context:
    try:await context.close()
@@ -216,7 +230,7 @@ async def run(client,timeout=60000,on_progress=None,on_checkpoint=None,session=N
  async def first_progress(percent,label):await progress(percent//2,'1/2 Saldo: '+label)
  async def second_progress(percent,label):await progress(50+percent//2,'2/2 Parcela: '+label)
  first=await run_once(client,timeout,first_progress,kind='saldo',**options)
- combined={k:v for k,v in first.items() if k not in ('progress','stage')}
+ combined={k:v for k,v in first.items() if k not in ('progress','stage','diagnostico')}
  combined.update(resultado_saldo=first,progress=first.get('progress',0)//2,stage='1/2 Saldo: '+first.get('stage',''))
  if first['status']!='concluida':
   # Do not start another session after an inconclusive or blocked first call.
@@ -227,16 +241,28 @@ async def run(client,timeout=60000,on_progress=None,on_checkpoint=None,session=N
   try:
    result=on_checkpoint(combined.copy())
    if inspect.isawaitable(result):await result
-  except Exception:
-   combined.update(status='revisao',message='Saldo obtido; não foi possível confirmar o salvamento parcial. A segunda consulta não foi iniciada.')
+  except Exception as error:
+   diagnostic=diagnose(error,'supabase')
+   first['diagnostico']=diagnostic
+   combined.update(status='revisao',message=f'{label(diagnostic)} Saldo obtido; gravação parcial não confirmada. A parcela não foi consultada.')
    return combined
  try:
   second=await run_once(client,timeout,second_progress,kind='parcela',**options)
- except Exception:
-  second={'status':'erro','progress':0,'stage':'Iniciar consulta da parcela','message':'Falha interna na segunda consulta; saldo preservado.'}
+  diagnostic=second.get('diagnostico')
+  if diagnostic and diagnostic.get('repetir'):
+   print(f'FALHA | Digi+ · parcela | {label(diagnostic)} | Recriando sessão e repetindo somente a parcela.',flush=True)
+   if session is not None:await session.close()
+   await asyncio.sleep(3)
+   second=await run_once(client,timeout,second_progress,kind='parcela',**options)
+   second['recuperacao']=f'Recuperação automática da parcela após {label(diagnostic)}.'
+ except Exception as error:
+  diagnostic=diagnose(error)
+  second={'status':'erro','progress':0,'stage':'Iniciar consulta da parcela','diagnostico':diagnostic,
+          'message':f'{label(diagnostic)} Falha interna na consulta da parcela.'}
  combined.update(resultado_parcela=second,progress=50+second.get('progress',0)//2,stage='2/2 Parcela: '+second.get('stage',''))
  if second['status']=='concluida':
   combined.update(valor_parcela=second['valor_parcela'],status='concluida',progress=100,stage='Saldo e parcela consultados',message='Saldo, total de parcelas e valor da parcela informados pelo chat.')
  else:
   combined.update(status='revisao',message='Saldo preservado. Consulta da parcela: '+second.get('message','sem resultado conclusivo.'))
+ if second.get('recuperacao'):combined['message']+=' '+second['recuperacao']
  return combined

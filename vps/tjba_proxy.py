@@ -3,6 +3,9 @@ import json
 from pathlib import Path
 from urllib.parse import urlsplit
 
+class ProxyConfigError(ValueError):
+    pass
+
 CONFIG = Path(__file__).resolve().parent.parent / 'tjba-proxy.json'
 
 def validate(data):
@@ -32,7 +35,7 @@ def launch_options(path=None):
     try:
         return {'proxy': validate(json.loads(path.read_text()))}
     except Exception:
-        raise ValueError('Configuração privada do proxy TJBA inválida ou inacessível; reconfigure no instalador.') from None
+        raise ProxyConfigError('Configuração privada do proxy TJBA inválida ou inacessível; reconfigure no instalador.') from None
 
 if __name__ == '__main__':
     import getpass, os, pwd, tempfile

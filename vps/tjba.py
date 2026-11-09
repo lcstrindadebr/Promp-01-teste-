@@ -3,6 +3,7 @@ Never reserve margin, make proposals, save browser state or log portal content/s
 """
 import asyncio,re,time,unicodedata
 from tjba_proxy import launch_options
+from robot_failures import diagnose, failure, label
 from decimal import Decimal,InvalidOperation
 from datetime import datetime,timezone
 from urllib.parse import urlsplit
@@ -55,7 +56,7 @@ async def assert_convenio(page,convenio='tjba'):
  raise Review('sessao_expirada','O convênio TJBA selecionado não pôde ser confirmado pelo cabeçalho do portal.')
 async def challenge(page):
  for selector in ['#txtCaptcha','iframe[src*="recaptcha"]','iframe[src*="hcaptcha"]']:
-  if await page.locator(selector).first.is_visible():raise Review('sessao_expirada','O portal exige verificação humana. Retome a autenticação autorizada antes de consultar.')
+  if await page.locator(selector).first.is_visible():raise Review('sessao_expirada','O portal exige verificação humana. Retome a autenticação autorizada antes de consultar.',{'diagnostic_code':'VERIFICACAO_HUMANA'})
 async def report_step(callback,percent,label):
  if callback:await callback(percent,label)
 async def dismiss_cookies(page):
@@ -132,13 +133,12 @@ async def inspect_login_notice(page,credentials=None):
    elif kind=='confirmacao':message='O portal solicitou confirmação adicional de login. '+login_notice(text)
    else:message=login_notice(text)
    invalid=kind=='mensagem' and message=='O portal informou usuário ou senha inválidos.'
-   if 'não reconhecida' in message and credentials is not None:message+=' Mensagem do portal: '+safe_login_text(useful,credentials)
    raise Review('sessao_expirada',message,{'aviso_login':kind,'invalid_password':invalid})
 
 async def login(page,credentials,on_step=None,convenio='tjba'):
  await report_step(on_step,12,'Abrir página pública de login ConsigX')
  response=await page.goto(BASE+'/',wait_until='domcontentloaded',timeout=30000)
- if response and response.status>=400:raise Review('sessao_expirada',f'Entrada do portal retornou HTTP {response.status}. Nenhuma credencial foi enviada.')
+ if response and response.status>=400:raise Review('sessao_expirada',f'Entrada do portal retornou HTTP {response.status}. Nenhuma credencial foi enviada.',{'http_status':response.status})
  await challenge(page);await dismiss_cookies(page)
  if urlsplit(page.url).hostname!='govbahia.consigx.com.br':raise Review('sessao_expirada','O portal redirecionou a autenticação para outro domínio.')
  # A reused, authenticated browser may already have the agreement selected.
@@ -237,7 +237,10 @@ async def prepare(page,convenio='tjba'):
   back=page.locator('#body_voltarButton')
   if await back.is_visible():await back.click();await page.locator(SEARCH).wait_for(state='visible',timeout=12000)
   else:await page.goto(BASE+PATH,wait_until='domcontentloaded',timeout=20000)
- if not await page.locator(CPF).is_visible() or not await page.locator(SEARCH).is_visible():raise Review('sessao_expirada','A sessão do portal expirou ou o formulário não está disponível.')
+ if not await page.locator(CPF).is_visible() or not await page.locator(SEARCH).is_visible():
+  if await page.locator('#txtSenha').is_visible():
+   raise Review('sessao_expirada','O portal voltou ao login antes da pesquisa.',{'diagnostic_code':'SESSAO_EXPIRADA_ANTES_CONSULTA'})
+  raise Review('sessao_expirada','O formulário de consulta não está disponível.',{'diagnostic_code':'FORMULARIO_INDISPONIVEL'})
  await assert_convenio(page,convenio)
 async def choose_matricula(page):
  table=page.locator(GRID)
@@ -280,11 +283,13 @@ async def consult(page,cpf,on_step=None,convenio='tjba'):
  await page.locator(CPF).fill(normalize_cpf(cpf))
  await report_step(on_step,50,'Enviar pesquisa e aguardar retorno ConsigX')
  # Wait for an actual postback response, never accept old details from a previous CPF.
- try:
-  async with page.expect_response(lambda r: r.request.method=='POST' and urlsplit(r.url).hostname=='govbahia.consigx.com.br',timeout=20000) as pending:
-   await page.locator(SEARCH).click()
-  response=await pending.value;await response.finished()
- except Exception:raise Review('erro','O portal não confirmou o envio da consulta. Nenhum resultado anterior foi reutilizado.') from None
+ async with page.expect_response(lambda r: r.request.method=='POST' and urlsplit(r.url).hostname=='govbahia.consigx.com.br',timeout=20000) as pending:
+  await page.locator(SEARCH).click()
+ response=await pending.value
+ if await response.finished():
+  raise Review('erro','O portal não terminou de enviar a resposta.',{'diagnostic_code':'RESPOSTA_INTERROMPIDA'})
+ if response.status>=400:
+  raise Review('erro',f'O portal retornou HTTP {response.status} na pesquisa.',{'http_status':response.status})
  await page.wait_for_load_state('domcontentloaded')
  await page.wait_for_function("()=>window.Sys?.WebForms?.PageRequestManager?!Sys.WebForms.PageRequestManager.getInstance().get_isInAsyncPostBack():document.readyState==='complete'",timeout=15000)
  await page.wait_for_function("""()=>{
@@ -313,18 +318,45 @@ def job_result(raw):
  if raw.get('nome'):result['nome']=str(raw['nome'])[:160]
  return result
 def failure_details(exc,page=None):
- # Inspect arbitrary exception text only for approved markers; never copy the text/trace.
- text=str(exc);codes=list(dict.fromkeys(re.findall(r'ERR_[A-Z0-9_]+',text)))
- code='CHROMIUM_AUSENTE' if 'Executable doesn' in text or 'playwright install' in text else 'NAVEGADOR_ENCERRADO' if re.search(r'target.*closed|browser.*closed|page.*closed',text,re.I) else ','.join(codes) if codes else 'SEM_CODIGO_REDE'
+ diagnostic=diagnose(exc)
+ if isinstance(exc,Review):
+  details=exc.details
+  if details.get('http_status'):
+   exc.http_status=details['http_status']
+   diagnostic=diagnose(exc)
+  elif details.get('diagnostic_code')=='VERIFICACAO_HUMANA':
+   diagnostic=failure('acesso_portal','VERIFICACAO_HUMANA')
+  elif details.get('diagnostic_code')=='SESSAO_EXPIRADA_ANTES_CONSULTA':
+   diagnostic=failure('login','SESSAO_EXPIRADA_ANTES_CONSULTA',True)
+  elif details.get('diagnostic_code') in ('FORMULARIO_INDISPONIVEL','RESPOSTA_INTERROMPIDA'):
+   diagnostic=failure('portal',details['diagnostic_code'],True)
+  elif exc.status=='sessao_expirada':
+   known={
+    'O portal informou usuário ou senha inválidos.':'CREDENCIAIS_INVALIDAS',
+    'O portal informou sessão já ativa ou acesso simultâneo.':'SESSAO_SIMULTANEA',
+    'O portal informou bloqueio ou suspensão do acesso.':'CONTA_BLOQUEADA',
+    'O portal solicitou alteração de senha.':'ALTERACAO_DE_SENHA_EXIGIDA',
+    'O portal informou restrição de acesso ou de IP.':'RESTRICAO_DE_ACESSO',
+    'O portal exibiu uma mensagem relacionada a cookies.':'AVISO_DE_COOKIES',
+   }
+   code=next((value for message,value in known.items() if message in exc.message),'AUTENTICACAO_NAO_CONFIRMADA')
+   if details.get('invalid_password'):code='CREDENCIAIS_INVALIDAS'
+   if 'expirou durante' in exc.message:code='SESSAO_EXPIRADA_DURANTE_CONSULTA'
+   if 'convênio' in exc.message:code='CONVENIO_NAO_CONFIRMADO'
+   if details.get('aviso_login')=='cadastro':code='CADASTRO_COMPLEMENTAR_EXIGIDO'
+   diagnostic=failure('login',code)
+  else:
+   diagnostic=failure('retorno_portal','RETORNO_NAO_VALIDADO')
  route=None
  try:
   path=urlsplit(str(page.url)).path if page else ''
   if path in ('/','/LoginSelecao.aspx','/Inicial/Inicial.aspx',PATH,'/Margem/ConsultaMargemDados.aspx'):route=path
- except Exception:pass
- return {'tipo':type(exc).__name__,'codigo':code,'rota':route}
+ except (ValueError,TypeError):pass
+ return {**diagnostic,'tipo':type(exc).__name__,'rota':route}
+
 class Session:
  """One live browser per worker; owner-scoped session and bounded login retries."""
- def __init__(self):self.pw=None;self.browser=None;self.context=None;self.page=None;self.identity=None;self.blocked=None;self.last_used=0
+ def __init__(self):self.pw=None;self.browser=None;self.context=None;self.page=None;self.identity=None;self.blocked=None;self.blocked_diagnostic=None;self.last_used=0
  async def close(self):
   browser,pw=self.browser,self.pw
   self.pw=self.browser=self.context=self.page=None;self.identity=None
@@ -343,13 +375,17 @@ class Session:
    nonlocal percent,stage
    percent=p;stage=label;await on_progress(p,label)
   def failed(raw):
+   diagnostic=raw.get('diagnostico')
+   if diagnostic:
+    diagnostic['etapa']=stage
+    raw['observacoes']=f"{label(diagnostic)} {raw['observacoes']}"
    result=job_result(raw);result['progress']=percent;result['stage']='Falha TJBA | '+stage;return result
-  if not credentials or not credentials.get('enabled'):return failed(dict(base,status='sessao_expirada',observacoes='Configure o acesso TJBA e habilite a integração em Configurações.'))
+  if not credentials or not credentials.get('enabled'):return failed(dict(base,status='sessao_expirada',observacoes='Configure e habilite o acesso ConsigX.',diagnostico=failure('login','CREDENCIAL_NAO_CONFIGURADA')))
   convenio=job.get('convenio','tjba')
   if convenio not in CONVENIOS:return failed(dict(base,status='revisao_margens',observacoes='Convênio não reconhecido.'))
   base['convenio']=convenio
   identity=(job['user_id'],credentials['revision'])+((convenio,) if convenio!='tjba' else ())
-  if identity==self.blocked:return failed(dict(base,status='sessao_expirada',observacoes='Autenticação pausada após falha. Valide o acesso e salve novamente as configurações.'))
+  if identity==self.blocked:return failed(dict(base,status='sessao_expirada',observacoes='Autenticação pausada. Verifique o acesso e salve novamente as configurações.',diagnostico=self.blocked_diagnostic.copy()))
   try:
    if self.identity!=identity or not self.page or self.page.is_closed():
     await self.close();await report(5,'Carregar Playwright do robô TJBA')
@@ -360,20 +396,26 @@ class Session:
     await report(10,'Criar contexto do navegador TJBA')
     self.context=await self.browser.new_context(accept_downloads=False,locale='pt-BR');self.page=await self.context.new_page();self.page.set_default_timeout(12000)
     await install_handlers(self.page)
-    try:await login_with_retries(self.page,credentials,on_step=report,**({'convenio':convenio} if convenio!='tjba' else {}))
-    except Exception:self.blocked=identity;raise
+    await login_with_retries(self.page,credentials,on_step=report,**({'convenio':convenio} if convenio!='tjba' else {}))
     self.identity=identity
    raw=await consult(self.page,job['cpf'],on_step=report,**({'convenio':convenio} if convenio!='tjba' else {}));await report(90,'Salvar margens TJBA')
    return job_result(dict(base,**raw))
-  except Review as e:
-   raw=dict(base,status=e.status,observacoes=e.message,diagnostico={'etapa':stage},**e.details)
-   if e.status=='sessao_expirada':self.blocked=identity;await self.close()
-   return failed(raw)
-  except Exception as exc:
-   diagnostic=failure_details(exc,self.page);diagnostic['etapa']=stage
-   message=f"Falha em {stage}. Tipo: {diagnostic['tipo']}; código: {diagnostic['codigo']}."
-   if diagnostic['codigo']=='CHROMIUM_AUSENTE':message+=' Execute Atualizar no instalador para instalar o Chromium.'
-   elif diagnostic['codigo']=='NAVEGADOR_ENCERRADO':message+=' Confira a RAM e os logs do serviço na VPS.'
-   raw=dict(base,status='erro',observacoes=message,diagnostico=diagnostic)
-   await self.close();return failed(raw)
+  except Exception as error:
+   diagnostic=failure_details(error,self.page)
+   diagnostic['repetir']=diagnostic['transitorio'] and percent<50
+   status=error.status if isinstance(error,Review) else 'erro'
+   if isinstance(error,Review):
+    message=error.message
+    details={key:value for key,value in error.details.items() if key!='diagnostico'}
+   else:
+    message=f'Falha na etapa {stage}.'
+    details={}
+   if diagnostic['codigo']=='CHROMIUM_AUSENTE':
+    message+=' Execute Atualizar no instalador para instalar o Chromium.'
+   blocked_login=diagnostic['categoria']=='login' and not diagnostic['transitorio'] and diagnostic['codigo']!='SESSAO_EXPIRADA_DURANTE_CONSULTA'
+   if blocked_login or diagnostic['codigo']=='VERIFICACAO_HUMANA':
+    self.blocked=identity
+    self.blocked_diagnostic=diagnostic.copy()
+   if diagnostic['categoria']!='retorno_portal':await self.close()
+   return failed(dict(base,status=status,observacoes=message,diagnostico=diagnostic,**details))
   finally:self.last_used=time.monotonic()

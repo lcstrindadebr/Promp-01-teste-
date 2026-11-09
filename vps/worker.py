@@ -2,6 +2,7 @@
 import asyncio,json,os,time,urllib.request,urllib.error
 from datetime import datetime,timezone
 from collections import defaultdict
+from robot_failures import diagnose, label
 URL=os.environ['SUPABASE_URL'].rstrip('/')
 KEY=os.environ['SUPABASE_SERVICE_ROLE_KEY']
 MODE=os.environ.get('ROBOT_MODE','disabled')
@@ -31,7 +32,7 @@ async def process_digimais(job,adapter):
   while True:
    data=await queue.get()
    try:await asyncio.to_thread(request,'consulta_jobs?id=eq.'+job['id'],data,'PATCH',4)
-   except Exception:print('Não foi possível registrar progresso desta etapa.',flush=True)
+   except Exception as error:log_failure('Digi+ · gravar progresso',diagnose(error,'supabase'))
    finally:queue.task_done()
  writer=asyncio.create_task(flush())
  try:
@@ -53,7 +54,13 @@ async def process_tjba(job,adapter):
  if job.get('robot_slot'):
   route='rpc/get_tjba_robot_credentials'
   payload['p_slot']=job['robot_slot']
- credentials=await asyncio.to_thread(request,route,payload)
+ try:
+  credentials=await asyncio.to_thread(request,route,payload)
+ except Exception as error:
+  diagnostic=diagnose(error,'supabase')
+  diagnostic['repetir']=diagnostic['transitorio']
+  return job_result({'status':'erro','diagnostico':diagnostic,
+                     'observacoes':f'{label(diagnostic)} Falha ao carregar o acesso ConsigX.'})
  queue=asyncio.Queue(maxsize=1)
  async def report(percent,stage):
   if getattr(adapter,'telemetry',None):adapter.telemetry.report(percent)
@@ -63,7 +70,7 @@ async def process_tjba(job,adapter):
   while True:
    data=await queue.get()
    try:await asyncio.to_thread(request,'tjba_jobs?id=eq.'+job['id'],data,'PATCH',4)
-   except Exception:print('Falha ao salvar progresso TJBA.',flush=True)
+   except Exception as error:log_failure('ConsigX · gravar progresso',diagnose(error,'supabase'))
    finally:queue.task_done()
  writer=asyncio.create_task(flush())
  try:
@@ -86,11 +93,44 @@ async def process_tjba(job,adapter):
   try:await writer
   except asyncio.CancelledError:pass
 
+def log_failure(context, diagnostic, action=''):
+ fields=['FALHA',context,label(diagnostic)]
+ if diagnostic.get('etapa'):fields.append(diagnostic['etapa'])
+ if action:fields.append(action)
+ print(' | '.join(fields),flush=True)
+
+def result_diagnostic(result):
+ for field in ('resultado_tjba','resultado_parcela','resultado_saldo'):
+  diagnostic=(result.get(field) or {}).get('diagnostico')
+  if diagnostic:return diagnostic
+ return None
+
+async def run_with_recovery(process, job, session, name):
+ result=await process(job,session)
+ diagnostic=result_diagnostic(result)
+ if not diagnostic:return result
+ # A second-stage Digi+ error must not replay a balance already queried.
+ can_retry=diagnostic.get('repetir') and not result.get('resultado_parcela')
+ if not can_retry:
+  log_failure(name,diagnostic)
+  return result
+ log_failure(name,diagnostic,'Recriando sessão; uma nova tentativa antes do envio do CPF.')
+ await session.close()
+ await asyncio.sleep(3)
+ recovered=await process(job,session)
+ final_diagnostic=result_diagnostic(recovered)
+ if final_diagnostic:log_failure(name,final_diagnostic,'Nova tentativa encerrada.')
+ else:print(f'RECUPERAÇÃO | {name} | {label(diagnostic)} | Nova tentativa finalizada.',flush=True)
+ previous=f'Recuperação automática após {label(diagnostic)}. Uma nova tentativa realizada.'
+ recovered['message']=' '.join(filter(None,[recovered.get('message'),previous]))
+ return recovered
+
 async def robot_loop(index, capacity, sessions):
  from robot import DigiSession
  adapter=sessions[index]
  digi=DigiSession()
  last_queue='tjba' if index % 2 == 0 else 'digimais'
+ retry_after={}
  slot=robot_metrics.slots[index]
  adapter.telemetry=slot;digi.telemetry=slot
  try:
@@ -110,6 +150,7 @@ async def robot_loop(index, capacity, sessions):
     for queue_name in queues:
      if index >= capacity.target:
       break
+     if time.monotonic()<retry_after.get(queue_name,0):continue
      route='rpc/claim_tjba_job_for_robot' if queue_name=='tjba' else 'rpc/claim_consulta_job'
      payload={'p_slot':index+1} if queue_name=='tjba' else {}
      jobs=await asyncio.to_thread(request,route,payload)
@@ -123,22 +164,33 @@ async def robot_loop(index, capacity, sessions):
     if slot:slot.begin('consigx' if job.get('servico')=='tjba_margem' else 'digimais')
     try:
      if job.get('servico')=='tjba_margem':
-      await digi.close();result=await process_tjba(job,adapter)
+      await digi.close();result=await run_with_recovery(process_tjba,job,adapter,slot.name+' · ConsigX')
      else:
-      await adapter.close();result=await process_digimais(job,digi)
-    except Exception:result={'status':'erro','message':'Falha interna no robô. Verificar a instalação e conectividade da VPS.'}
+      await adapter.close();result=await run_with_recovery(process_digimais,job,digi,slot.name+' · Digi+')
+    except Exception as error:
+     diagnostic=diagnose(error)
+     log_failure(slot.name,diagnostic,'Recriando sessão para a próxima consulta.')
+     result={'status':'erro','message':f'{label(diagnostic)} Falha interna no executor. Sessão encerrada.'}
+     await adapter.close()
+     await digi.close()
+    diagnostic=result_diagnostic(result)
+    if diagnostic and diagnostic.get('transitorio'):
+     retry_after[last_queue]=time.monotonic()+30
     if slot:slot.saving(result)
     save_started=time.monotonic()
     result['consultado_em']=datetime.now(timezone.utc).isoformat()
     while True:
      try:await asyncio.to_thread(request,('tjba_jobs' if job.get('servico')=='tjba_margem' else 'consulta_jobs')+'?id=eq.'+job['id'],result,'PATCH');break
-     except Exception:print('Falha ao salvar resultado; tentando novamente.',flush=True);await asyncio.sleep(10)
+     except Exception as error:
+      log_failure(slot.name+' · gravar resultado',diagnose(error,'supabase'),'Repetindo apenas a gravação em 10 s.')
+      await asyncio.sleep(10)
     if slot:
      print(f"DURAÇÃO | {slot.name} | processamento={slot.duration:.1f}s | gravação={time.monotonic()-save_started:.1f}s",flush=True)
      slot.saved()
-   except Exception:
+   except Exception as error:
     if slot:slot.state='queue_error'
-    print('Fila indisponível; nova tentativa em 10 segundos.',flush=True);await asyncio.sleep(10)
+    log_failure(slot.name+' · fila',diagnose(error,'supabase'),'Nova tentativa em 10 s.')
+    await asyncio.sleep(10)
  finally:
   await adapter.close();await digi.close()
 

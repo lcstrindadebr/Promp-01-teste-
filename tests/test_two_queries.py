@@ -31,6 +31,15 @@ class TwoQueriesTests(unittest.IsolatedAsyncioTestCase):
    result=await run(CLIENT,on_checkpoint=AsyncMock())
   self.assertEqual(result['status'],'revisao');self.assertEqual(result['saldo_liquidacao'],1234.56)
   self.assertEqual(result['progress'],70);self.assertNotIn('valor_parcela',result)
+ async def test_transient_parcela_failure_retries_only_parcela(self):
+  fail={'status':'erro','diagnostico':{'categoria':'portal','codigo':'TEMPO_EXCEDIDO','repetir':True}}
+  success={'status':'concluida','valor_parcela':99}
+  with patch('robot.run_once',new=AsyncMock(side_effect=[SALDO,fail,success])) as one,patch('robot.asyncio.sleep',new=AsyncMock()):
+   result=await run(CLIENT)
+  self.assertEqual([call.kwargs['kind'] for call in one.await_args_list],['saldo','parcela','parcela'])
+  self.assertEqual(result['saldo_liquidacao'],1234.56)
+  self.assertEqual(result['valor_parcela'],99)
+  self.assertIn('Recuperação automática',result['message'])
  async def test_failed_checkpoint_prevents_second_call(self):
   with patch('robot.run_once',new=AsyncMock(return_value=SALDO)) as one:
    result=await run(CLIENT,on_checkpoint=AsyncMock(side_effect=OSError()))

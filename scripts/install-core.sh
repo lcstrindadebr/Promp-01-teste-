@@ -188,6 +188,8 @@ STAGE='instalação do serviço do robô'
 cat > "$UNIT" <<'EOF'
 [Unit]
 Description=Robo de consultas ApoiarCred
+StartLimitIntervalSec=300
+StartLimitBurst=5
 Wants=network-online.target
 After=network-online.target
 [Service]

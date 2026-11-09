@@ -50,6 +50,34 @@ class WorkerRouteTests(unittest.IsolatedAsyncioTestCase):
    result=await worker.process_tjba({'id':'j','user_id':'u','cpf':'123'},Adapter())
   self.assertEqual(result['status'],'concluida');self.assertTrue(any(p=='tjba_jobs?id=eq.j' for p,_,_ in calls));self.assertFalse(any('consulta_jobs' in p for p,_,_ in calls));self.assertNotIn('FAKE',str(result))
 
+class RecoveryTests(unittest.IsolatedAsyncioTestCase):
+ async def test_retry_only_before_submission_and_keep_diagnostics(self):
+  import os
+  from robot_failures import diagnose
+  from urllib.error import HTTPError
+  self.assertEqual(diagnose(HTTPError('https://user:secret@example.invalid',407,'',None,None))['categoria'],'proxy_autenticacao')
+  diagnostic=diagnose(RuntimeError('net::ERR_PROXY_CONNECTION_FAILED https://user:secret@example.invalid'))
+  self.assertEqual(diagnostic['codigo'],'ERR_PROXY_CONNECTION_FAILED')
+  self.assertNotIn('secret',str(diagnostic))
+  with patch.dict(os.environ,{'SUPABASE_URL':'https://test.invalid','SUPABASE_SERVICE_ROLE_KEY':'fake'}):
+   spec=importlib.util.spec_from_file_location('worker_recovery_test',ROOT/'vps/worker.py')
+   worker=importlib.util.module_from_spec(spec)
+   spec.loader.exec_module(worker)
+  failed={'status':'erro','resultado_tjba':{'diagnostico':{**diagnostic,'repetir':True}}}
+  process=AsyncMock(side_effect=[failed,{'status':'concluida'}])
+  session=AsyncMock()
+  with patch.object(worker.asyncio,'sleep',new=AsyncMock()):
+   result=await worker.run_with_recovery(process,{},session,'Teste')
+  self.assertEqual(process.await_count,2)
+  session.close.assert_awaited_once()
+  self.assertIn('ERR_PROXY_CONNECTION_FAILED',result['message'])
+  failed['resultado_tjba']['diagnostico']['repetir']=False
+  process=AsyncMock(return_value=failed)
+  session.reset_mock()
+  self.assertIs(await worker.run_with_recovery(process,{},session,'Teste'),failed)
+  process.assert_awaited_once()
+  session.close.assert_not_awaited()
+
 class FakeNavigation:
  def __init__(self,page):self.page=page
  async def __aenter__(self):return self

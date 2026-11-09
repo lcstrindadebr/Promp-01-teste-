@@ -723,3 +723,22 @@ A migração `supabase/upgrade_shared_robots.sql` habilita a reserva paralela do
 Para a tela unificada de acesso ConsigX, aplique `supabase/upgrade_consigx_access_editor.sql` após a migração dos três robôs. A tela usa os acessos e as senhas já cadastrados no Vault.
 
 A migração `supabase/upgrade_consigx_require_robot_login.sql` exige credencial própria habilitada para cada robô nas consultas do administrador.
+
+
+### Diagnóstico e recuperação do robô
+
+O log de Configurações registra a etapa e o código observado, como
+`ERR_PROXY_CONNECTION_FAILED`, `HTTP_407`, `CREDENCIAIS_INVALIDAS` ou
+`NAVEGADOR_ENCERRADO`. O serviço também registra o diagnóstico e a ação tomada.
+Na VPS, consulte `sudo journalctl -u apoiarcred-robo -n 100 --no-pager`.
+
+Em falhas transitórias antes do envio da consulta, o executor recria a sessão e
+tenta mais uma vez. Após o envio, o resultado vai para erro ou revisão e a
+consulta precisa de conferência. Se o saldo Digi+ já foi obtido, ele é preservado.
+Se falhar a gravação final, o robô repete só a gravação. Após nova falha
+transitória, o executor aguarda 30 segundos antes de reservar outra consulta
+da mesma fila. Erros de senha, bloqueio e verificação humana exigem revisão.
+Se o processo cair, o systemd tenta reiniciá-lo após 10 segundos, com limite
+de cinco partidas em cinco minutos. Após corrigir uma falha persistente,
+use `sudo systemctl reset-failed apoiarcred-robo` e
+`sudo systemctl start apoiarcred-robo`.
