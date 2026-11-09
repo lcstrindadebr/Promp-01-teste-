@@ -16,7 +16,7 @@ def parse_response(text, *, ended=False, cpf_sent=False, kind="saldo"):
  text=normalize(text);lower=text.casefold()
  # Technical failures must never be classified as absence of a client.
  if 'encerrado por falta de interação' in lower:
-  return {'status':'erro','message':'Sessão encerrada por falta de interação.'}
+  return {'status':'interrompida' if cpf_sent else 'erro','message':'Sessão encerrada por falta de interação.'}
  if re.search(r'\b(?:erro|falha|indisponível)\b|tente novamente|não foi possível',lower):
   return {'status':'revisao','message':'O chat informou uma falha; revisar a consulta.'}
  if re.search(r'não foi informado um cpf válido|cpf inválido',lower):
@@ -29,7 +29,7 @@ def parse_response(text, *, ended=False, cpf_sent=False, kind="saldo"):
    amount=match.group(1)
    value=Decimal(amount.replace('.','').replace(',','.') if ',' in amount else amount)
    return {'status':'concluida','valor_parcela':float(value),'message':'Valor da parcela informado pelo chat.'}
-  if ended and cpf_sent:return {'status':'revisao','message':'Chat encerrado sem valor de parcela reconhecido.'}
+  if ended and cpf_sent:return {'status':'interrompida','message':'Chat encerrado após o CPF sem informar o valor da parcela.'}
   return None
  saldo=re.search(r'(?:valor\s+(?:do\s+)?saldo|saldo\s*(?:para\s*)?(?:de\s*)?(?:quitação|liquidação)(?:\s*(?:hoje|atual))?)\s*[:\-]?\s*R\$\s*((?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}|\d+\.\d{2})(?!\d|[.,]\d)',text,re.I)
  parcelas=re.search(r'(?:total|quantidade|número)\s*(?:de\s*)?parcelas\s*[:\-]?\s*(\d+)',text,re.I)
@@ -41,7 +41,7 @@ def parse_response(text, *, ended=False, cpf_sent=False, kind="saldo"):
  if ended and cpf_sent:
   if saldo or parcelas:
    return {'status':'revisao','message':'Atendimento encerrado com resposta parcial de saldo/parcelas.'}
-  return {'status':'revisao','message':'Chat encerrado sem resposta conclusiva após o CPF. Não é possível afirmar que não é cliente.'}
+  return {'status':'interrompida','message':'Chat encerrado após o CPF sem resposta conclusiva.'}
  return None
 
 INPUTS='input:not([type="hidden"]):not([type="file"]):not([type="checkbox"])'
@@ -132,7 +132,7 @@ class DigiSession:
    await self.prepare(client.get('user_id'))
    self.jobs+=1
    result=await run(client,timeout,on_progress,on_checkpoint,session=self)
-   if result.get('status') in ('erro','revisao'):await self.close()
+   if result.get('status') in ('erro','revisao','interrompida'):await self.close()
    return result
   except BaseException:
    await self.close();raise
@@ -152,9 +152,10 @@ async def run_once(client,timeout=60000,on_progress=None,kind="saldo",session=No
    if inspect.isawaitable(result):await result
  async def finish(result):
   if result['status'] in ('concluida','nao_cliente'):await emit(100,'Concluída' if result['status']=='concluida' else 'Não é cliente')
-  if result['status'] in ('erro','revisao') and not result.get('diagnostico'):
+  if result['status'] in ('erro','revisao','interrompida') and not result.get('diagnostico'):
    message=result.get('message','')
    code='CPF_RECUSADO' if 'CPF como inválido' in message else 'CHAT_SEM_RESULTADO'
+   if result['status']=='interrompida':code='CONSULTA_INTERROMPIDA'
    if 'falta de interação' in message:code='CHAT_ENCERRADO_INATIVIDADE'
    if 'chat informou uma falha' in message:code='FALHA_INFORMADA_PELO_CHAT'
    result['diagnostico']=failure('retorno_portal',code)
@@ -272,6 +273,6 @@ async def run(client,timeout=60000,on_progress=None,on_checkpoint=None,session=N
  if second['status']=='concluida':
   combined.update(valor_parcela=second['valor_parcela'],status='concluida',progress=100,stage='Saldo e parcela consultados',message='Saldo, total de parcelas e valor da parcela informados pelo chat.')
  else:
-  combined.update(status='revisao',message='Saldo preservado. Consulta da parcela: '+second.get('message','sem resultado conclusivo.'))
+  combined.update(status='interrompida' if second['status']=='interrompida' else 'revisao',message='Saldo preservado. Consulta da parcela: '+second.get('message','sem resultado conclusivo.'))
  if second.get('recuperacao'):combined['message']+=' '+second['recuperacao']
  return combined

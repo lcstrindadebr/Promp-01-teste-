@@ -32,7 +32,7 @@ Listas: page >= 1 e page_size 1..100 (padrão 50), com pagination.total.
 Campanhas: filtros servico e paused=true/false. Leads de campanha: filtro status.
 Busca CPF: aceita campanha_id opcional, page e page_size no JSON.
 Status: aguardando, processando, concluida, nao_cliente, nao_localizado,
-nao_encontrado (ConsigX), erro e revisao. Campos não retornados permanecem null.
+nao_encontrado (ConsigX), erro, revisao e interrompida (Digi+). Campos não retornados permanecem null.
 Digi+ só consulta parcela se o saldo identificar cliente. Resultado inclui saldo,
 parcela e total de parcelas; ConsigX retorna margens, matrícula e situação.
 
@@ -160,6 +160,7 @@ Resposta 200:
     "nao_clientes": 0,
     "erros": 0,
     "revisao": 0,
+    "interrompidas": 0,
     "aguardando": 1,
     "processando": 0
   }

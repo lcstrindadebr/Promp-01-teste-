@@ -25,7 +25,7 @@ class ResponseTests(unittest.TestCase):
  def test_invalid_cpf(self):
   with self.assertRaises(RobotError):format_cpf('123')
  def test_silent_closure_is_not_non_client(self):
-  self.assertEqual(parse_response('A sessão de chat acabou',ended=True,cpf_sent=True)['status'],'revisao')
+  self.assertEqual(parse_response('A sessão de chat acabou',ended=True,cpf_sent=True)['status'],'interrompida')
  def test_technical_failure_is_not_non_client(self):
   self.assertEqual(parse_response('Não foi possível consultar. Tente novamente.',ended=True,cpf_sent=True)['status'],'revisao')
  def test_nonbreaking_whitespace(self):

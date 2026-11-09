@@ -20,7 +20,7 @@ Para parceiros, o administrador precisa marcar **Liberar integrações (API e we
 | `campanha.finalizada` | Todos os leads da campanha estão em status final | Origem, campanha e serviço; ignora filtros de resultado |
 | `webhook.teste` | Teste manual | Ignora filtros; exige webhook ativo |
 
-Status enviados: `concluida`, `nao_cliente`, `nao_localizado`, `nao_encontrado`, `erro`, `revisao`. O webhook não envia progresso nem checkpoints intermediários. No Digi+, aguarda saldo e parcela terminarem; se a segunda consulta falhar, envia o saldo já salvo com status de revisão/erro e `resultado_parcial: true`.
+Status enviados: `concluida`, `nao_cliente`, `nao_localizado`, `nao_encontrado`, `erro`, `revisao`, `interrompida` (Digi+). O webhook não envia progresso nem checkpoints intermediários. No Digi+, aguarda saldo e parcela terminarem; se a segunda consulta falhar, envia o saldo já salvo com status de revisão, erro ou interrupção e `resultado_parcial: true`.
 
 Identificação possui três possibilidades:
 
@@ -69,7 +69,7 @@ Para ConsigX, `servico` é `tjba_margem`, `convenio` identifica TJBA/DPEBA/EMBAS
   "event": "campanha.finalizada",
   "occurred_at": "2026-11-05T12:00:00Z",
   "campanha": {"id": "uuid-da-campanha", "nome": "Exemplo", "servico": "digimais_saldo_parcela", "convenio": null},
-  "relatorio": {"total": 10, "clientes": 6, "nao_clientes": 2, "indeterminados": 2, "erros": 1, "revisao": 1}
+  "relatorio": {"total": 10, "clientes": 6, "nao_clientes": 2, "indeterminados": 2, "erros": 1, "revisao": 1, "interrompidas": 0}
 }
 ```
 

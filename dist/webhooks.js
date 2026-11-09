@@ -1,5 +1,5 @@
 // Webhook configuration is owner-scoped; destination calls are made by the VPS dispatcher.
-const whStatuses=[['concluida','Concluída'],['nao_cliente','Não cliente'],['nao_localizado','Não localizado'],['nao_encontrado','Não encontrado'],['erro','Erro'],['revisao','Revisão']];
+const whStatuses=[['concluida','Concluída'],['nao_cliente','Não cliente'],['nao_localizado','Não localizado'],['nao_encontrado','Não encontrado'],['erro','Erro'],['revisao','Revisão'],['interrompida','Consulta interrompida']];
 let webhookRows=[],webhookEditing=null,webhookTab='api',webhookBusy=false,webhookLoading=false,webhookGeneration=0;
 const whRoot=$('#settings-integrations'),whApi=document.createElement('div');whApi.id='integration-api';while(whRoot.firstChild)whApi.appendChild(whRoot.firstChild);whRoot.appendChild(whApi);
 const whTabs=document.createElement('div');whTabs.className='integration-tabs';whTabs.setAttribute('aria-label','Integrações');whTabs.innerHTML='<button type="button" data-integration="api" aria-pressed="true">API e tokens</button><button type="button" data-integration="webhooks" aria-pressed="false">Webhooks</button>';whRoot.prepend(whTabs);

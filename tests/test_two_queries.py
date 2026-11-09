@@ -40,6 +40,15 @@ class TwoQueriesTests(unittest.IsolatedAsyncioTestCase):
   self.assertEqual(result['saldo_liquidacao'],1234.56)
   self.assertEqual(result['valor_parcela'],99)
   self.assertIn('Recuperação automática',result['message'])
+ async def test_interrupted_after_cpf_is_distinct_and_keeps_balance(self):
+  interrupted=parse_response('Esse atendimento foi encerrado.',ended=True,cpf_sent=True,kind='parcela')
+  self.assertEqual(interrupted['status'],'interrompida')
+  self.assertEqual(parse_response('Esse atendimento foi encerrado.',ended=True,cpf_sent=True)['status'],'interrompida')
+  self.assertEqual(parse_response('Seu documento não foi localizado para esse produto.',ended=True,cpf_sent=True)['status'],'nao_cliente')
+  with patch('robot.run_once',new=AsyncMock(side_effect=[SALDO,interrupted])):
+   result=await run(CLIENT)
+  self.assertEqual(result['status'],'interrompida')
+  self.assertEqual(result['saldo_liquidacao'],1234.56)
  async def test_failed_checkpoint_prevents_second_call(self):
   with patch('robot.run_once',new=AsyncMock(return_value=SALDO)) as one:
    result=await run(CLIENT,on_checkpoint=AsyncMock(side_effect=OSError()))
@@ -56,5 +65,5 @@ class TwoQueriesTests(unittest.IsolatedAsyncioTestCase):
   self.assertEqual(parse_response('Valor da Parcela: R$ 1.234,56',kind='parcela')['valor_parcela'],1234.56)
   self.assertIsNone(parse_response('Valor Saldo: R$ 1234.56 Total de parcelas: 24',kind='parcela'))
  def test_missing_parcela_is_not_zero(self):
-  self.assertEqual(parse_response('Obrigado pelo contato',kind='parcela',cpf_sent=True,ended=True)['status'],'revisao')
+  self.assertEqual(parse_response('Obrigado pelo contato',kind='parcela',cpf_sent=True,ended=True)['status'],'interrompida')
 if __name__=='__main__':unittest.main()
