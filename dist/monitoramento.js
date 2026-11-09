@@ -37,7 +37,7 @@ function renderRobotHealth(data,collectorFresh){
  const enabled=data?.robot_mode==='live';
  $('#robotsStatus').textContent=!data?'Aguardando dados':!fresh?'Sem comunicação':!enabled?'Desativados':'Em operação';
  $('#robotsStatus').className='pill '+(fresh&&enabled?'ok':'err');
- const slots=Array.isArray(robots?.slots)?robots.slots.slice(0,3):[];
+ const slots=Array.isArray(robots?.slots)?robots.slots.slice(0,4):[];
  $('#robotsCards').innerHTML=slots.length?slots.map((s,index)=>{
   const label=!fresh?'Sem comunicação':!enabled?'Consultas desativadas':({idle:'Disponível',resource_paused:'Pausado por recursos',consulting:'Consultando',saving:'Salvando resultado',queue_error:'Falha de conexão com a fila'})[s.state]||'Estado indisponível';
   const service=s.service==='digimais'?'Digi+':s.service==='consigx'?'ConsigX':'Digi+ / ConsigX';

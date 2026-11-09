@@ -5,13 +5,12 @@ from unittest.mock import AsyncMock,patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'vps'))
 
 class ConcurrentDigiTests(unittest.IsolatedAsyncioTestCase):
- async def test_three_slots_share_both_queues_and_save_retry_never_requeries(self):
+ async def test_four_slots_share_both_queues_and_save_retry_never_requeries(self):
   path=Path(__file__).resolve().parents[1]/'vps/worker.py'
-  with patch.dict(os.environ,{'SUPABASE_URL':'https://example.invalid','SUPABASE_SERVICE_ROLE_KEY':'fake','ROBOT_WORKERS':'3'}):
+  with patch.dict(os.environ,{'SUPABASE_URL':'https://example.invalid','SUPABASE_SERVICE_ROLE_KEY':'fake','ROBOT_WORKERS':'4'}):
    spec=importlib.util.spec_from_file_location('worker_parallel_test',path);worker=importlib.util.module_from_spec(spec);spec.loader.exec_module(worker)
   jobs=[{'id':'a','cpf':'00000000191','servico':'digimais_saldo_parcela'},{'id':'b','cpf':'00000000272','servico':'digimais_saldo_parcela'}]
   consigx=[{'id':key,'cpf':'00000000191','servico':'tjba_margem','user_id':key} for key in ('c','d')]
-  jobs.pop()
   lock=threading.Lock();barrier=asyncio.Event();processed=[];saved=set();fail_once=True
   def request(route,data=None,method='POST',timeout=30):
    nonlocal fail_once
@@ -25,7 +24,7 @@ class ConcurrentDigiTests(unittest.IsolatedAsyncioTestCase):
   adapters=[]
   async def process(job,adapter):
    adapters.append(adapter);processed.append(job['id'])
-   if len(processed)==3:barrier.set()
+   if len(processed)==4:barrier.set()
    await asyncio.wait_for(barrier.wait(),3)
    return {'status':'concluida'}
   original_sleep=asyncio.sleep
@@ -33,15 +32,15 @@ class ConcurrentDigiTests(unittest.IsolatedAsyncioTestCase):
   async def full_capacity(capacity):
    capacity.target=capacity.maximum
    await asyncio.Future()
-  with patch.object(worker.RobotCapacity,'watch',full_capacity),patch('robot_metrics.RobotMetrics.publish_loop',new=AsyncMock()),patch.object(worker,'request',side_effect=request),patch.object(worker,'process_digimais',side_effect=process),patch.object(worker,'process_tjba',side_effect=process),patch.object(worker.asyncio,'sleep',side_effect=short_sleep),patch.dict(os.environ,{'ROBOT_WORKERS':'3'}):
+  with patch.object(worker.RobotCapacity,'watch',full_capacity),patch('robot_metrics.RobotMetrics.publish_loop',new=AsyncMock()),patch.object(worker,'request',side_effect=request),patch.object(worker,'process_digimais',side_effect=process),patch.object(worker,'process_tjba',side_effect=process),patch.object(worker.asyncio,'sleep',side_effect=short_sleep),patch.dict(os.environ,{'ROBOT_WORKERS':'4'}):
    task=asyncio.create_task(worker.main_async())
    try:
     async with asyncio.timeout(5):
-     while len(saved)<3 or sum(s.snapshot()['finished_last_hour'] for s in worker.robot_metrics.slots)<3:await original_sleep(.005)
+     while len(saved)<4 or sum(s.snapshot()['finished_last_hour'] for s in worker.robot_metrics.slots)<4:await original_sleep(.005)
    finally:
     task.cancel()
     with self.assertRaises(asyncio.CancelledError):await task
-  self.assertCountEqual(processed,['a','c','d']);self.assertEqual(saved,{'consulta_jobs?id=eq.a','tjba_jobs?id=eq.c','tjba_jobs?id=eq.d'});self.assertEqual(len({id(adapter) for adapter in adapters}),3);self.assertEqual([s.snapshot()['finished_last_hour'] for s in worker.robot_metrics.slots],[1,1,1])
+  self.assertCountEqual(processed,['a','b','c','d']);self.assertEqual(saved,{'consulta_jobs?id=eq.a','consulta_jobs?id=eq.b','tjba_jobs?id=eq.c','tjba_jobs?id=eq.d'});self.assertEqual(len({id(adapter) for adapter in adapters}),4);self.assertEqual([s.snapshot()['finished_last_hour'] for s in worker.robot_metrics.slots],[1,1,1,1])
  async def test_single_worker_setting_does_not_start_extra_executor(self):
   path=Path(__file__).resolve().parents[1]/'vps/worker.py'
   with patch.dict(os.environ,{'SUPABASE_URL':'https://example.invalid','SUPABASE_SERVICE_ROLE_KEY':'fake','ROBOT_WORKERS':'1'}):

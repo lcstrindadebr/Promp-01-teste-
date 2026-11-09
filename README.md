@@ -450,7 +450,7 @@ O CPF pode aparecer em campanhas diferentes para uma nova consulta intencional;
 o resultado histórico de outra campanha não é tratado como atualizado. A prevenção
 de repetição é por campanha. CPFs são armazenados com 11 dígitos, sem pontuação.
 
-Os três robôs alternam Digi+ e ConsigX. No ConsigX, cada login de portal
+Os quatro robôs alternam Digi+ e ConsigX. No ConsigX, cada login de portal
 tem uma consulta ativa por vez para evitar que novas sessões derrubem a consulta
 em andamento. Logins distintos podem ser processados em paralelo. Em Configurações → Operação → Acesso ao portal ConsigX, o administrador pode cadastrar um login por robô para as campanhas da própria conta. Só recebem consultas ConsigX os robôs com login próprio habilitado. O acesso único do parceiro é atendido pelo Robô 1. As senhas ficam no Vault.
 
@@ -460,8 +460,8 @@ ou 15% do total (o maior valor), ou CPU acima de 95% por três coletas,
 suspende um robô adicional. O robô termina e grava a consulta atual antes de fechar
 o navegador. Após seis coletas com CPU de até 75% e RAM disponível de pelo menos
 512 MiB e 25% do total, libera um robô por vez. Um robô permanece ativo.
-`ROBOT_WORKERS` define o máximo entre 1 e 3 e substitui a configuração legada
-`DIGIMAIS_WORKERS` quando ambas estiverem presentes. Sem configuração, o máximo é 3.
+`ROBOT_WORKERS` define o máximo entre 1 e 4 e substitui a configuração legada
+`DIGIMAIS_WORKERS` quando ambas estiverem presentes. Sem configuração, o máximo é 4. Se houver um limite manual menor, ajuste `ROBOT_WORKERS=4` para liberar o quarto.
 
 A opção 1 do auto instalador publica o novo worker e preserva o .env/proxy/SSL.
 No projeto Supabase original o índice já foi aplicado; outros projetos precisam
@@ -746,3 +746,5 @@ use `sudo systemctl reset-failed apoiarcred-robo` e
 Em **Configurações → Conta e diagnóstico → Log de consultas**, selecione o robô. O painel mostra o último estado de cada consulta. Registros antigos sem identificação ficam em **Sem robô identificado**. Para eventos do serviço na VPS, use `sudo journalctl -u apoiarcred-robo --grep="robo-1"` (troque o número para ver outro robô). A atribuição do Digi+ requer `supabase/upgrade_robot_log_slots.sql`.
 
 Campanhas pausam automaticamente após 10 resultados consecutivos de erro, revisão ou consulta interrompida. A contagem segue a ordem de conclusão e reinicia após um resultado sem falha ou ao retomar. No Digi+, chat encerrado sem resposta conclusiva após o CPF pode registrar **Consulta interrompida**. A atualização do banco está em `supabase/upgrade_campaign_failure_pause.sql`.
+
+A migração `supabase/upgrade_fourth_robot.sql` habilita as credenciais e as reservas do Robô 4.

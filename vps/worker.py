@@ -239,9 +239,9 @@ async def main_async():
  global robot_metrics
  from robot_metrics import RobotMetrics
  from tjba import Session
- workers=os.environ.get('ROBOT_WORKERS',os.environ.get('DIGIMAIS_WORKERS','3'))
- if workers not in ('1','2','3'):
-  raise ValueError('ROBOT_WORKERS deve ser 1, 2 ou 3.')
+ workers=os.environ.get('ROBOT_WORKERS',os.environ.get('DIGIMAIS_WORKERS','4'))
+ if workers not in ('1','2','3','4'):
+  raise ValueError('ROBOT_WORKERS deve ser 1, 2, 3 ou 4.')
  maximum=int(workers)
  capacity=RobotCapacity(maximum)
  robot_metrics=RobotMetrics(maximum)
