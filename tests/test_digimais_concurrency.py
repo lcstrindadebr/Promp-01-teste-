@@ -17,7 +17,7 @@ class ConcurrentDigiTests(unittest.IsolatedAsyncioTestCase):
    nonlocal fail_once
    with lock:
     if route=='rpc/claim_tjba_job_for_robot':return [consigx.pop(0)] if consigx else []
-    if route=='rpc/claim_consulta_job':return [jobs.pop(0)] if jobs else []
+    if route=='rpc/claim_consulta_job_for_robot':return [jobs.pop(0)] if jobs else []
     if method=='PATCH':
      if fail_once:fail_once=False;raise OSError('temporary database outage')
      saved.add(route);return None

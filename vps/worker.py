@@ -22,9 +22,9 @@ async def process_digimais(job,adapter):
  # Only the latest pending progress matters; database latency must not pause chat clicks.
  queue=asyncio.Queue(maxsize=1)
  started=time.monotonic()
+ executor=getattr(getattr(adapter,'telemetry',None),'name','Digi+')
  async def report(percent,stage):
   if getattr(adapter,'telemetry',None):adapter.telemetry.report(percent)
-  executor=getattr(getattr(adapter,"telemetry",None),"name","digimais")
   print(f"ETAPA | {executor} | {percent}% | {time.monotonic()-started:.1f}s | {stage}",flush=True)
   if queue.full():queue.get_nowait();queue.task_done()
   queue.put_nowait({'progress':percent,'stage':stage})
@@ -32,7 +32,7 @@ async def process_digimais(job,adapter):
   while True:
    data=await queue.get()
    try:await asyncio.to_thread(request,'consulta_jobs?id=eq.'+job['id'],data,'PATCH',4)
-   except Exception as error:log_failure('Digi+ · gravar progresso',diagnose(error,'supabase'))
+   except Exception as error:log_failure(executor+' · Digi+ · gravar progresso',diagnose(error,'supabase'))
    finally:queue.task_done()
  writer=asyncio.create_task(flush())
  try:
@@ -61,8 +61,10 @@ async def process_tjba(job,adapter):
   diagnostic['repetir']=diagnostic['transitorio']
   return job_result({'status':'erro','diagnostico':diagnostic,
                      'observacoes':f'{label(diagnostic)} Falha ao carregar o acesso ConsigX.'})
+ executor=getattr(getattr(adapter,'telemetry',None),'name','ConsigX')
  queue=asyncio.Queue(maxsize=1)
  async def report(percent,stage):
+  print(f'ETAPA | {executor} | {percent}% | {stage}',flush=True)
   if getattr(adapter,'telemetry',None):adapter.telemetry.report(percent)
   if queue.full():queue.get_nowait();queue.task_done()
   queue.put_nowait({'progress':percent,'stage':stage})
@@ -70,7 +72,7 @@ async def process_tjba(job,adapter):
   while True:
    data=await queue.get()
    try:await asyncio.to_thread(request,'tjba_jobs?id=eq.'+job['id'],data,'PATCH',4)
-   except Exception as error:log_failure('ConsigX · gravar progresso',diagnose(error,'supabase'))
+   except Exception as error:log_failure(executor+' · ConsigX · gravar progresso',diagnose(error,'supabase'))
    finally:queue.task_done()
  writer=asyncio.create_task(flush())
  try:
@@ -151,8 +153,8 @@ async def robot_loop(index, capacity, sessions):
      if index >= capacity.target:
       break
      if time.monotonic()<retry_after.get(queue_name,0):continue
-     route='rpc/claim_tjba_job_for_robot' if queue_name=='tjba' else 'rpc/claim_consulta_job'
-     payload={'p_slot':index+1} if queue_name=='tjba' else {}
+     route='rpc/claim_tjba_job_for_robot' if queue_name=='tjba' else 'rpc/claim_consulta_job_for_robot'
+     payload={'p_slot':index+1}
      jobs=await asyncio.to_thread(request,route,payload)
      if jobs:last_queue=queue_name;break
     if not jobs:

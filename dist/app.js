@@ -12,16 +12,22 @@ function resultMessage(r){
  if(r.status==='Erro')return 'Não foi possível concluir. Consulte o log em Configurações.';
  return '';
 }
+function consultationLogRecords(){
+ const selection=$('#consultationLogRobot').value;
+ if(!selection)return records;
+ return records.filter(row=>selection==='unassigned'?row.robot_slot==null:String(row.robot_slot)===selection);
+}
 function renderLogs(){
  // Only the signed-in user's loaded records are available here; cleared on logout.
- $('#consultationLogs').textContent=records.map(r=>{
-  const lines=[`${new Date(r.date).toLocaleString('pt-BR')} | CPF: ${r.cpf} | ${statusLabel(r.status)} | ${Number(r.progress)||0}%`,r.stage,r.message];
+ $('#consultationLogs').textContent=consultationLogRecords().map(r=>{
+  const lines=[`${new Date(r.date).toLocaleString('pt-BR')} | ${r.robot_slot?'Robô '+r.robot_slot:'Sem robô identificado'} | ${serviceLabel(r.servico)} | CPF: ${r.cpf} | ${statusLabel(r.status)} | ${Number(r.progress)||0}%`,r.stage,r.message];
   for(const [key,label] of [['resultado_saldo','Saldo'],['resultado_parcela','Parcela']]){
    const result=r[key];if(result)lines.push(`${label}: ${result.stage||result.status||''}${result.message?' | '+result.message:''}`);
   }
   return lines.filter(Boolean).join('\n');
- }).join('\n\n')||'Nenhuma consulta registrada.';
+ }).join('\n\n')||($('#consultationLogRobot').value?'Nenhuma consulta para este filtro.':'Nenhuma consulta registrada.');
 }
+$('#consultationLogRobot').onchange=()=>renderLogs();
 function campaignRecords(id){return records.filter(r=>r.lote_id===id)}
 function individualRecords(){const ids=new Set(campaigns.map(c=>c.id));return records.filter(r=>!ids.has(r.lote_id)&&(r.servico||'digimais_saldo_parcela')===selectedService())}
 function campaignStats(rows){

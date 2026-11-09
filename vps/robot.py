@@ -258,7 +258,8 @@ async def run(client,timeout=60000,on_progress=None,on_checkpoint=None,session=N
   second=await run_once(client,timeout,second_progress,kind='parcela',**options)
   diagnostic=second.get('diagnostico')
   if diagnostic and diagnostic.get('repetir'):
-   print(f'FALHA | Digi+ · parcela | {label(diagnostic)} | Recriando sessão e repetindo somente a parcela.',flush=True)
+   executor=getattr(getattr(session,'telemetry',None),'name','Digi+')
+   print(f'FALHA | {executor} · Digi+ · parcela | {label(diagnostic)} | Recriando sessão e repetindo somente a parcela.',flush=True)
    if session is not None:await session.close()
    await asyncio.sleep(3)
    second=await run_once(client,timeout,second_progress,kind='parcela',**options)

@@ -126,7 +126,7 @@ exportResults=function(items,filename='consultas.csv'){
  download(filename,rows.map(r=>r.map(safe).join(';')).join('\r\n'));
 };
 const originalRenderLogs=renderLogs;
-renderLogs=function(){originalRenderLogs();const reviews=records.filter(r=>r.servico==='tjba_margem'&&r.resultado_tjba?.vinculos?.length);if(reviews.length)$('#consultationLogs').textContent+='\n\nVínculos TJBA para conferência:\n'+reviews.map(r=>r.cpf+'\n'+JSON.stringify(r.resultado_tjba.vinculos,null,2)).join('\n');};
+renderLogs=function(){originalRenderLogs();const reviews=consultationLogRecords().filter(r=>r.servico==='tjba_margem'&&r.resultado_tjba?.vinculos?.length);if(reviews.length)$('#consultationLogs').textContent+='\n\nVínculos TJBA para conferência:\n'+reviews.map(r=>r.cpf+'\n'+JSON.stringify(r.resultado_tjba.vinculos,null,2)).join('\n');};
 function updateServiceCopy(){
  const tjba=selectedService()==='tjba_margem';
  $('#serviceAvailability').textContent=tjba?'Homologação':'Disponível';

@@ -742,3 +742,5 @@ Se o processo cair, o systemd tenta reiniciá-lo após 10 segundos, com limite
 de cinco partidas em cinco minutos. Após corrigir uma falha persistente,
 use `sudo systemctl reset-failed apoiarcred-robo` e
 `sudo systemctl start apoiarcred-robo`.
+
+Em **Configurações → Conta e diagnóstico → Log de consultas**, selecione o robô. O painel mostra o último estado de cada consulta. Registros antigos sem identificação ficam em **Sem robô identificado**. Para eventos do serviço na VPS, use `sudo journalctl -u apoiarcred-robo --grep="robo-1"` (troque o número para ver outro robô). A atribuição do Digi+ requer `supabase/upgrade_robot_log_slots.sql`.

@@ -27,6 +27,14 @@ if(require.main===module)(async()=>{
  vm.runInContext("records=[{id:'job',nome:'CLIENTE',cpf:'00123456789',status:'Erro',progress:40,stage:'Selecionar empréstimo consignado',message:'Tempo excedido: detalhe técnico <img src=x>',date:'2026-10-30T20:00:00Z'}];render()",t.ctx);
  assert(!t.get('#rows').innerHTML.includes('Selecionar empréstimo'));assert(!t.get('#rows').innerHTML.includes('detalhe técnico'));
  assert(t.get('#consultationLogs').textContent.includes('detalhe técnico <img src=x>'));
+ vm.runInContext("records=[{cpf:'fixture-one',robot_slot:1,message:'Falha do primeiro'},{cpf:'fixture-two',robot_slot:2,message:'Falha do segundo'},{cpf:'fixture-legacy',message:'Histórico'}]",t.ctx);
+ t.get('#consultationLogRobot').value='2';t.get('#consultationLogRobot').onchange();
+ assert(t.get('#consultationLogs').textContent.includes('Robô 2'));
+ assert(t.get('#consultationLogs').textContent.includes('Falha do segundo'));
+ assert(!t.get('#consultationLogs').textContent.includes('Falha do primeiro'));
+ t.get('#consultationLogRobot').value='unassigned';t.get('#consultationLogRobot').onchange();
+ assert(t.get('#consultationLogs').textContent.includes('fixture-legacy'));
+ assert(!t.get('#consultationLogs').textContent.includes('fixture-two'));
  await t.get('#logout').onclick();assert.equal(t.get('#consultationLogs').textContent,'Nenhuma consulta registrada.');assert.equal(t.get('#consultationLogPanel').open,false);
  const html=fs.readFileSync('dist/index.html','utf8');assert(/<details id="consultationLogPanel"(?![^>]*\bopen\b)/.test(html));
  const rows=vm.runInContext('csvParse("nome;cpf;telefone\\nCliente;00123456789;11999999999")',t.ctx);assert.equal(rows[1][1],'00123456789');
