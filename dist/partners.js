@@ -33,15 +33,18 @@ const quotaBanner=document.createElement('div');
 quotaBanner.className='partner-quota partner-quota-banner';quotaBanner.hidden=true;quotaBanner.setAttribute('aria-label','Aviso de acesso');
 quotaBanner.innerHTML='<div role="status"></div><button type="button" aria-label="Fechar aviso">×</button>';
 document.querySelector('#appShell main').prepend(quotaBanner);
-let dismissedQuotaDay='';
-quotaBanner.querySelector('button').onclick=()=>{dismissedQuotaDay=currentAccess?.day;quotaBanner.hidden=true;};
+const quotaNoticeKey=access=>'apoiarcred-quota-dismissed:'+access.user_id;
+quotaBanner.querySelector('button').onclick=()=>{
+ if(currentAccess?.day)sessionStorage.setItem(quotaNoticeKey(currentAccess),currentAccess.day);
+ quotaBanner.hidden=true;
+};
 const importQuota=document.createElement('p');
 importQuota.className='muted';$('#file').before(importQuota);
 function updateQuotaNotice(){
  const a=currentAccess,trial=a.trial_until?(a.trial_expired?'Seu período de teste terminou':a.trial_days_left===1?'Hoje é o último dia do seu teste':`Você tem mais ${a.trial_days_left} dias de teste`):'';
  const quota=a.trial_expired?'':sharedQuotaText(a);
  quotaBanner.firstElementChild.textContent=[trial,(a.daily_limit!=null||trial)?quota:''].filter(Boolean).join(' · ');
- quotaBanner.hidden=!quotaBanner.firstElementChild.textContent||dismissedQuotaDay===a.day;
+ quotaBanner.hidden=!quotaBanner.firstElementChild.textContent||sessionStorage.getItem(quotaNoticeKey(a))===a.day;
  importQuota.textContent=a.trial_expired?'Seu período de teste terminou.':campaignImportLimit()===0?'Você usou todas as consultas de hoje. A cota renova à meia-noite, no horário de Brasília.':`Até ${quotaNumber.format(campaignImportLimit())} leads por planilha${a.shared_quota&&a.daily_limit!=null?' · '+quota:''}.`;
  syncImportButton();
 }
@@ -98,7 +101,7 @@ $('#partnerAccessType').onchange=()=>{
  if($('#partnerAccessType').value==='trial'&&$('#partnerQuotaMode').value==='legacy')$('#partnerQuotaMode').value='limited';
  syncPartnerQuotaFields();
 };$('#partnerTrialUntil').oninput=syncPartnerQuotaFields;$('#partnerQuotaMode').onchange=syncPartnerQuotaFields;
-function resetPartnerSettings(){dismissedQuotaDay='';quotaBanner.hidden=true;partnersList=[];$('#partnerList').innerHTML='';$('#partnerAdminStatus').textContent='';clearPartnerForm();$('#settings-tab-partners').hidden=true;quotaBox.hidden=true;}
+function resetPartnerSettings(){quotaBanner.hidden=true;partnersList=[];$('#partnerList').innerHTML='';$('#partnerAdminStatus').textContent='';clearPartnerForm();$('#settings-tab-partners').hidden=true;quotaBox.hidden=true;}
 function clearPartnerForm(){
  $('#partnerEditId').value='';$('#partnerName').value='';$('#partnerEmail').value='';$('#partnerEmail').disabled=false;$('#partnerPassword').value='';$('#partnerPassword').required=true;$('#partnerPasswordField').hidden=false;$('#partnerActive').checked=true;$('#partnerIntegrations').checked=false;
  for(const [id] of partnerServices){for(const name of ['Enabled','Individual','Campaign'])$('#partner'+name+'-'+id).checked=false;$('#partnerLimit-'+id).value=0;}
