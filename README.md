@@ -745,6 +745,6 @@ use `sudo systemctl reset-failed apoiarcred-robo` e
 
 Em **Configurações → Conta e diagnóstico → Log de consultas**, selecione o robô. O painel mostra o último estado de cada consulta. Registros antigos sem identificação ficam em **Sem robô identificado**. Para eventos do serviço na VPS, use `sudo journalctl -u apoiarcred-robo --grep="robo-1"` (troque o número para ver outro robô). A atribuição do Digi+ requer `supabase/upgrade_robot_log_slots.sql`.
 
-Campanhas pausam automaticamente após 10 resultados consecutivos de erro, revisão ou consulta interrompida. A contagem segue a ordem de conclusão e reinicia após um resultado sem falha ou ao retomar. No Digi+, chat encerrado sem resposta conclusiva após o CPF pode registrar **Consulta interrompida**. A atualização do banco está em `supabase/upgrade_campaign_failure_pause.sql`.
+Campanhas pausam automaticamente após 10 resultados consecutivos de erro ou revisão. A contagem segue a ordem de conclusão e reinicia com um resultado diferente, inclusive Consulta interrompida, ou ao retomar. No Digi+, chat encerrado sem resposta conclusiva após o CPF pode registrar **Consulta interrompida**. A regra está em `supabase/upgrade_campaign_failure_pause.sql` e `supabase/upgrade_pause_exclude_interrupted.sql`.
 
 A migração `supabase/upgrade_fourth_robot.sql` habilita as credenciais e as reservas do Robô 4.
