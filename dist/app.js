@@ -159,8 +159,9 @@ $('#rows').onclick=async e=>{const id=e.target.dataset.retry;if(!id)return;const
 $('#search').oninput=render;$('#filter').onchange=render;
 function navigate(page){
  currentPage=page;if(typeof tickMonitoring==='function')tickMonitoring();$('#serviceContext').classList.toggle('hide',!['home','campaigns'].includes(page));
- $('#pageBreadcrumb').textContent=({clients:'Clientes',home:'Consulta individual',campaigns:'Campanhas',settings:'Configurações'})[page];
+ $('#pageBreadcrumb').textContent=({opportunities:'Oportunidades',clients:'Clientes',home:'Consulta individual',campaigns:'Campanhas',settings:'Configurações'})[page];
  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
+ $('#opportunities').classList.toggle('hide',page!=='opportunities');
  $('#clients').classList.toggle('hide',page!=='clients');if(typeof syncCrmPage==='function')syncCrmPage(page);
  $('#home').classList.toggle('hide',page!=='home');$('#campaigns').classList.toggle('hide',page!=='campaigns');$('#settings').classList.toggle('hide',page!=='settings');$('#results').classList.toggle('hide',page!=='home');
 }
