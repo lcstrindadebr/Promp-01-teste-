@@ -29,7 +29,7 @@ do $$declare f record;r jsonb;h text;lid uuid;begin
  if jsonb_array_length(r->'body'->'accepted')<>1 or jsonb_array_length(r->'body'->'duplicates')<>1 or jsonb_array_length(r->'body'->'rejected')<>1 then raise exception 'Leads: %',r;end if;
  lid=(r->'body'->'accepted'->0->>'id')::uuid;
  r=public.api_execute(h,'GET','/leads/'||lid);
- if r->'body'->>'cpf'<>'00000000191' then raise exception 'Lead read: %',r;end if;
+ if r->'body'->>'cpf' is distinct from '000.000.001-91' then raise exception 'Lead read: %',r;end if;
  r=public.api_execute(h,'GET','/campanhas/'||f.cid||'/leads');
  if (r->'body'->'pagination'->>'total')::int<>1 then raise exception 'Campaign leads: %',r;end if;
  r=public.api_execute(h,'POST','/leads/buscar','{"cpf":"000.000.001-91"}');
@@ -51,6 +51,10 @@ do $$declare f record;r jsonb;h text;lid uuid;begin
  if jsonb_array_length(r->'body'->'data')<>1205 or (r->'body'->>'total')::int<>1205 or
     exists(select 1 from jsonb_array_elements(r->'body'->'data') lead where lead->>'status' is distinct from 'concluida') then
   raise exception 'Full status listing incorrect';
+ end if;
+ if exists(select 1 from jsonb_array_elements(r->'body'->'data') lead
+           where coalesce(lead->>'cpf','') !~ '^[0-9]{3}[.][0-9]{3}[.][0-9]{3}-[0-9]{2}$') then
+  raise exception 'Campaign CPF format incorrect';
  end if;
  r=public.api_execute(h,'GET','/campanhas/'||f.cid||'/leads/status/erro');
  if r->'body'->'data' is distinct from '[]'::jsonb or (r->'body'->>'total')::int<>0 then
