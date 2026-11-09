@@ -9,7 +9,6 @@ function statusLabel(status){return status==='Processando'?'Consultando...':stat
 function resultMessage(r){
  if(['Aguardando','Processando'].includes(r.status))return '';
  if(r.status==='Revisão')return r.saldo!=null||r.valorParcela!=null?'Resultado parcial. Consulte o log em Configurações.':'Consulte o log em Configurações.';
- if(r.status==='Consulta interrompida')return r.saldo!=null?'Saldo preservado. O chat encerrou antes de informar a parcela.':'O chat encerrou após o CPF sem resposta conclusiva.';
  if(r.status==='Erro')return 'Não foi possível concluir. Consulte o log em Configurações.';
  return '';
 }
