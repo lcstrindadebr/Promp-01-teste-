@@ -1,7 +1,7 @@
 """Independent webhook dispatcher. No bank/browser calls and no destination/secret logs."""
 import concurrent.futures,hashlib,hmac,http.client,ipaddress,json,re,socket,ssl,threading,time
 from urllib.parse import urlsplit,quote
-from api import supabase_call
+from api import format_cpf_field,supabase_call
 
 class DestinationError(Exception):pass
 
@@ -28,6 +28,10 @@ class PinnedHTTPS(http.client.HTTPSConnection):
 
 def signed_body(payload,secret,timestamp):
  if not isinstance(secret,str) or not re.fullmatch(r'whsec_[a-f0-9]{64}',secret):raise ValueError('missing_secret')
+ consulta=payload.get('consulta')
+ if isinstance(consulta,dict):
+  consulta=consulta.copy();format_cpf_field(consulta)
+  payload={**payload,'consulta':consulta}
  body=json.dumps(payload,ensure_ascii=False,separators=(',',':'),allow_nan=False).encode('utf-8')
  if len(body)>262144:raise ValueError('payload_too_large')
  signature=hmac.new(secret.encode(),str(timestamp).encode()+b'.'+body,hashlib.sha256).hexdigest()

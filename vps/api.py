@@ -5,6 +5,13 @@ from urllib.parse import urlsplit,parse_qs
 
 MAX_BODY=2*1024*1024
 
+CPF_DIGITS = re.compile(r'([0-9]{3})([0-9]{3})([0-9]{3})([0-9]{2})')
+
+def format_cpf_field(record):
+ value=record.get('cpf')
+ if isinstance(value,str) and CPF_DIGITS.fullmatch(value):
+  record['cpf']=CPF_DIGITS.sub(r'\1.\2.\3-\4',value)
+
 def rpc(payload):
  url=os.environ['SUPABASE_URL'].rstrip('/')+'/rest/v1/rpc/api_execute'
  key=os.environ['SUPABASE_SERVICE_ROLE_KEY'];headers={'apikey':key,'Content-Type':'application/json'}
@@ -133,6 +140,12 @@ class Handler(BaseHTTPRequestHandler):
     status,body=partner_admin(auth,self.command,target.path,payload);body['request_id']=self.request_id;return self.send_json(status,body)
    result=rpc(dict(p_hash=hashlib.sha256(token.encode()).hexdigest(),p_method=self.command,p_route=target.path[len('/api/v1'):],p_payload=payload,p_key=key))
    status=int(result['status']);body=result['body'];body['request_id']=self.request_id
+   format_cpf_field(body)
+   for field in ('data','accepted','duplicates'):
+    rows=body.get(field)
+    if isinstance(rows,list):
+     for row in rows:
+      if isinstance(row,dict):format_cpf_field(row)
    self.send_json(status,body,**({'Idempotency_Replayed':'true'} if result.get('replayed') else {}),**({'Retry_After':'60'} if status==429 and body.get('error',{}).get('code')=='rate_limit' else {}))
   except AdminError as e:self.error(e.status,e.code,e.message)
   except (urllib.error.URLError,socket.timeout,TimeoutError):self.error(503,'upstream_unavailable','API temporariamente indisponível. Tente novamente com a mesma Idempotency-Key.')

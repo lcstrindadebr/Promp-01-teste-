@@ -9,6 +9,8 @@ class WebhookTests(unittest.TestCase):
  def test_signature_uses_original_utf8_body_and_timestamp(self):
   job=self.job();body,sig=wh.signed_body(job['payload'],job['secret'],123)
   self.assertEqual(sig,'v1='+hmac.new(job['secret'].encode(),b'123.'+body,hashlib.sha256).hexdigest());self.assertIn('Fictício'.encode(),body);self.assertEqual(json.loads(body)['event_id'],'event')
+  self.assertEqual(json.loads(body)['consulta']['cpf'],'000.000.000-00')
+  self.assertEqual(job['payload']['consulta']['cpf'],'00000000000')
   self.assertNotEqual(sig,wh.signed_body(job['payload'],job['secret'],124)[1])
  def test_bad_secret_nan_and_large_payload_rejected(self):
   for secret,payload in [('wrong',{}),(self.job()['secret'],{'a':float('nan')}),(self.job()['secret'],{'a':'x'*262144})]:

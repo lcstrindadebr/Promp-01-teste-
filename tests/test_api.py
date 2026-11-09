@@ -40,6 +40,25 @@ class ApiHTTPTests(unittest.TestCase):
    self.assertEqual(rpc.call_args.args[0]['p_payload'],{'all':'true'})
    self.assertEqual(self.call('/api/v1'+path+'/status/concluida',headers=auth)[0],200)
    self.assertEqual(rpc.call_args.args[0]['p_route'],path+'/status/concluida')
+ def test_cpf_format_in_individual_lists_and_import_results(self):
+  auth={'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json','Idempotency-Key':'format-cpf'}
+  campaign='/api/v1/campanhas/00000000-0000-4000-8000-000000000001/leads'
+  cases=[
+   ('GET','/api/v1/leads/example',None,{'cpf':'00123456789'}),
+   ('GET','/api/v1/consultas/example',None,{'cpf':'001.234.567-89'}),
+   ('GET',campaign+'?all=true',None,{'data':[{'cpf':'00123456789'}]}),
+   ('GET',campaign+'/status/concluida',None,{'data':[{'cpf':'00123456789'}]}),
+   ('POST','/api/v1/leads/buscar',{'cpf':'00123456789'},{'data':[{'cpf':'00123456789'}]}),
+   ('POST',campaign,{'leads':[]},{'accepted':[{'cpf':'00123456789'}],'duplicates':[{'cpf':'00123456789'}]}),
+  ]
+  for method,path,payload,result in cases:
+   with self.subTest(path=path),patch.object(api,'rpc',return_value={'status':200,'body':result}) as rpc:
+    status,body,_=self.call(path,method,payload,auth)
+    self.assertEqual(status,200)
+    records=[body] if 'cpf' in body else [row for field in ('data','accepted','duplicates') for row in body.get(field,[])]
+    self.assertTrue(records)
+    self.assertTrue(all(row['cpf']=='001.234.567-89' for row in records))
+    self.assertEqual(rpc.call_args.args[0]['p_payload'].get('cpf'),(payload or {}).get('cpf'))
  def test_outage_hides_internal_details(self):
   with patch.object(api,'rpc',side_effect=urllib.error.URLError('private-secret')):
    status,body,_=self.call('/api/v1/campanhas',headers={'Authorization':'Bearer '+TOKEN});self.assertEqual(status,503);self.assertNotIn('private-secret',json.dumps(body))

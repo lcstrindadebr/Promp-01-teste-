@@ -55,14 +55,20 @@ function render(){
  $('#done').textContent=rows.filter(r=>r.status==='Concluída').length;
  $('#errors').textContent=rows.filter(r=>['Erro','Revisão','Consulta interrompida'].includes(r.status)).length;
  $('.modeNotice').textContent='Preencha os dados para consultar uma pessoa. Para uma lista de clientes, use Campanhas.';
- $('#rows').innerHTML=rowsHTML(rows.filter(r=>(!filter||r.status===filter||(filter.startsWith('tjba:')&&r.tjba_status===filter.slice(5)))&&`${r.nome} ${r.cpf}`.toLowerCase().includes(q)));
+ $('#rows').innerHTML=rowsHTML(rows.filter(r=>(!filter||r.status===filter||(filter.startsWith('tjba:')&&r.tjba_status===filter.slice(5)))&&matchesLeadSearch(r,q)));
 }
 
 const digits=s=>String(s).replace(/\D/g,'');
+function formatCpf(value){return String(value??'').replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/,'$1.$2.$3-$4')}
+function matchesLeadSearch(row,query){
+ const cpfQuery=/^[\d.\-\s]+$/.test(query)?digits(query):'';
+ return !query||`${row.nome} ${row.cpf}`.toLowerCase().includes(query)||Boolean(cpfQuery&&digits(row.cpf).includes(cpfQuery));
+}
+$('#cpf').addEventListener('blur',e=>{const cpf=digits(e.target.value);if(cpf.length===11)e.target.value=formatCpf(cpf);});
 function validate(r,service=selectedService()){
  const tjba=service==='tjba_margem';r.nome=(r.nome||'').trim();r.cpf=digits(r.cpf);r.telefone=digits(r.telefone||'');
  if(tjba&&r.cpf.length>0&&r.cpf.length<11)r.cpf=r.cpf.padStart(11,'0');
- if(tjba&&!r.nome)r.nome='CPF '+r.cpf;
+ if(tjba&&!r.nome)r.nome='CPF '+formatCpf(r.cpf);
  if(!r.nome||r.nome.length>160||r.cpf.length!==11||(!tjba&&!/^\d{10,13}$/.test(r.telefone))||(tjba&&r.telefone&&!/^\d{10,13}$/.test(r.telefone)))throw Error(tjba?'Informe CPF com até 11 dígitos; nome e telefone são opcionais.':'Informe nome, CPF com 11 dígitos e telefone com DDD.');return r;
 }
 function csvParse(text){
@@ -149,7 +155,7 @@ $('#retryCampaign').onclick=async()=>{
  try{const count=await retryCampaign(activeCampaign);toast(count+' consulta(s) reenviada(s) para a fila.');await loadCloud()}catch(e){toast(e.message)}finally{retryingCampaign=false;renderCampaigns()}
 };
 
-$('#rows').onclick=async e=>{const id=e.target.dataset.retry;if(!id)return;const r=records.find(r=>r.id===id);if(!r)return;e.target.disabled=true;try{await add([{nome:r.nome,cpf:r.cpf,telefone:r.telefone}],r.servico||'digimais_saldo_parcela',r.convenio||'tjba')}catch(err){toast(err.message)}finally{if(e.target.isConnected)e.target.disabled=false}};
+$('#rows').onclick=async e=>{const id=e.target.dataset.retry;if(!id)return;const r=records.find(r=>r.id===id);if(!r)return;e.target.disabled=true;try{await add([{nome:r.nome,cpf:digits(r.cpf),telefone:r.telefone}],r.servico||'digimais_saldo_parcela',r.convenio||'tjba')}catch(err){toast(err.message)}finally{if(e.target.isConnected)e.target.disabled=false}};
 $('#search').oninput=render;$('#filter').onchange=render;
 function navigate(page){
  currentPage=page;if(typeof tickMonitoring==='function')tickMonitoring();$('#serviceContext').classList.toggle('hide',page==='settings');

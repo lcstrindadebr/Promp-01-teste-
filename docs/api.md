@@ -21,7 +21,7 @@ A API usa a fila existente, sem prometer retorno imediato do banco. Pausa não
 interrompe consultas já reservadas. Repetir revisões respeita a pausa atual.
 Um registro de lead corresponde a uma consulta; CPF pode repetir em campanhas diferentes.
 Use POST /leads/buscar para procurar por CPF e avaliar data e campanha do resultado.
-CPF é string para preservar zeros; aceita pontuação. Os exemplos são fictícios.
+Envie o CPF como texto, com ou sem pontuação. As respostas usam `000.000.000-00` e preservam zeros à esquerda. Os exemplos são fictícios.
 
 Escritas exigem Idempotency-Key única por operação, vinculada ao token por 24h.
 Reenvie a mesma chave, rota e JSON em caso de timeout; recebe a resposta original,
@@ -187,7 +187,7 @@ Resposta 200:
     {
       "id": "00000000-0000-4000-8000-000000000002",
       "campanha_id": "00000000-0000-4000-8000-000000000001",
-      "cpf": "00000000000",
+      "cpf": "000.000.000-00",
       "status": "aguardando",
       "progress": 0,
       "resultado": {
@@ -229,7 +229,7 @@ curl --request POST 'https://SEU_SUBDOMINIO/api/v1/campanhas/{id}/leads' \
   --header 'Authorization: Bearer SEU_TOKEN' \
   --header 'Content-Type: application/json' \
   --header 'Idempotency-Key: operacao-123' \
-  --data '{"leads": [{"nome": "Cliente de exemplo", "cpf": "00000000000", "telefone": "11999999999", "referencia_externa": "contato-123"}]}'
+  --data '{"leads": [{"nome": "Cliente de exemplo", "cpf": "000.000.000-00", "telefone": "11999999999", "referencia_externa": "contato-123"}]}'
 ```
 
 Resposta 200:
@@ -240,7 +240,7 @@ Resposta 200:
     {
       "linha": 1,
       "id": "00000000-0000-4000-8000-000000000002",
-      "cpf": "00000000000"
+      "cpf": "000.000.000-00"
     }
   ],
   "duplicates": [],
@@ -326,7 +326,7 @@ Resposta 200:
 {
   "id": "00000000-0000-4000-8000-000000000002",
   "campanha_id": "00000000-0000-4000-8000-000000000001",
-  "cpf": "00000000000",
+  "cpf": "000.000.000-00",
   "status": "aguardando",
   "progress": 0,
   "resultado": {
@@ -345,7 +345,7 @@ Buscar registros por CPF. Permissão: read.
 curl --request POST 'https://SEU_SUBDOMINIO/api/v1/leads/buscar' \
   --header 'Authorization: Bearer SEU_TOKEN' \
   --header 'Content-Type: application/json' \
-  --data '{"cpf": "00000000000"}'
+  --data '{"cpf": "000.000.000-00"}'
 ```
 
 Resposta 200:
@@ -356,7 +356,7 @@ Resposta 200:
     {
       "id": "00000000-0000-4000-8000-000000000002",
       "campanha_id": "00000000-0000-4000-8000-000000000001",
-      "cpf": "00000000000",
+      "cpf": "000.000.000-00",
       "status": "aguardando",
       "progress": 0,
       "resultado": {
@@ -383,7 +383,7 @@ curl --request POST 'https://SEU_SUBDOMINIO/api/v1/consultas' \
   --header 'Authorization: Bearer SEU_TOKEN' \
   --header 'Content-Type: application/json' \
   --header 'Idempotency-Key: operacao-123' \
-  --data '{"servico": "tjba_margem", "convenio": "tjba", "cpf": "00000000000", "referencia_externa": "contato-123"}'
+  --data '{"servico": "tjba_margem", "convenio": "tjba", "cpf": "000.000.000-00", "referencia_externa": "contato-123"}'
 ```
 
 Resposta 202:
@@ -411,7 +411,7 @@ Resposta 200:
 {
   "id": "00000000-0000-4000-8000-000000000002",
   "campanha_id": "00000000-0000-4000-8000-000000000001",
-  "cpf": "00000000000",
+  "cpf": "000.000.000-00",
   "status": "aguardando",
   "progress": 0,
   "resultado": {

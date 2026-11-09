@@ -3,7 +3,7 @@
   "info": {
     "title": "ApoiarCred API",
     "version": "1.0.0",
-    "description": "API assíncrona. CPFs são strings de 11 dígitos (pontuação é normalizada). Digi+ exige nome e telefone; ConsigX apenas CPF e convênio. Nenhum resultado é inventado quando pendente. Cada token acessa somente sua conta. Campanhas nascem pausadas. Valores monetários em reais."
+    "description": "API assíncrona. Envie CPFs como texto, com ou sem pontuação. As respostas usam 000.000.000-00 e preservam zeros à esquerda. Digi+ exige nome e telefone; ConsigX apenas CPF e convênio. Nenhum resultado é inventado quando pendente. Cada token acessa somente sua conta. Campanhas nascem pausadas. Valores monetários em reais."
   },
   "servers": [
     {
@@ -646,7 +646,7 @@
                     {
                       "id": "00000000-0000-4000-8000-000000000002",
                       "campanha_id": "00000000-0000-4000-8000-000000000001",
-                      "cpf": "00000000000",
+                      "cpf": "000.000.000-00",
                       "status": "aguardando",
                       "progress": 0,
                       "resultado": {
@@ -791,7 +791,7 @@
                     {
                       "linha": 1,
                       "id": "00000000-0000-4000-8000-000000000002",
-                      "cpf": "00000000000"
+                      "cpf": "000.000.000-00"
                     }
                   ],
                   "duplicates": [],
@@ -905,7 +905,7 @@
                 "leads": [
                   {
                     "nome": "Cliente de exemplo",
-                    "cpf": "00000000000",
+                    "cpf": "000.000.000-00",
                     "telefone": "11999999999",
                     "referencia_externa": "contato-123"
                   }
@@ -969,7 +969,7 @@
                     {
                       "id": "00000000-0000-4000-8000-000000000002",
                       "campanha_id": "00000000-0000-4000-8000-000000000001",
-                      "cpf": "00000000000",
+                      "cpf": "000.000.000-00",
                       "status": "concluida",
                       "progress": 100,
                       "resultado": {
@@ -1528,7 +1528,7 @@
                 "example": {
                   "id": "00000000-0000-4000-8000-000000000002",
                   "campanha_id": "00000000-0000-4000-8000-000000000001",
-                  "cpf": "00000000000",
+                  "cpf": "000.000.000-00",
                   "status": "aguardando",
                   "progress": 0,
                   "resultado": {
@@ -1647,7 +1647,7 @@
                     {
                       "id": "00000000-0000-4000-8000-000000000002",
                       "campanha_id": "00000000-0000-4000-8000-000000000001",
-                      "cpf": "00000000000",
+                      "cpf": "000.000.000-00",
                       "status": "aguardando",
                       "progress": 0,
                       "resultado": {
@@ -1763,7 +1763,7 @@
                 ]
               },
               "example": {
-                "cpf": "00000000000"
+                "cpf": "000.000.000-00"
               }
             }
           }
@@ -1918,7 +1918,7 @@
               "example": {
                 "servico": "tjba_margem",
                 "convenio": "tjba",
-                "cpf": "00000000000",
+                "cpf": "000.000.000-00",
                 "referencia_externa": "contato-123"
               }
             }
@@ -1958,7 +1958,7 @@
                 "example": {
                   "id": "00000000-0000-4000-8000-000000000002",
                   "campanha_id": "00000000-0000-4000-8000-000000000001",
-                  "cpf": "00000000000",
+                  "cpf": "000.000.000-00",
                   "status": "aguardando",
                   "progress": 0,
                   "resultado": {

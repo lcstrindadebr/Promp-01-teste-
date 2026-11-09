@@ -45,7 +45,7 @@ Somente resultados futuros geram eventos. Ativar/configurar um webhook não reen
     "referencia_externa": "crm-123",
     "servico": "digimais_saldo_parcela",
     "convenio": null,
-    "cpf": "00000000000",
+    "cpf": "000.000.000-00",
     "nome": "Cliente fictício",
     "telefone": "00000000000",
     "status": "concluida",
@@ -57,7 +57,7 @@ Somente resultados futuros geram eventos. Ativar/configurar um webhook não reen
 }
 ```
 
-Dados acima são fictícios. CPF e telefone são texto; CPF tem 11 dígitos sem pontuação, preservando zeros. Valores monetários são números em reais; informação ausente é `null`. Em consulta individual, `campanha` é `null`.
+Dados acima são fictícios. CPF e telefone são texto; CPF usa o padrão `000.000.000-00`, preservando zeros à esquerda. Valores monetários são números em reais; informação ausente é `null`. Em consulta individual, `campanha` é `null`.
 
 Para ConsigX, `servico` é `tjba_margem`, `convenio` identifica TJBA/DPEBA/EMBASA/SAEB/SUPREV, e `resultado` contém `emprestimo_disponivel`, `cartao_disponivel`, `matricula`, `tipo_servidor`, `situacao_atual`. Os valores não retornados são `null`. O teste usa valores fictícios do serviço selecionado (Digi+ quando a integração aceita todos os serviços).
 
