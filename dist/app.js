@@ -64,7 +64,7 @@ function matchesLeadSearch(row,query){
  const cpfQuery=/^[\d.\-\s]+$/.test(query)?digits(query):'';
  return !query||`${row.nome} ${row.cpf}`.toLowerCase().includes(query)||Boolean(cpfQuery&&digits(row.cpf).includes(cpfQuery));
 }
-$('#cpf').addEventListener('blur',e=>{const cpf=digits(e.target.value);if(cpf.length===11)e.target.value=formatCpf(cpf);});
+$('#cpf').onblur=e=>{const cpf=digits(e.target.value);if(cpf.length===11)e.target.value=formatCpf(cpf);};
 function validate(r,service=selectedService()){
  const tjba=service==='tjba_margem';r.nome=(r.nome||'').trim();r.cpf=digits(r.cpf);r.telefone=digits(r.telefone||'');
  if(tjba&&r.cpf.length>0&&r.cpf.length<11)r.cpf=r.cpf.padStart(11,'0');
@@ -76,13 +76,13 @@ function csvParse(text){
  for(let i=0;i<text.length;i++){const c=text[i];if(c==='"'){if(quoted&&text[i+1]==='"'){value+='"';i++}else quoted=!quoted}else if(c===sep&&!quoted){row.push(value);value=''}else if(c==='\n'&&!quoted){row.push(value.replace(/\r$/,''));rows.push(row);row=[];value=''}else value+=c}
  if(quoted)throw Error('CSV com aspas não fechadas.');if(value||row.length){row.push(value.replace(/\r$/,''));rows.push(row)}return rows.filter(r=>r.some(v=>v.trim()));
 }
-$('#single').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('button');button.disabled=true;try{await add([validate(Object.fromEntries(new FormData(e.target)))]);e.target.reset()}catch(e){toast(e.message)}finally{button.disabled=false}};
+$('#single').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('button');button.disabled=true;try{await add([validate(Object.fromEntries(new FormData(e.target)))]);e.target.reset()}catch(e){toast(e.message)}finally{button.disabled=false;if(typeof applyAccessUi==='function')applyAccessUi()}};
 let readingImport=false,creatingCampaign=false,importGeneration=0,importError='';
 function syncImportButton(message){
- const named=Boolean($('#campaignName').value.trim());
- $('#import').disabled=readingImport||creatingCampaign||!pending.length||!named;
+ const named=Boolean($('#campaignName').value.trim()),quotaError=typeof campaignImportError==='function'?campaignImportError(pending.length):'';
+ $('#import').disabled=readingImport||creatingCampaign||!pending.length||!named||Boolean(quotaError);
  $('#import').textContent=creatingCampaign?'Criando campanha…':readingImport?'Lendo planilha…':'Criar campanha e consultar';
- $('#importStatus').textContent=message||importError||(readingImport?'Aguarde a leitura da planilha.':!pending.length?'Selecione uma planilha preenchida com os dados dos clientes.':!named?'Planilha validada. Informe o nome da campanha para continuar.':`${pending.length} cliente(s) pronto(s) para consultar.`);
+ $('#importStatus').textContent=message||importError||quotaError||(readingImport?'Aguarde a leitura da planilha.':!pending.length?'Selecione uma planilha preenchida com os dados dos clientes.':!named?'Planilha validada. Informe o nome da campanha para continuar.':`${pending.length} cliente(s) pronto(s) para consultar.`);
 }
 $('#campaignName').oninput=()=>syncImportButton();
 function importHeader(value){
@@ -137,7 +137,7 @@ $('#import').onclick=async()=>{
  creatingCampaign=true;importError='';syncImportButton();
  try{const name=$('#campaignName').value.trim();if(!name)throw Error('Informe o nome da campanha.');if(!pending.length)throw Error('Selecione uma planilha com clientes válidos.');
  activeCampaign=await createCampaign(name,pending);pending=[];$('#campaignName').value='';$('#file').value='';$('#preview').classList.add('hide');$('#newCampaignPanel').open=false;renderCampaigns();toast('Campanha criada. Consultas adicionadas à fila.');
- }catch(e){toast(e.message);importError=e.message;}
+ }catch(e){toast(e.message);if(typeof refreshMyAccess==='function')await refreshMyAccess(true).catch(()=>{});}
  finally{creatingCampaign=false;syncImportButton();}
 };
 function download(name,content){const u=URL.createObjectURL(new Blob(['\uFEFF'+content],{type:'text/csv;charset=utf-8'})),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)}

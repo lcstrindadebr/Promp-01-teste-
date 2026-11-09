@@ -15,5 +15,16 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');const {setup,re
  vm.runInContext('currentAccess.allow_integrations=true',t.ctx);assert.equal(vm.runInContext('hasIntegrationAccess()',t.ctx),true);
  vm.runInContext('currentAccess.active=false',t.ctx);assert.equal(vm.runInContext('hasIntegrationAccess()',t.ctx),false);
  vm.runInContext("currentAccess={role:'admin',active:true}",t.ctx);assert.equal(vm.runInContext('hasIntegrationAccess()',t.ctx),true);
+ vm.runInContext("currentAccess={role:'partner',active:true,shared_quota:true,daily_limit:100,remaining:50,services:[{id:'digimais_saldo_parcela',enabled:true,allow_individual:true,allow_campaign:true,daily_limit:0,remaining:0}]}",t.ctx);
+ assert.equal(vm.runInContext('campaignImportLimit()',t.ctx),50);
+ assert.match(vm.runInContext('campaignImportError(51)',t.ctx),/até 50/);
+ assert.equal(vm.runInContext('campaignImportError(50)',t.ctx),'');
+ vm.runInContext("assertCanSubmit('digimais_saldo_parcela','individual')",t.ctx);
+ vm.runInContext("currentAccess.remaining=0",t.ctx);
+ assert.throws(()=>vm.runInContext("assertCanSubmit('digimais_saldo_parcela','campaign')",t.ctx),/Limite diário/);
+ vm.runInContext("currentAccess.daily_limit=null;currentAccess.remaining=null",t.ctx);
+ assert.equal(vm.runInContext('campaignImportLimit()',t.ctx),10000);
+ vm.runInContext("currentAccess.trial_expired=true",t.ctx);
+ assert.throws(()=>vm.runInContext("assertCanSubmit('digimais_saldo_parcela','individual')",t.ctx),/período de teste terminou/);
  console.log('PASS: partner service/campaign/quota/integration guards and atomic individual submission');
 })().catch(e=>{console.error(e);process.exitCode=1});

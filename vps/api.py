@@ -1,5 +1,6 @@
 """Small, bounded HTTP gateway. Business transactions and ownership live in Postgres."""
 import hashlib,json,os,re,socket,threading,urllib.error,urllib.request,uuid
+from datetime import date
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from urllib.parse import urlsplit,parse_qs
 
@@ -58,6 +59,18 @@ def partner_admin(auth,method,path,payload):
  if 'allow_integrations' in payload and type(payload['allow_integrations']) is not bool:raise AdminError(422,'invalid_permissions','Permissão de integrações inválida.')
  data={key:payload[key] for key in ('name','permissions','active')}
  if 'allow_integrations' in payload:data['allow_integrations']=payload['allow_integrations']
+ if 'shared_daily_limit' in payload:
+  quota=payload['shared_daily_limit']
+  if quota is not None and (type(quota) is not int or not 1<=quota<=100000):
+   raise AdminError(422,'invalid_daily_limit','Informe uma cota diária entre 1 e 100.000 ou selecione Ilimitadas.')
+  data['shared_daily_limit']=quota
+ if 'trial_until' in payload:
+  trial=payload['trial_until']
+  if trial is not None:
+   try:
+    if not isinstance(trial,str) or date.fromisoformat(trial).isoformat()!=trial:raise ValueError()
+   except ValueError:raise AdminError(422,'invalid_trial_date','Informe uma data válida para o fim do teste.')
+  data['trial_until']=trial
  if path=='/api/admin/parceiros':
   email=payload.get('email');password=payload.get('password')
   if not isinstance(email,str) or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email) or len(email)>254 or not isinstance(password,str) or not 8<=len(password)<=256:

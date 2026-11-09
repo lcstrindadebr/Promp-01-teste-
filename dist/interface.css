@@ -51,3 +51,5 @@ nav button[hidden],.settings-tabs button[hidden],#newCampaignPanel[hidden],#part
 .campaign-group-phase{margin:10px 0 14px}
 .campaign-group-phase h4{display:flex;align-items:center;gap:8px;margin:0 0 6px;color:#395348;font-size:.875rem}
 .campaign-group-count{background:#eef5f1;border-radius:999px;padding:2px 7px;font-size:.75rem}
+
+.partner-quota-banner{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:0}.partner-quota-banner button{flex-shrink:0;padding:2px 10px;font-size:20px}

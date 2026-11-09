@@ -31,9 +31,10 @@ async function fetchAll(path){
 async function createCampaign(name,items){
  if(!authenticated)throw Error('Entre na sua conta.');
  if(!name.trim()||name.trim().length>160||!items.length)throw Error('Informe o nome e selecione clientes válidos.');
+ const quotaError=typeof campaignImportError==='function'?campaignImportError(items.length):'';if(quotaError)throw Error(quotaError);
  const service=selectedService();if(typeof assertCanSubmit==='function')assertCanSubmit(service,'campaign');const body={p_nome:name.trim(),p_items:items.map(r=>({nome:r.nome,cpf:r.cpf,telefone:r.telefone}))};if(service!=='tjba_margem')body.p_servico=service;else body.p_convenio=selectedConvenio();
  const id=await sbRequest('/rest/v1/rpc/'+(service==='tjba_margem'?'create_consigx_campaign':'create_consulta_campaign'),{method:'POST',body:JSON.stringify(body)});
- await loadCloud();return id;
+ await loadCloud();await refreshMyAccess(true).catch(()=>{});return id;
 }
 async function retryCampaign(id){
  if(!authenticated)throw Error('Entre na sua conta.');

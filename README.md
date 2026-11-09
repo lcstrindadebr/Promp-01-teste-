@@ -754,3 +754,22 @@ Em **Configurações → Conta e diagnóstico → Log de consultas**, selecione 
 Campanhas pausam automaticamente após 10 resultados consecutivos de erro ou revisão. A contagem segue a ordem de conclusão e reinicia com um resultado diferente, inclusive Consulta interrompida, ou ao retomar. No Digi+, chat encerrado sem resposta conclusiva após o CPF pode registrar **Consulta interrompida**. A regra está em `supabase/upgrade_campaign_failure_pause.sql` e `supabase/upgrade_pause_exclude_interrupted.sql`.
 
 A migração `supabase/upgrade_fourth_robot.sql` habilita as credenciais e as reservas do Robô 4.
+
+### Teste e cota compartilhada por parceiro
+
+Em **Configurações → Parceiros**, defina acesso regular ou teste com data final,
+e escolha uma cota diária compartilhada ou consultas ilimitadas. A cota renova
+à meia-noite no horário de Brasília. Leads aceitos em campanhas e consultas
+individuais, pelo painel ou API, consomem o mesmo saldo. Uma retentativa manual
+consome saldo ao reenfileirar o lead. A execução e a recuperação automática do
+robô não geram cobranças adicionais. Ao vencer o teste, o histórico continua
+disponível e novas solicitações ficam bloqueadas.
+
+A importação no painel aceita até 10.000 leads por planilha, respeitando o saldo
+disponível. Parceiros com configuração anterior continuam com as regras anteriores
+até o administrador escolher a cota compartilhada. O contador compartilhado
+começa a registrar novas solicitações após essa escolha.
+
+Em instalações existentes, aplique `supabase/upgrade_partner_trials_quota.sql`
+e atualize a VPS pela opção **1** do instalador. O schema de instalação nova
+já inclui a funcionalidade.

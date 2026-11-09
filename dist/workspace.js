@@ -144,7 +144,7 @@ function drawCreationStep(){
 function moveQueryContext(){if(currentPage==='campaigns')$('#campaignStep1').appendChild($('#serviceContext'));else contextAnchor.after($('#serviceContext'));syncQueryContext();}
 const workspaceNavigate=navigate;navigate=function(page){workspaceNavigate(page);moveQueryContext();};
 creationPanel.ontoggle=()=>{if(!creationPanel.open){creationStep=1;drawCreationStep();}moveQueryContext();};
-$('#wizardNext').onclick=()=>{if(creationStep===2){if(!$('#campaignName').value.trim()){toast('Dê um nome para a campanha.');$('#campaignName').focus();return;}if(readingImport||!pending.length||importError){toast(importError||'Envie uma planilha válida antes de continuar.');return;}}creationStep=Math.min(3,creationStep+1);drawCreationStep();};
+$('#wizardNext').onclick=()=>{if(creationStep===2){if(!$('#campaignName').value.trim()){toast('Dê um nome para a campanha.');$('#campaignName').focus();return;}const quotaError=typeof campaignImportError==='function'?campaignImportError(pending.length):'';if(readingImport||!pending.length||importError||quotaError){toast(quotaError||importError||'Envie uma planilha válida antes de continuar.');return;}}creationStep=Math.min(3,creationStep+1);drawCreationStep();};
 $('#wizardBack').onclick=()=>{creationStep=Math.max(1,creationStep-1);drawCreationStep();};
 creationContent.querySelectorAll('[data-step]').forEach(b=>b.onclick=()=>{creationStep=Number(b.dataset.step);drawCreationStep();});
 drawCreationStep();moveQueryContext();
