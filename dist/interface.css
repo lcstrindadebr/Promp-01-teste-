@@ -43,3 +43,11 @@ h1{font-size:28px;letter-spacing:-.8px;margin-top:10px}h2{font-size:17px;letter-
 nav button[hidden],.settings-tabs button[hidden],#newCampaignPanel[hidden],#partnerPasswordField[hidden]{display:none!important}
 /* Integrations */
 .integration-tabs{display:flex;gap:8px;margin:0 0 20px;flex-wrap:wrap}.integration-tabs button[aria-pressed=true]{background:#163f31;color:#fff;border-color:#163f31}.wh-row{border-top:1px solid #e1e9e5;padding:20px 0}.wh-row .heading{align-items:start;flex-wrap:wrap;gap:12px}.wh-row p{margin:9px 0}.wh-row small{color:#5b7165}.wh-row .actions{flex-wrap:wrap;margin-top:0}.wh-url{overflow-wrap:anywhere;font-size:13px;color:#557164}.wh-empty{padding:24px;background:#f4f8f6;border-radius:12px;margin:15px 0}.wh-checks{border:1px solid #dae5df;border-radius:10px;display:flex;flex-wrap:wrap;gap:15px;padding:16px;margin:20px 0}.wh-checks legend{padding:0 7px;font-weight:600}.wh-checks label,.wh-check{display:flex;align-items:center;gap:8px}.wh-check{margin:16px 0}.wh-check input,.wh-checks input{width:auto;min-width:16px;flex-shrink:0;accent-color:#14734e}.wh-doc{padding-top:12px}.wh-doc pre{overflow:auto;background:#f3f7f5;padding:18px;border-radius:10px;max-height:400px}.wh-doc code,.wh-row code{overflow-wrap:anywhere}#whEditor h3{margin-top:26px}#whStatus:empty{display:none}#whStatus{padding:10px 0}#whHistoryHook{max-width:420px;margin-bottom:15px}#whSecretPanel{scroll-margin-top:20px}#whEditor{scroll-margin-top:20px}#integration-webhooks [hidden]{display:none!important}@media(max-width:650px){.wh-row .actions{width:100%}.wh-checks{display:grid}.integration-tabs button{flex:1}.wh-doc pre{font-size:12px}}
+
+/* Campaigns grouped by consultation type and progress. */
+.campaign-group{margin-top:18px}
+.campaign-group+.campaign-group{border-top:1px solid #dbe7e1;padding-top:16px}
+.campaign-group h3{margin:0 0 8px;color:#164b39;font-size:1rem}
+.campaign-group-phase{margin:10px 0 14px}
+.campaign-group-phase h4{display:flex;align-items:center;gap:8px;margin:0 0 6px;color:#395348;font-size:.875rem}
+.campaign-group-count{background:#eef5f1;border-radius:999px;padding:2px 7px;font-size:.75rem}

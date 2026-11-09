@@ -39,13 +39,48 @@ function resultProgress(r){const p=Math.max(0,Math.min(100,Number(r.progress)||0
 function resultActions(r){return `${['Erro','Revisão','Consulta interrompida'].includes(r.status)?`<button data-retry="${escapeHTML(r.id)}">Tentar novamente</button>`:''}${r.servico==='tjba_margem'?`<button data-tjba-history="${escapeHTML(r.id)}">Histórico</button>`:typeof amigozAction==='function'?amigozAction(r):''}<button class="danger" data-delete-job="${escapeHTML(r.id)}">Excluir</button>`;}
 setTableHead=function(service,id){const columns=['Cliente','Resultado',...(service==='tjba_margem'?['Empréstimo','Cartão','Vínculo']:['Saldo devedor','Parcela','Consultado em']),'Ações'];$('#'+id).innerHTML='<tr>'+columns.map(x=>`<th>${x}</th>`).join('')+'</tr>';};
 rowsHTML=function(rows){return rows.map(r=>{const margin=r.servico==='tjba_margem';return `<tr><td><strong>${escapeHTML(r.nome)}</strong><span class="cell-sub">${escapeHTML(r.cpf)}</span><span class="cell-sub">${escapeHTML(margin?convenioLabel(r.convenio):'Digi+')}</span></td><td><span class="pill ${r.status==='Concluída'?'ok':['Erro','Revisão','Consulta interrompida'].includes(r.status)?'err':r.status==='Processando'?'run':''}">${escapeHTML(statusLabel(r.status))}</span>${resultProgress(r)}${resultMessage(r)?`<small class="cell-sub">${escapeHTML(resultMessage(r))}</small>`:''}</td>${margin?`<td class="amount">${moneyTjba(r.emprestimo_disponivel)}</td><td class="amount">${moneyTjba(r.cartao_disponivel)}</td><td><strong>${escapeHTML(r.matricula||'—')}</strong><span class="cell-sub">${escapeHTML(r.situacao_atual||'—')}</span><span class="cell-sub">${escapeHTML(r.tipo_servidor||'')}</span></td>`:`<td class="amount">${moneyTjba(r.saldo)}</td><td class="amount">${moneyTjba(r.valorParcela)}<span class="cell-sub">${r.parcelas==null?'':escapeHTML(r.parcelas)+' parcelas'}</span></td><td>${r.consultado_em?new Date(r.consultado_em).toLocaleString('pt-BR'):'—'}</td>`}<td><details class="row-actions" data-actions="${escapeHTML(r.id)}" ${document.querySelector('[data-actions="'+r.id+'"]')?.open?'open':''}><summary>Ações</summary><div>${resultActions(r)}</div></details></td></tr>`;}).join('')||'<tr><td colspan="7" class="empty">Nenhum resultado com esses filtros.</td></tr>';};
+const campaignGroups=[
+ ['digimais_saldo_parcela','Digi+ · Saldo e parcela'],
+ ['tjba_margem','ConsigX · Margem']
+];
+const campaignPhases=[['active','Em andamento'],['paused','Pausadas'],['done','Concluídas']];
+function renderCampaignList(){
+ const query=$('#campaignSearch').value.trim().toLowerCase();
+ const phase=$('#campaignStatus').value;
+ const service=$('#campaignServiceFilter').value;
+ const groups=new Map();
+ const list=[...campaigns].sort((a,b)=>new Date(a.created_at)-new Date(b.created_at)||a.id.localeCompare(b.id));
+ for(const campaign of list){
+  const type=campaign.servico||'digimais_saldo_parcela';
+  if((service&&type!==service)||(query&&!campaign.nome.toLowerCase().includes(query)))continue;
+  const rows=campaignRecords(campaign.id);
+  const state=campaignPhase(campaign,rows);
+  if(phase&&state!==phase)continue;
+  const key=type+':'+state;
+  if(!groups.has(key))groups.set(key,[]);
+  const totals=campaignStats(rows);
+  const processed=totals.total-totals.waiting;
+  const pct=totals.total?Math.round(100*processed/totals.total):0;
+  groups.get(key).push(`<button class="campaign-item ${activeCampaign===campaign.id?'selected':''}" data-campaign="${escapeHTML(campaign.id)}">
+   <div class="campaign-card-top"><span>${escapeHTML(campaignPhaseLabel(campaign,rows))}</span><span>${pct}%</span></div>
+   <b>${escapeHTML(campaign.nome)}</b><span class="campaign-service">${escapeHTML(queryDescription(campaign))}</span>
+   <progress max="100" value="${pct}" aria-label="Progresso da campanha"></progress>
+   <small>${processed} de ${totals.total} processados · ${totals.errors+totals.review+totals.interrupted} para revisar</small></button>`);
+ }
+ const sections=campaignGroups.map(([type,title])=>{
+  const states=campaignPhases.map(([state,label])=>{
+   const cards=groups.get(type+':'+state);
+   return cards?`<div class="campaign-group-phase"><h4>${label} <span class="campaign-group-count">${cards.length}</span></h4>${cards.join('')}</div>`:'';
+  }).join('');
+  return states?`<section class="campaign-group"><h3>${title}</h3>${states}</section>`:'';
+ }).join('');
+ $('#campaignList').innerHTML=sections||'<p class="empty">Nenhuma campanha encontrada. Crie uma nova campanha ou ajuste os filtros.</p>';
+}
 const legacyCampaigns=renderCampaigns;
 renderCampaigns=function(){
  legacyCampaigns(false);
  $('#retryCampaign').textContent='Repetir consultas com falha';
- const q=$('#campaignSearch').value.trim().toLowerCase(),phase=$('#campaignStatus').value;
- const list=[...campaigns].sort((a,b)=>new Date(a.created_at)-new Date(b.created_at)||a.id.localeCompare(b.id));
- $('#campaignList').innerHTML=list.filter(c=>(!q||c.nome.toLowerCase().includes(q))&&(!phase||campaignPhase(c,campaignRecords(c.id))===phase)).map((c,index)=>{const rows=campaignRecords(c.id),n=campaignStats(rows),pct=n.total?Math.round(100*(n.total-n.waiting)/n.total):0;return `<button class="campaign-item ${activeCampaign===c.id?'selected':''}" data-campaign="${escapeHTML(c.id)}"><div class="campaign-card-top"><span>${escapeHTML(campaignPhaseLabel(c,rows))}</span><span>${pct}%</span></div><b>${escapeHTML(c.nome)}</b><span class="campaign-service">${escapeHTML(queryDescription(c))}</span><progress max="100" value="${pct}" aria-label="Progresso da campanha"></progress><small>${n.total-n.waiting} de ${n.total} processados · ${n.errors+n.review+n.interrupted} para revisar</small></button>`;}).join('')||'<p class="empty">Nenhuma campanha encontrada. Crie uma nova campanha ou ajuste os filtros.</p>';
+ renderCampaignList();
  const c=campaigns.find(c=>c.id===activeCampaign);if(!c)return;
  const rows=campaignRecords(c.id),n=campaignStats(rows),pct=n.total?Math.round(100*(n.total-n.waiting)/n.total):0;
  $('#campaignState').textContent=queryDescription(c)+' · '+campaignPhaseLabel(c,rows);
@@ -81,7 +116,7 @@ $('#campaignPrevPage').onclick=()=>{campaignPage--;renderCampaigns();};
 $('#campaignNextPage').onclick=()=>{campaignPage++;renderCampaigns();};
 $('#pauseCampaign').onclick=async()=>{const c=campaigns.find(c=>c.id===activeCampaign);if(!c||changingCampaign)return;changingCampaign=true;renderCampaigns();try{await sbRequest('/rest/v1/rpc/set_campaign_paused',{method:'POST',body:JSON.stringify({p_campaign_id:c.id,p_service:c.servico||'digimais_saldo_parcela',p_paused:!c.paused})});toast(c.paused?'Campanha retomada.':'Pausa solicitada. Consultas já iniciadas vão terminar.');await loadCloud();}catch(e){toast(e.message)}finally{changingCampaign=false;renderCampaigns();}};
 for(const id of ['#campaignSearch','#campaignClientSearch'])$(id).oninput=renderCampaigns;
-for(const id of ['#campaignStatus','#campaignClientStatus'])$(id).onchange=renderCampaigns;
+for(const id of ['#campaignStatus','#campaignServiceFilter','#campaignClientStatus'])$(id).onchange=renderCampaigns;
 const oldNavigate=navigate;
 navigate=function(page){oldNavigate(page);syncQueryContext();};
 function syncQueryContext(){const context=$('#serviceContext');context.classList.toggle('hide',currentPage==='settings'||(currentPage==='campaigns'&&!$('#newCampaignPanel').open));}
@@ -115,7 +150,7 @@ creationContent.querySelectorAll('[data-step]').forEach(b=>b.onclick=()=>{creati
 drawCreationStep();moveQueryContext();
 
 const workspaceShowLogin=showLogin;
-showLogin=function(message=''){creationStep=1;$('#campaignConfirmation').innerHTML='';for(const id of ['#campaignSearch','#campaignStatus','#campaignClientSearch','#campaignClientStatus'])$(id).value='';drawCreationStep();workspaceShowLogin(message);};
+showLogin=function(message=''){creationStep=1;$('#campaignConfirmation').innerHTML='';for(const id of ['#campaignSearch','#campaignStatus','#campaignServiceFilter','#campaignClientSearch','#campaignClientStatus'])$(id).value='';drawCreationStep();workspaceShowLogin(message);};
 const workspaceServiceChange=$('#serviceSelect').onchange;
 function simplifyMarginForm(){const margin=selectedService()==='tjba_margem';$('#nameLabel').hidden=margin;$('#nome').hidden=margin;$('#phoneLabel').parentElement.hidden=margin;$('#importHint').textContent=margin?'Preencha apenas a coluna cpf. Substitua a linha de exemplo e preserve os zeros à esquerda. As margens serão preenchidas pelo robô.':'Preencha nome, cpf e telefone. Substitua a linha de exemplo; mantenha CPF e telefone como texto. O robô preenche saldo e parcela.';}
 $('#serviceSelect').onchange=()=>{workspaceServiceChange();simplifyMarginForm();};
