@@ -773,3 +773,21 @@ começa a registrar novas solicitações após essa escolha.
 Em instalações existentes, aplique `supabase/upgrade_partner_trials_quota.sql`
 e atualize a VPS pela opção **1** do instalador. O schema de instalação nova
 já inclui a funcionalidade.
+
+### Consultas Amigoz (homologação individual)
+
+Atualize pela opção **1** do instalador. A VPS cria o diretório privado
+`/var/lib/apoiarcred-amigoz` para as credenciais da integração. Em
+**Configurações → API Amigoz**, informe URL base HTTPS, usuário, senha e ID do
+Corban. Salve e clique em **Testar conexão salva**. O teste não consulta CPF.
+
+Em **Consulta individual**, selecione **Amigoz**, o modo desejado, o estado e
+o convênio. O catálogo inclui os convênios operacionais do arquivo recebido.
+Para margem, a tela pede os campos exigidos pelo convênio e informa quando não
+há averbadora no catálogo. A V2 de saque recebe apenas o CPF nesta tela e as
+ofertas exibidas precisam corresponder ao convênio selecionado.
+
+Nesta fase, a configuração e as consultas Amigoz exigem conta de administrador.
+Os resultados ficam na tela da consulta. A homologação exige uma conta Amigoz
+e exemplos reais de login, saque e margem. As campanhas serão avaliadas
+depois dessa validação.

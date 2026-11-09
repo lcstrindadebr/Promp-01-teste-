@@ -32,12 +32,16 @@ def supabase_call(path,payload=None,method='POST',bearer=None):
 class AdminError(Exception):
  def __init__(self,status,code,message):self.status=status;self.code=code;self.message=message
 
-def partner_admin(auth,method,path,payload):
+def admin_actor(auth):
  if not auth.startswith('Bearer ') or auth[7:].startswith('apc_'):raise AdminError(401,'session_required','Entre com sua conta de administrador.')
  try:user=supabase_call('/auth/v1/user',method='GET',bearer=auth[7:])
  except urllib.error.HTTPError:raise AdminError(401,'invalid_session','Sessão inválida. Entre novamente.')
  actor=user.get('id')
  if not actor:raise AdminError(401,'invalid_session','Sessão inválida.')
+ return actor
+
+def partner_admin(auth,method,path,payload):
+ actor=admin_actor(auth)
  def manage(action,data=None):return supabase_call('/rest/v1/rpc/admin_partner_manage',dict(p_actor=actor,p_action=action,p_input=data or {}))
  try:manage('check')
  except urllib.error.HTTPError as error:
@@ -96,6 +100,33 @@ def partner_admin(auth,method,path,payload):
    raise
  raise AdminError(404,'not_found','Rota não encontrada.')
 
+def amigoz_admin(auth,method,path,payload):
+ import amigoz_api as amigoz
+ actor=admin_actor(auth)
+ try:
+  supabase_call('/rest/v1/rpc/admin_partner_manage',dict(p_actor=actor,p_action='check',p_input={}))
+ except urllib.error.HTTPError as error:
+  if error.code in (401,403):raise AdminError(403,'admin_required','A consulta Amigoz está em homologação administrativa.') from None
+  raise
+ try:
+  route=path.removeprefix('/api/admin/amigoz')
+  if method=='GET' and route=='/convenios':
+   return 200,{'data':list(amigoz.CATALOG.values())}
+  if method=='POST' and route=='/configuracao':
+   return 200,{'data':amigoz.save_configuration(payload)}
+  config=amigoz.configuration()
+  if method=='GET' and route=='/configuracao':
+   return 200,{'data':amigoz.public_configuration(config)}
+  if method=='POST' and route in ('/testar','/consultar'):
+   if not config:raise AdminError(409,'amigoz_not_configured','Configure as credenciais Amigoz antes de consultar.')
+   if route=='/testar':
+    amigoz.session(config,force=True)
+    return 200,{'data':{'connected':True}}
+   return 200,{'data':amigoz.consultation(config,payload)}
+  raise AdminError(404,'not_found','Rota não encontrada.')
+ except amigoz.AmigozError as error:
+  raise AdminError(502 if error.status in (401,403) else error.status,error.code,error.message) from None
+
 class Server(ThreadingHTTPServer):
  daemon_threads=True;request_queue_size=32
  def __init__(self,*args,**kwargs):self.slots=threading.BoundedSemaphore(16);super().__init__(*args,**kwargs)
@@ -150,7 +181,8 @@ class Handler(BaseHTTPRequestHandler):
   if key is not None and (not 1<=len(key)<=128 or not re.fullmatch(r'[A-Za-z0-9_.:-]+',key)):return self.error(400,'invalid_idempotency_key','Use chave de 1 a 128 caracteres: letras, números, ponto, dois-pontos, hífen ou sublinhado.')
   try:
    if admin:
-    status,body=partner_admin(auth,self.command,target.path,payload);body['request_id']=self.request_id;return self.send_json(status,body)
+    handler=amigoz_admin if target.path.startswith('/api/admin/amigoz/') else partner_admin
+    status,body=handler(auth,self.command,target.path,payload);body['request_id']=self.request_id;return self.send_json(status,body)
    result=rpc(dict(p_hash=hashlib.sha256(token.encode()).hexdigest(),p_method=self.command,p_route=target.path[len('/api/v1'):],p_payload=payload,p_key=key))
    status=int(result['status']);body=result['body'];body['request_id']=self.request_id
    format_cpf_field(body)
