@@ -32,8 +32,8 @@ def supabase_call(path,payload=None,method='POST',bearer=None):
 class AdminError(Exception):
  def __init__(self,status,code,message):self.status=status;self.code=code;self.message=message
 
-def admin_actor(auth):
- if not auth.startswith('Bearer ') or auth[7:].startswith('apc_'):raise AdminError(401,'session_required','Entre com sua conta de administrador.')
+def session_actor(auth):
+ if not auth.startswith('Bearer ') or auth[7:].startswith('apc_'):raise AdminError(401,'session_required','Entre com sua conta do ApoiarCred.')
  try:user=supabase_call('/auth/v1/user',method='GET',bearer=auth[7:])
  except urllib.error.HTTPError:raise AdminError(401,'invalid_session','Sessão inválida. Entre novamente.')
  actor=user.get('id')
@@ -41,7 +41,7 @@ def admin_actor(auth):
  return actor
 
 def partner_admin(auth,method,path,payload):
- actor=admin_actor(auth)
+ actor=session_actor(auth)
  def manage(action,data=None):return supabase_call('/rest/v1/rpc/admin_partner_manage',dict(p_actor=actor,p_action=action,p_input=data or {}))
  try:manage('check')
  except urllib.error.HTTPError as error:
@@ -63,6 +63,9 @@ def partner_admin(auth,method,path,payload):
  if 'allow_integrations' in payload and type(payload['allow_integrations']) is not bool:raise AdminError(422,'invalid_permissions','Permissão de integrações inválida.')
  data={key:payload[key] for key in ('name','permissions','active')}
  if 'allow_integrations' in payload:data['allow_integrations']=payload['allow_integrations']
+ if 'allow_amigoz' in payload:
+  if type(payload['allow_amigoz']) is not bool:raise AdminError(422,'invalid_permissions','Permissão Amigoz inválida.')
+  data['allow_amigoz']=payload['allow_amigoz']
  if 'shared_daily_limit' in payload:
   quota=payload['shared_daily_limit']
   if quota is not None and (type(quota) is not int or not 1<=quota<=100000):
@@ -102,14 +105,24 @@ def partner_admin(auth,method,path,payload):
 
 def amigoz_admin(auth,method,path,payload):
  import amigoz_api as amigoz
- actor=admin_actor(auth)
+ actor=session_actor(auth)
+ route=path.removeprefix('/api/admin/amigoz')
+ def authorize(consume=False):
+  try:
+   supabase_call('/rest/v1/rpc/authorize_amigoz',dict(p_actor=actor,p_consume=consume))
+  except urllib.error.HTTPError as error:
+   if error.code==429:raise AdminError(429,'daily_limit','Limite diário de consultas atingido.') from None
+   if error.code in (401,403):raise AdminError(403,'amigoz_access_denied','Acesso Amigoz não liberado para esta conta ou período de teste encerrado.') from None
+   raise
+ if (method,route) in (('GET','/convenios'),('POST','/consultar')):
+  authorize()
+ else:
+  try:
+   supabase_call('/rest/v1/rpc/admin_partner_manage',dict(p_actor=actor,p_action='check',p_input={}))
+  except urllib.error.HTTPError as error:
+   if error.code in (401,403):raise AdminError(403,'admin_required','Apenas administradores podem configurar a Amigoz.') from None
+   raise
  try:
-  supabase_call('/rest/v1/rpc/admin_partner_manage',dict(p_actor=actor,p_action='check',p_input={}))
- except urllib.error.HTTPError as error:
-  if error.code in (401,403):raise AdminError(403,'admin_required','A consulta Amigoz está em homologação administrativa.') from None
-  raise
- try:
-  route=path.removeprefix('/api/admin/amigoz')
   if method=='GET' and route=='/convenios':
    return 200,{'data':list(amigoz.CATALOG.values())}
   if method=='POST' and route=='/configuracao':
@@ -122,7 +135,7 @@ def amigoz_admin(auth,method,path,payload):
    if route=='/testar':
     amigoz.session(config,force=True)
     return 200,{'data':{'connected':True}}
-   return 200,{'data':amigoz.consultation(config,payload)}
+   return 200,{'data':amigoz.consultation(config,payload,before_request=lambda:authorize(True))}
   raise AdminError(404,'not_found','Rota não encontrada.')
  except amigoz.AmigozError as error:
   raise AdminError(502 if error.status in (401,403) else error.status,error.code,error.message) from None

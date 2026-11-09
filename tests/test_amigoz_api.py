@@ -76,6 +76,30 @@ class AmigozTests(unittest.TestCase):
   self.assertEqual(caught.exception.status,403)
   config.assert_not_called()
 
+ def test_partner_consultation_checks_access_and_consumes_one_shared_unit(self):
+  with patch.object(api,'supabase_call',side_effect=[{'id':'fixture'},True,True]) as rpc,patch.object(amigoz,'configuration',return_value=CONFIG),patch.object(amigoz,'call',side_effect=[[],{}]) as provider:
+   status,result=api.amigoz_admin('Bearer fixture','POST','/api/admin/amigoz/consultar',
+    {'modo':'ambos','cpf':'00000000001','convenio_id':23,'numero_matricula':'1'})
+  self.assertEqual(status,200)
+  self.assertEqual(provider.call_count,2)
+  self.assertEqual([c.args[1]['p_consume'] for c in rpc.call_args_list[1:]],[False,True])
+
+ def test_exhausted_partner_never_contacts_provider(self):
+  from urllib.error import HTTPError
+  with patch.object(api,'supabase_call',side_effect=[{'id':'fixture'},True,HTTPError('',429,'Limit',{},None)]),patch.object(amigoz,'configuration',return_value=CONFIG),patch.object(amigoz,'call') as provider:
+   with self.assertRaises(api.AdminError) as caught:
+    api.amigoz_admin('Bearer fixture','POST','/api/admin/amigoz/consultar',{'modo':'saque','cpf':'00000000001','convenio_id':23})
+  self.assertEqual(caught.exception.status,429)
+  provider.assert_not_called()
+
+ def test_partner_cannot_read_configuration(self):
+  from urllib.error import HTTPError
+  with patch.object(api,'supabase_call',side_effect=[{'id':'fixture'},HTTPError('',403,'Forbidden',{},None)]),patch.object(amigoz,'configuration') as config:
+   with self.assertRaises(api.AdminError) as caught:
+    api.amigoz_admin('Bearer fixture','GET','/api/admin/amigoz/configuracao',{})
+  self.assertEqual(caught.exception.code,'admin_required')
+  config.assert_not_called()
+
  def test_private_address_is_rejected_before_dial(self):
   with patch.object(amigoz.socket,'getaddrinfo',return_value=[(None,None,None,None,('127.0.0.1',443))]),patch.object(amigoz.socket,'create_connection') as dial:
    with self.assertRaises(amigoz.AmigozError):

@@ -207,7 +207,7 @@ def margin_result(value):
  return value
 
 
-def consultation(config,payload):
+def consultation(config,payload,before_request=None):
  mode=payload.get('modo')
  convenio_id=payload.get('convenio_id')
  convenio=CATALOG.get(convenio_id) if type(convenio_id) is int else None
@@ -224,6 +224,8 @@ def consultation(config,payload):
     raise AmigozError(422,'invalid_amigoz_margin_input',f'Informe {label} para este convênio.')
    if value:
     margin[field]=value
+ if before_request and (mode!='margem' or convenio['averbadora'] is not None):
+  before_request()
  result={'cpf':f'{cpf[:3]}.{cpf[3:6]}.{cpf[6:9]}-{cpf[9:]}','convenio_id':convenio_id}
  for operation,path,body in (('saque','/api/simulacao/v2/saque-complementar',{'cpf':cpf}),
                              ('margem','/api/consulta-margem',margin)):

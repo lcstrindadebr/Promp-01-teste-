@@ -787,7 +787,10 @@ Para margem, a tela pede os campos exigidos pelo convênio e informa quando não
 há averbadora no catálogo. A V2 de saque recebe apenas o CPF nesta tela e as
 ofertas exibidas precisam corresponder ao convênio selecionado.
 
-Nesta fase, a configuração e as consultas Amigoz exigem conta de administrador.
+A configuração Amigoz exige conta de administrador. Em **Configurações → Parceiros**,
+marque **Permitir consultas individuais Amigoz** para liberar um parceiro com
+cota compartilhada ou ilimitada. Uma consulta combinada usa uma unidade da cota.
+Em instalações existentes, aplique `supabase/upgrade_partner_amigoz_access.sql`.
 Os resultados ficam na tela da consulta. A homologação exige uma conta Amigoz
 e exemplos reais de login, saque e margem. As campanhas serão avaliadas
 depois dessa validação.

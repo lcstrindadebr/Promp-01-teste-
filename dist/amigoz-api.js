@@ -34,8 +34,10 @@ const stateLabelsAmigoz={AC:'Acre',AL:'Alagoas',AM:'Amazonas',CE:'Ceará',ES:'Es
 let amigozCatalog=[],amigozBusy=false,amigozConfigBusy=false;
 const amigozIsAdmin=()=>Boolean(authenticated&&currentAccess?.active&&currentAccess.role==='admin');
 
+const amigozCanConsult=()=>Boolean(amigozIsAdmin()||(authenticated&&currentAccess?.active&&currentAccess.allow_amigoz&&!currentAccess.trial_expired));
 async function amigozRequest(route,body){
- if(!amigozIsAdmin())throw Error('A consulta Amigoz está em homologação administrativa.');
+ const consultationRoute=route==='consultar'||route==='convenios';
+ if(!(consultationRoute?amigozCanConsult():amigozIsAdmin()))throw Error('Acesso Amigoz não liberado para esta conta.');
  await refreshSession();
  const response=await fetch('/api/admin/amigoz/'+route,{
   method:body?'POST':'GET',headers:{Authorization:'Bearer '+session.access_token,'Content-Type':'application/json'},
@@ -47,9 +49,14 @@ async function amigozRequest(route,body){
  return value.data;
 }
 function updateAmigozPanel(){
- const admin=amigozIsAdmin(),home=currentPage==='home',enabled=admin&&home;
+ const admin=amigozIsAdmin(),home=currentPage==='home',enabled=amigozCanConsult()&&home;
  $('#settings-tab-amigoz-api').hidden=!admin;
  amigozPicker.hidden=!enabled;
+ if(!amigozCanConsult()){
+  $('#amigozConsultResults').replaceChildren();
+  $('#amigozServerPassword').value='';
+  $('#individualProvider').value='existing';
+ }
  const showing=enabled&&$('#individualProvider').value==='amigoz';
  amigozConsultPanel.hidden=!showing;
  standardConsultCard.hidden=showing;
@@ -163,10 +170,10 @@ $('#amigozConsultForm').onsubmit=async e=>{
  amigozBusy=true;button.disabled=true;$('#amigozConsultStatus').textContent='Consultando…';
  try{
   const result=await amigozRequest('consultar',payload);
-  if(epoch!==authEpoch)return;
+  if(epoch!==authEpoch||!amigozCanConsult())return;
   $('#amigozConsultStatus').textContent='Resposta recebida para '+result.cpf+'.';showAmigozResult(result);
  }catch(error){if(epoch===authEpoch)$('#amigozConsultStatus').textContent=error.message;}
- finally{amigozBusy=false;button.disabled=false;}
+ finally{amigozBusy=false;button.disabled=false;if(epoch===authEpoch)refreshMyAccess(true).catch(()=>{});}
 };
 const previousAmigozLogout=showLogin;
 showLogin=function(...args){
