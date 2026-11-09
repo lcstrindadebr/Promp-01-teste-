@@ -119,7 +119,7 @@ for(const id of ['#campaignSearch','#campaignClientSearch'])$(id).oninput=render
 for(const id of ['#campaignStatus','#campaignServiceFilter','#campaignClientStatus'])$(id).onchange=renderCampaigns;
 const oldNavigate=navigate;
 navigate=function(page){oldNavigate(page);syncQueryContext();};
-function syncQueryContext(){const context=$('#serviceContext');context.classList.toggle('hide',currentPage==='settings'||(currentPage==='campaigns'&&!$('#newCampaignPanel').open));}
+function syncQueryContext(){const context=$('#serviceContext');context.classList.toggle('hide',!['home','campaigns'].includes(currentPage)||(currentPage==='campaigns'&&!$('#newCampaignPanel').open));}
 $('#newCampaignPanel').ontoggle=syncQueryContext;
 const originalServiceChange=$('#serviceSelect').onchange;
 $('#serviceSelect').onchange=()=>{originalServiceChange();syncQueryContext();};
