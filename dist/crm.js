@@ -69,10 +69,11 @@ async function loadCrmLinks(client) {
   list.replaceChildren();
   status.textContent = 'Carregando vínculos…';
   try {
-    const links = await sbRequest(crmPath('crm_vinculos', {
-      cpf:'eq.' + client.cpf, user_id:'eq.' + client.user_id,
-      order:'confirmado_em.desc,convenio.asc,matricula.asc', limit:100
-    }));
+    const owner = {cpf:'eq.' + client.cpf, user_id:'eq.' + client.user_id, limit:100};
+    const [links, classifications] = await Promise.all([
+      sbRequest(crmPath('crm_vinculos', {...owner, order:'confirmado_em.desc,convenio.asc,matricula.asc'})),
+      sbRequest(crmPath('crm_classificacoes', {...owner, order:'importado_em.desc'}))
+    ]);
     if (crmClient !== client) return;
     for (const link of links) {
       const label = link.uf + ' · ' + link.convenio.toUpperCase();
@@ -85,7 +86,12 @@ async function loadCrmLinks(client) {
         agreements.add(new Option(label, link.convenio));
       }
     }
-    status.textContent = links.length ? '' : 'Nenhum vínculo confirmado.';
+    for (const classification of classifications) {
+      const label = classification.uf + ' · ' + classification.convenio.toUpperCase();
+      const preference = classification.usar_digimais ? 'Pretende usar Digi+' : 'Sem previsão de usar Digi+';
+      list.append(crmElement('li','',label + ' · Informado na importação · ' + preference));
+    }
+    status.textContent = links.length ? '' : 'Nenhum vínculo confirmado por consulta.';
   } catch {
     if (crmClient === client) status.textContent = 'Não foi possível carregar os vínculos.';
   }
@@ -394,5 +400,4 @@ $('#crmCustomize').onclick=async()=>{
 };
 const crmRefresh=crmElement('button','','Atualizar');crmRefresh.type='button';crmRefresh.onclick=()=>loadCrmPipeline(0);$('#crmCustomize').after(crmRefresh);
 
-$('#crmImportClients').onclick=()=>{navigate('campaigns');if(currentPage==='campaigns'){$('#newCampaignPanel').open=true;$('#campaignName').focus();}};
 $('#sidebarToggle').onclick=()=>{const collapsed=$('#appShell').classList.toggle('sidebar-collapsed');$('#sidebarToggle').setAttribute('aria-expanded',String(!collapsed));};

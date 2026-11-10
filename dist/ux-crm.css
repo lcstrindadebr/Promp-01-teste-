@@ -309,3 +309,62 @@ td:last-child { white-space: normal; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }
 }
+
+/* Clientes: cabeçalho de base, filtros próximos à tabela e importação separada. */
+#clients > .consultation-header {
+  padding: 22px 24px;
+  margin-bottom: 16px;
+  border: 1px solid #cbdedb;
+  border-radius: 12px;
+  background: #eff7f5;
+  gap: 16px;
+}
+#clients > .consultation-header h1 { margin: 4px 0; }
+#clients > .consultation-header p { margin: 0; }
+.crm-eyebrow { color: #24675c; font-size: 11px; font-weight: 750; letter-spacing: .12em; }
+#clients #crmSearch { margin-top: 0; }
+.crm-import-dialog { width: min(560px, calc(100vw - 24px)); max-height: 90dvh; padding: 24px; }
+.crm-import-dialog .heading { margin: 0; padding: 0 0 14px; border-bottom: 1px solid var(--crm-border); }
+.crm-import-intro { margin: 16px 0; line-height: 1.5; }
+.crm-import-steps {
+  display: grid;
+  grid-template-columns: repeat(3,minmax(0,1fr));
+  gap: 6px;
+  padding: 0;
+  list-style: none;
+  counter-reset: import-step;
+}
+.crm-import-steps li {
+  counter-increment: import-step;
+  padding: 8px;
+  border-bottom: 2px solid var(--crm-border);
+  color: var(--crm-secondary);
+  font-size: 12px;
+}
+.crm-import-steps li::before { content: counter(import-step) ". "; font-weight: 750; }
+.crm-import-steps li[aria-current] { border-color: #267467; color: #17594e; background: #eff7f5; }
+.crm-import-fields { display: grid; gap: 14px; margin: 20px 0; }
+.crm-import-fields label { display: grid; gap: 6px; font-weight: 650; }
+.crm-import-file { display: grid; gap: 8px; padding: 14px; border: 1px dashed #9dbbb6; border-radius: 8px; background: #f6faf9; }
+.crm-import-file a { justify-self: start; color: #17594e; }
+.crm-import-status { min-height: 20px; }
+.crm-import-dialog footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.crm-reset-panel { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-top: 16px; border-color: #edc7c7; }
+.crm-reset-panel p { margin: 4px 0 0; }
+button.crm-danger { color: #8c2525; border-color: #dca6a6; background: #fff5f5; }
+button.crm-danger:hover:not(:disabled) { color: #782020; border-color: #b75858; background: #fce4e4; }
+
+.crm-search-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+.crm-pipeline-toolbar { display: flex; align-items: end; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.crm-pipeline-toolbar label { display: block; }
+.crm-pipeline-toolbar select { min-width: 160px; }
+.crm-pipeline-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+#opportunities .crm-kanban-column { flex: 1 0 160px; min-width: 0; }
+#opportunities .crm-kanban-column h2 { overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  #opportunities .crm-kanban-column { flex: 0 0 min(75vw, 275px); }
+  .crm-search-actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
+  #crmSearch .crm-search-actions button { white-space: normal; }
+  #clients > .consultation-header, .crm-import-dialog { padding: 16px; }
+  .crm-import-steps li { padding-inline: 4px; }
+}

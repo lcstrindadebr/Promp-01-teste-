@@ -6,7 +6,8 @@
 | --- | --- | --- |
 | Consultas unificadas | Item único no menu; Individual e Campanhas dentro da página; restrição de campanhas preservada | Teste de navegação/estrutura e suíte de permissões |
 | Clientes: filtros e exportação | Nome/CPF, estado, convênio confirmado e serviço; cursor no servidor; exportação percorre todas as páginas | Teste com 1.201 registros; falha intermediária não baixa arquivo parcial |
-| Importar clientes | Abre o fluxo existente de campanha; não cria segundo importador | Reutilização de navegação com validação de permissão |
+| Importar clientes | Cadastro separado em Clientes, com estado, convênio e preferência de Digi+ | Teste de banco comprova ausência de lotes, atualização por CPF e isolamento |
+| Zerar conta | Ação exclusiva do administrador ativo, restrita à própria conta | Teste em transação revertida com contas fictícias e verificação de confirmação e tarefas ativas |
 | Kanban | Seis etapas existentes; paginação independente por coluna; arrastar ou usar seletor | Persistência no Supabase; tratamento de erro mantém etapa anterior |
 | Cartões personalizados | Exibição, espaçamento, título comercial e campos texto/número/data/sim-não | Configuração e valores persistidos; tipos validados no banco |
 | Valores financeiros protegidos | Somente leitura da última consulta compatível com produto/convênio; fonte/data visíveis | Grants somente SELECT na visão; campos desconhecidos e nomes reservados rejeitados |

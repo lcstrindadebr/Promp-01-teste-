@@ -47,9 +47,9 @@ A primeira tela é **login**. Entre com um usuário criado em Supabase → Authe
 
 O projeto original já tem o banco configurado. Não reaplique o schema nele. Cada usuário vê somente suas próprias consultas.
 
-## Importar clientes
+## Enviar participantes de uma campanha
 
-No painel, clique em **Baixar modelo CSV** ou **Baixar modelo padrão de importação**. O arquivo contém:
+Em **Consultas → Campanhas**, clique em **Baixar modelo CSV** ou **Baixar modelo padrão de importação**. O arquivo contém:
 
 ```csv
 nome;cpf;telefone
@@ -799,7 +799,11 @@ depois dessa validação.
 
 **Consultas** reúne as abas **Individual** e **Campanhas**, preservando as permissões e as campanhas em execução.
 
-**Clientes** usa cadastro persistente por conta/CPF. Consultas enriquecem os vínculos com matrícula, origem e data; excluir uma consulta não apaga o cadastro. A busca é paginada no servidor. Filtros de estado e convênio usam vínculos confirmados (legados sem classificação não são inventados). O filtro de serviço seleciona consultas existentes. **Exportar todos os filtrados** percorre todas as páginas, sem teto total de 500/1.000/5.000; nenhuma exportação incompleta é baixada em caso de erro. Dados podem receber atualizações durante a exportação; ela não é um snapshot transacional.
+**Clientes** usa cadastro persistente por conta/CPF. Consultas enriquecem os vínculos com matrícula, origem e data; excluir uma consulta não apaga o cadastro. A busca é paginada no servidor. Filtros de estado e convênio usam classificações importadas e vínculos confirmados. Registros legados sem classificação continuam disponíveis na listagem geral. O filtro de serviço seleciona consultas existentes. **Exportar todos os filtrados** percorre todas as páginas, sem teto total de 500/1.000/5.000; nenhuma exportação incompleta é baixada em caso de erro. Dados podem receber atualizações durante a exportação; ela não é um snapshot transacional.
+
+**Importar base** em Clientes pede estado, convênio e intenção de usar Digi+, nessa ordem. O CPF é obrigatório. Nome e telefone são opcionais. A importação não cria campanhas, não inicia consultas e não consome cota.
+
+Em **Configurações → Conta e diagnóstico**, um administrador ativo pode usar **Zerar minha conta**. A confirmação digitada apaga dados operacionais da própria conta e preserva login, permissões e configurações.
 
 **Oportunidades** usa Kanban com seis etapas, páginas independentes por coluna e mudança persistida após confirmação do Supabase. Também é possível mover por seletor, sem arrastar. **Personalizar cartões** permite escolher campos exibidos e cadastrar campos de texto, número, data e sim/não. Campos existentes podem ser renomeados ou ocultados; tipo e valores anteriores são preservados. Saldo e margem são somente leitura, com origem/data da consulta. Configurações e oportunidades respeitam o isolamento entre contas.
 
@@ -810,6 +814,8 @@ No projeto Supabase conectado, as migrações CRM já foram aplicadas. Para outr
 3. `supabase/upgrade_crm_comercial.sql`
 4. `supabase/upgrade_crm_kanban.sql`
 5. `supabase/upgrade_crm_card_presentation.sql`
+6. `supabase/upgrade_crm_importacao.sql`
+7. `supabase/upgrade_crm_zerar_conta.sql`
 
 Para banco novo, use o `supabase/schema.sql` completo. O instalador da VPS atualiza o código; não executa SQL em outro projeto automaticamente.
 

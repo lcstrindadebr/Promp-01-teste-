@@ -26,7 +26,7 @@ A pessoa será o centro do CRM. Campanhas organizam o processamento; consultas p
 
 1. Uma importação corresponde a um único estado e convênio. Importações mistas não serão oferecidas.
 2. Escolher estado, depois convênio, depois as possibilidades de consulta.
-3. Após a confirmação da importação, iniciar automaticamente o processamento autorizado.
+3. Importar a base cadastral sem iniciar consultas. Confirmar uma campanha separadamente para iniciar o processamento autorizado.
 4. Manter consulta individual e criação de campanhas específicas.
 5. Atualizar o cadastro com informações obtidas nas consultas, incluindo matrícula.
 6. Preservar histórico, resultados parciais e campanhas existentes.
@@ -37,9 +37,9 @@ A pessoa será o centro do CRM. Campanhas organizam o processamento; consultas p
 
 ## 3. Jornadas que o sistema deve atender
 
-### 3.1 Importar uma base e consultar automaticamente
+### 3.1 Importar uma base cadastral
 
-Exemplo: selecionar São Paulo, selecionar Polícia Militar, escolher os serviços efetivamente disponíveis, baixar o modelo correspondente e enviar a planilha. Após validar e confirmar, criar a campanha, vincular os clientes e executar os serviços. A ficha de cada cliente recebe os resultados e os novos dados cadastrais.
+Em Clientes, informar estado e convênio nessa ordem, responder se pretende usar a base no Digi+ e importar a planilha. A importação registra clientes e classificações informadas, sem criar tarefas. Uma campanha é criada separadamente em Consultas, com os participantes e o serviço selecionados.
 
 ### 3.2 Consultar uma pessoa
 
@@ -69,7 +69,7 @@ Pausar, atualizar o sistema ou reiniciar um trabalhador sem perder resultados. R
 | Oportunidades | Funil comercial e visualização em tabela. |
 | Configurações | Operação, acessos, robôs, comissões, integrações e usuários conforme permissão. |
 
-“Importar clientes”, em Clientes, e “Nova campanha”, em Consultas, abrirão o mesmo fluxo, evitando formulários duplicados. O contexto de origem pode preencher escolhas, mas não alterar as regras.
+**Importar base**, em Clientes, cadastra pessoas e registra o contexto da base. **Nova campanha**, em Consultas, configura a execução em lote. São ações independentes.
 
 ### 4.1 Diretrizes visuais
 
@@ -101,7 +101,11 @@ Painel lateral para inspeção rápida e página completa para atendimento. Abas
 
 Quadro por etapa comercial e alternativa em tabela. Cartões com cliente, produto, responsável, valor estimado e próxima ação. Não usar o funil comercial para representar falhas dos robôs.
 
-## 5. Fluxo único de importação
+## 5. Importação cadastral e criação de campanha
+
+Em **Clientes**, selecione estado, informe o convênio e depois indique a intenção de uso no Digi+. Envie a planilha e confirme **Importar clientes**. O cadastro não consome cota nem enfileira tarefas.
+
+As etapas abaixo descrevem a criação de campanha em **Consultas**.
 
 ### Etapa 1 — Estado e convênio
 

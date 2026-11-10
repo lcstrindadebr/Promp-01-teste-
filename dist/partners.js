@@ -49,6 +49,7 @@ function updateQuotaNotice(){
  syncImportButton();
 }
 function applyAccessUi(){
+ if(typeof syncCrmResetAccess==='function')syncCrmResetAccess();
  if(applyingAccess||!currentAccess)return;applyingAccess=true;
  try{
  const admin=currentAccess.role==='admin'&&currentAccess.active,rules=currentAccess.services||[];
