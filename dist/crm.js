@@ -70,17 +70,35 @@ async function loadCrmLinks(client) {
   status.textContent = 'Carregando vínculos…';
   try {
     const owner = {cpf:'eq.' + client.cpf, user_id:'eq.' + client.user_id, limit:100};
-    const [links, classifications, catalog] = await Promise.all([
+    const [linksResponse, classificationsResponse, catalogResponse] = await Promise.allSettled([
       sbRequest(crmPath('crm_vinculos', {...owner, order:'confirmado_em.desc,convenio.asc,matricula.asc'})),
       sbRequest(crmPath('crm_classificacoes', {...owner, order:'importado_em.desc'})),
       crmGetImportCatalog().catch(() => [])
     ]);
     if (crmClient !== client) return;
+    const links = linksResponse.value || [], classifications = classificationsResponse.value || [];
+    const catalog = catalogResponse.value || [];
+    if (client.data_nascimento) {
+      list.append(crmElement('li','','Nascimento: '+client.data_nascimento.split('-').reverse().join('/')));
+    }
+    for (const [source, snapshot] of Object.entries(client.resumo_consultas || {})) {
+      const data = snapshot.dados;
+      const columns = crmAmigozColumns({
+        margem:source.startsWith('amigoz_margem_') ? {status:'respondido',dados:data} : null,
+        saque:source.startsWith('amigoz_saque_') ? {status:'respondido',dados:{ofertas:data}} : null
+      }, value => crmMoney.format(value));
+      const summary = source === 'digimais'
+        ? [data.status === 'nao_cliente' ? 'Digi+ · Não é cliente' : 'Digi+',
+           data.saldo != null ? 'Saldo '+crmMoney.format(data.saldo) : null,
+           data.parcela != null ? 'Parcela '+crmMoney.format(data.parcela) : null]
+        : ['Amigoz',columns.margemCartao,columns.limite && 'Limite '+columns.limite,columns.saque && 'Saque '+columns.saque];
+      list.append(crmElement('li','',summary.filter(Boolean).join(' · ')));
+    }
     for (const link of links) {
       const label = link.uf + ' · ' + link.convenio.toUpperCase();
       const item = document.createElement('li');
       item.textContent = [label, 'Matrícula ' + link.matricula, link.situacao_atual,
-        'ConsigX', new Date(link.confirmado_em).toLocaleDateString('pt-BR')].filter(Boolean).join(' · ');
+        ({consigx:'ConsigX',amigoz:'Amigoz',importacao:'Importação'})[link.fonte], new Date(link.confirmado_em).toLocaleDateString('pt-BR')].filter(Boolean).join(' · ');
       list.append(item);
       const agreements = $('#crmOpportunityAgreement');
       if (!Array.from(agreements.options).some(option => option.value === link.convenio)) {
@@ -97,7 +115,7 @@ async function loadCrmLinks(client) {
       if (agreement) crmAddPlannedActions(item, client, agreement, planned);
       list.append(item);
     }
-    status.textContent = links.length ? '' : 'Nenhum vínculo confirmado por consulta.';
+    status.textContent = linksResponse.status === 'rejected' || classificationsResponse.status === 'rejected' ? 'Parte dos vínculos ou classificações não pôde ser carregada.' : links.length || classifications.length ? '' : 'Nenhum vínculo ou classificação registrado.';
   } catch {
     if (crmClient === client) status.textContent = 'Não foi possível carregar os vínculos.';
   }
@@ -386,6 +404,17 @@ function crmOpportunityCard(row,settings,request){
 }
 function crmCardFinance(row,target,request){
   target.replaceChildren();
+  if(row.automatica){
+    for(const [source, data] of Object.entries(row.sinais_consulta || {})){
+      if(source === 'digimais') target.append(crmElement('p','','Digi+ · Cliente'+(data.saldo != null ? ' · Saldo '+crmMoney.format(data.saldo) : '')));
+      if(source.startsWith('amigoz_saque_')){
+        const offers = data.filter(item => String(item.elegivel).toLowerCase() === 'sim' && !item.erro_informado && item.valor_saque_disponivel > 0);
+        for(const offer of offers) target.append(crmElement('p','','Amigoz · Saque '+crmMoney.format(offer.valor_saque_disponivel)));
+      }
+    }
+    if(!target.childNodes.length) target.textContent='Sem sinal comercial ativo.';
+    return;
+  }
   const key=row.produto==='recompra'?'saldo_liquidacao':'emprestimo_disponivel';
   if(row[key]==null){target.textContent='Sem resultado financeiro vinculado.';return;}
   target.append(crmElement('strong','',(key==='saldo_liquidacao'?'Saldo: ':'Margem: ')+crmMoney.format(row[key])));

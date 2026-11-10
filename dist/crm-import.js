@@ -10,9 +10,10 @@ const crmStates = {
 async function crmReadClientFile(file, uf, convenio, convenioNome = convenio) {
   if (!/\.(csv|tsv|xlsx|xls)$/i.test(file.name)) throw Error('Envie um arquivo CSV, TSV, XLSX ou XLS.');
   if (file.size > 2_000_000) throw Error('O arquivo deve ter até 2 MB.');
-  let rows;
+  let rows, date1904 = false;
   if (/\.xlsx?$/i.test(file.name)) {
     const book = XLSX.read(await file.arrayBuffer(), {type:'array', sheetRows:10002, cellFormula:false, cellHTML:false});
+    date1904 = Boolean(book.Workbook?.WBProps?.date1904);
     const sheet = book.Sheets[book.SheetNames[0]];
     if (!sheet) throw Error('A planilha está vazia.');
     rows = XLSX.utils.sheet_to_json(sheet, {header:1, raw:true, defval:'', blankrows:false});
@@ -44,8 +45,24 @@ async function crmReadClientFile(file, uf, convenio, convenioNome = convenio) {
     if (!/^\d{11}$/.test(cpf) || cpf === '00000000000') invalid('CPF inválido. Use 11 dígitos.');
     if (seen.has(cpf)) invalid('CPF repetido na planilha.');
     if ((entry.nome || '').length > 160 || (telefone && !/^\d{10,13}$/.test(telefone))) invalid('nome ou telefone inválido.');
+    const birth = entry['data nascimento'] || entry['data de nascimento'] || entry['data nasc'] || entry.nascimento;
+    let dataNascimento;
+    if (birth) {
+      const br = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(birth);
+      dataNascimento = br ? br[3]+'-'+br[2]+'-'+br[1] : birth;
+      const birthColumn = headers.findIndex(key => ['data nascimento','data de nascimento','data nasc','nascimento'].includes(key));
+      if (typeof row[birthColumn] === 'number' && /\.xlsx?$/i.test(file.name)) {
+        const parsed = XLSX.SSF.parse_date_code(row[birthColumn], {date1904});
+        if (!parsed) invalid('data de nascimento inválida.');
+        dataNascimento = [String(parsed.y).padStart(4,'0'),String(parsed.m).padStart(2,'0'),String(parsed.d).padStart(2,'0')].join('-');
+      }
+      const date = new Date(dataNascimento+'T00:00:00Z');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dataNascimento) || !Number.isFinite(date.getTime()) ||
+          date.toISOString().slice(0,10) !== dataNascimento) invalid('data de nascimento inválida.');
+    }
     seen.add(cpf);
     return {cpf, nome:entry.nome || null, telefone:telefone || null,
+      ...(dataNascimento ? {data_nascimento:dataNascimento} : {}),
       ...((entry.matricula || entry.numero_matricula || entry['numero matricula']) ? {numero_matricula:entry.matricula || entry.numero_matricula || entry['numero matricula']} : {})};
   });
 }
@@ -79,7 +96,7 @@ async function crmOpenClientImport() {
       </fieldset>
       <div class="crm-import-file" hidden>
         <label>Planilha de clientes<input name="arquivo" type="file" accept=".csv,.tsv,.xlsx,.xls" required disabled></label>
-        <small>CPF obrigatório. Digi+ exige nome e telefone. Amigoz exige apenas CPF; matrícula é opcional. Até 2 MB e 10.000 clientes.</small>
+        <small>CPF obrigatório. Digi+ exige nome e telefone. Amigoz exige apenas CPF; matrícula e data de nascimento são opcionais. Até 2 MB e 10.000 clientes.</small>
         <a href="modelo-clientes.csv" download>Baixar modelo de cadastro</a>
       </div>
     </div>

@@ -210,7 +210,7 @@ def normalized(value):
 def saque_result(response,convenio):
  if not isinstance(response,list) or any(not isinstance(item,dict) for item in response):
   raise AmigozError(502,'amigoz_saque_response','O formato do resultado de saque não corresponde ao OpenAPI.')
- fields=('elegivel','valor_saque_disponivel','valor_saque_minimo','limite_cartao','limite_disponivel_cliente','status','nome_oferta')
+ fields=('elegivel','valor_saque_disponivel','valor_saque_minimo','limite_cartao','limite_disponivel_cliente','status','nome_oferta','numeroMatricula','numero_matricula','nome_matricula')
  matched=[]
  for item in response:
   reference=item.get('convenio_cliente')
