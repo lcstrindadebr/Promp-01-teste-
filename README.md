@@ -794,3 +794,32 @@ Em instalações existentes, aplique `supabase/upgrade_partner_amigoz_access.sql
 Os resultados ficam na tela da consulta. A homologação exige uma conta Amigoz
 e exemplos reais de login, saque e margem. As campanhas serão avaliadas
 depois dessa validação.
+
+### CRM: Clientes, Consultas e Oportunidades
+
+**Consultas** reúne as abas **Individual** e **Campanhas**, preservando as permissões e as campanhas em execução.
+
+**Clientes** usa cadastro persistente por conta/CPF. Consultas enriquecem os vínculos com matrícula, origem e data; excluir uma consulta não apaga o cadastro. A busca é paginada no servidor. Filtros de estado e convênio usam vínculos confirmados (legados sem classificação não são inventados). O filtro de serviço seleciona consultas existentes. **Exportar todos os filtrados** percorre todas as páginas, sem teto total de 500/1.000/5.000; nenhuma exportação incompleta é baixada em caso de erro. Dados podem receber atualizações durante a exportação; ela não é um snapshot transacional.
+
+**Oportunidades** usa Kanban com seis etapas, páginas independentes por coluna e mudança persistida após confirmação do Supabase. Também é possível mover por seletor, sem arrastar. **Personalizar cartões** permite escolher campos exibidos e cadastrar campos de texto, número, data e sim/não. Campos existentes podem ser renomeados ou ocultados; tipo e valores anteriores são preservados. Saldo e margem são somente leitura, com origem/data da consulta. Configurações e oportunidades respeitam o isolamento entre contas.
+
+No projeto Supabase conectado, as migrações CRM já foram aplicadas. Para outro projeto existente, aplique nesta ordem:
+
+1. `supabase/upgrade_crm_clientes.sql`
+2. `supabase/upgrade_crm_cadastros.sql`
+3. `supabase/upgrade_crm_comercial.sql`
+4. `supabase/upgrade_crm_kanban.sql`
+5. `supabase/upgrade_crm_card_presentation.sql`
+
+Para banco novo, use o `supabase/schema.sql` completo. O instalador da VPS atualiza o código; não executa SQL em outro projeto automaticamente.
+
+Atualize a VPS:
+
+```bash
+sudo git -C /opt/apoiarcred-src pull --ff-only origin apoiarcred-consultas-mvp &&
+sudo bash /opt/apoiarcred-src/instalar.sh
+```
+
+Escolha **1 — Atualizar**. Depois recarregue o navegador com Ctrl+F5.
+
+Veja `docs/crm-validacao.md` para testes, limitações e cobertura do plano diretor.

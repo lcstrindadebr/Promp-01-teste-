@@ -53,7 +53,7 @@ function applyAccessUi(){
  try{
  const admin=currentAccess.role==='admin'&&currentAccess.active,rules=currentAccess.services||[];
  const canCampaign=admin||currentAccess.active&&rules.some(r=>r.enabled&&r.allow_campaign);
- document.querySelector('nav [data-page="campaigns"]').hidden=!canCampaign;
+ document.querySelector('[data-consultation="campaigns"]').hidden=!canCampaign;
  for(const id of ['robots','partners']){$('#settings-tab-'+id).hidden=!admin;if(!admin&&!$('#settings-'+id).hidden)switchSettings('account');}
  const integrationsAllowed=hasIntegrationAccess();
  $('#settings-tab-integrations').hidden=!integrationsAllowed;

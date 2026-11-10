@@ -2534,3 +2534,277 @@ begin
 end $$;
 revoke all on function public.authorize_amigoz(uuid,boolean) from public,anon,authenticated;
 grant execute on function public.authorize_amigoz(uuid,boolean) to service_role;
+begin;
+
+-- Caller privileges and the original row policies protect both sources.
+create or replace view public.crm_consultas with (security_invoker=true) as
+select id, user_id, cpf, nome, telefone, servico, null::text as convenio,
+       status, created_at, consultado_em, null::text as matricula,
+       null::text as situacao_atual, null::numeric as emprestimo_disponivel,
+       null::numeric as cartao_disponivel, saldo_liquidacao, valor_parcela
+from public.consulta_jobs
+union all
+select id, user_id, cpf, nome, telefone, servico, convenio,
+       status, created_at, consultado_em, matricula, situacao_atual,
+       emprestimo_disponivel, cartao_disponivel, null::numeric, null::numeric
+from public.tjba_jobs;
+
+create or replace view public.crm_clientes with (security_invoker=true) as
+select user_id, cpf,
+       (array_agg(nome order by created_at desc, id desc)
+          filter (where nome <> 'CPF ' || cpf and nome <> 'Cliente TJBA'
+                  and btrim(nome) <> ''))[1] as nome,
+       (array_agg(telefone order by created_at desc, id desc)
+          filter (where btrim(telefone) <> ''))[1] as telefone,
+       max(coalesce(consultado_em, created_at)) as ultima_atividade
+from public.crm_consultas
+group by user_id, cpf;
+
+revoke all on public.crm_consultas, public.crm_clientes from public, anon, authenticated;
+grant select on public.crm_consultas, public.crm_clientes to authenticated;
+create index if not exists consulta_jobs_crm_cpf on public.consulta_jobs(user_id, cpf);
+create index if not exists tjba_jobs_crm_cpf on public.tjba_jobs(user_id, cpf);
+
+commit;
+begin;
+
+create table if not exists public.crm_cadastros (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  cpf text not null check (cpf ~ '^[0-9]{11}$'),
+  nome text,
+  nome_atualizado_em timestamptz,
+  telefone text,
+  telefone_atualizado_em timestamptz,
+  ultima_atividade timestamptz not null,
+  primary key (user_id, cpf)
+);
+
+create table if not exists public.crm_vinculos (
+  user_id uuid not null,
+  cpf text not null,
+  uf text not null,
+  convenio text not null,
+  matricula text not null check (btrim(matricula) <> ''),
+  situacao_atual text,
+  fonte text not null,
+  confirmado_em timestamptz not null,
+  primary key (user_id, cpf, uf, convenio, matricula),
+  foreign key (user_id, cpf) references public.crm_cadastros(user_id, cpf) on delete cascade
+);
+
+alter table public.crm_cadastros enable row level security;
+alter table public.crm_vinculos enable row level security;
+revoke all on public.crm_cadastros, public.crm_vinculos from public, anon, authenticated;
+grant select on public.crm_cadastros, public.crm_vinculos to authenticated;
+drop policy if exists crm_cadastro_leitura on public.crm_cadastros;
+create policy crm_cadastro_leitura on public.crm_cadastros for select
+  to authenticated using (user_id = (select auth.uid()));
+drop policy if exists crm_vinculo_leitura on public.crm_vinculos;
+create policy crm_vinculo_leitura on public.crm_vinculos for select
+  to authenticated using (user_id = (select auth.uid()));
+
+insert into public.crm_cadastros(user_id, cpf, nome, nome_atualizado_em, telefone,
+                                 telefone_atualizado_em, ultima_atividade)
+select user_id, cpf,
+       (array_agg(nome order by created_at desc,id desc)
+          filter (where nome <> 'CPF ' || cpf and nome <> 'Cliente TJBA' and btrim(nome) <> ''))[1],
+       max(created_at) filter (where nome <> 'CPF ' || cpf and nome <> 'Cliente TJBA' and btrim(nome) <> ''),
+       (array_agg(telefone order by created_at desc,id desc) filter (where btrim(telefone) <> ''))[1],
+       max(created_at) filter (where btrim(telefone) <> ''),
+       max(coalesce(consultado_em,created_at))
+from public.crm_consultas
+group by user_id, cpf
+on conflict (user_id, cpf) do nothing;
+
+insert into public.crm_vinculos(user_id,cpf,uf,convenio,matricula,situacao_atual,fonte,confirmado_em)
+select distinct on (user_id,cpf,convenio,btrim(matricula))
+       user_id,cpf,'BA',convenio,btrim(matricula),nullif(btrim(situacao_atual),''),'consigx',
+       coalesce(consultado_em,created_at)
+from public.tjba_jobs
+where status='concluida' and btrim(matricula) <> ''
+order by user_id,cpf,convenio,btrim(matricula),coalesce(consultado_em,created_at) desc,id desc
+on conflict (user_id,cpf,uf,convenio,matricula) do nothing;
+
+-- The trigger uses only the owner and fields of an existing, authorized job.
+create or replace function apoiarcred_private.crm_sync_job()
+returns trigger language plpgsql security definer set search_path='' as $$
+declare
+  nome_real text := nullif(btrim(new.nome),'');
+  telefone_real text := nullif(btrim(new.telefone),'');
+  atividade timestamptz := coalesce(new.consultado_em,new.created_at);
+begin
+  if nome_real in ('CPF ' || new.cpf, 'Cliente TJBA') then nome_real := null; end if;
+
+  insert into public.crm_cadastros as atual
+    (user_id,cpf,nome,nome_atualizado_em,telefone,telefone_atualizado_em,ultima_atividade)
+  values (new.user_id,new.cpf,nome_real,case when nome_real is not null then new.created_at end,
+          telefone_real,case when telefone_real is not null then new.created_at end,atividade)
+  on conflict (user_id,cpf) do update set
+    nome = case when excluded.nome_atualizado_em >= coalesce(atual.nome_atualizado_em,'-infinity')
+                then excluded.nome else atual.nome end,
+    nome_atualizado_em = greatest(atual.nome_atualizado_em,excluded.nome_atualizado_em),
+    telefone = case when excluded.telefone_atualizado_em >= coalesce(atual.telefone_atualizado_em,'-infinity')
+                    then excluded.telefone else atual.telefone end,
+    telefone_atualizado_em = greatest(atual.telefone_atualizado_em,excluded.telefone_atualizado_em),
+    ultima_atividade = greatest(atual.ultima_atividade,excluded.ultima_atividade);
+
+  if tg_table_name = 'tjba_jobs' then
+    if new.status = 'concluida' and btrim(new.matricula) <> '' then
+      insert into public.crm_vinculos as atual
+        (user_id,cpf,uf,convenio,matricula,situacao_atual,fonte,confirmado_em)
+      values (new.user_id,new.cpf,'BA',new.convenio,btrim(new.matricula),
+              nullif(btrim(new.situacao_atual),''),'consigx',atividade)
+      on conflict (user_id,cpf,uf,convenio,matricula) do update set
+        situacao_atual = coalesce(excluded.situacao_atual,atual.situacao_atual),
+        confirmado_em = excluded.confirmado_em
+      where excluded.confirmado_em >= atual.confirmado_em;
+    end if;
+  end if;
+  return new;
+end $$;
+revoke all on function apoiarcred_private.crm_sync_job() from public, anon, authenticated;
+
+drop trigger if exists crm_sync_consulta on public.consulta_jobs;
+create trigger crm_sync_consulta after insert or update of nome,telefone,consultado_em
+on public.consulta_jobs for each row execute function apoiarcred_private.crm_sync_job();
+drop trigger if exists crm_sync_tjba on public.tjba_jobs;
+create trigger crm_sync_tjba after insert or update of nome,telefone,consultado_em,matricula,situacao_atual,status
+on public.tjba_jobs for each row execute function apoiarcred_private.crm_sync_job();
+
+create or replace view public.crm_clientes with (security_invoker=true) as
+select user_id,cpf,nome,telefone,ultima_atividade from public.crm_cadastros;
+
+commit;
+begin;
+
+create table if not exists public.crm_oportunidades (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  cpf text not null check (cpf ~ '^[0-9]{11}$'),
+  nome text check (length(nome) <= 160),
+  produto text not null check (produto in ('margem','saque','recompra')),
+  convenio text not null default '',
+  etapa text not null default 'novo'
+    check (etapa in ('novo','contato','simulacao','negociacao','ganho','perdido')),
+  proxima_acao text check (length(proxima_acao) <= 500),
+  created_at timestamptz not null default now()
+);
+alter table public.crm_oportunidades enable row level security;
+revoke all on public.crm_oportunidades from public, anon, authenticated;
+grant select, insert (cpf,nome,produto,convenio), update (etapa,proxima_acao)
+  on public.crm_oportunidades to authenticated;
+drop policy if exists crm_oportunidades_owner on public.crm_oportunidades;
+create policy crm_oportunidades_owner on public.crm_oportunidades
+  for select to authenticated using (user_id = (select auth.uid()));
+drop policy if exists crm_oportunidades_update on public.crm_oportunidades;
+create policy crm_oportunidades_update on public.crm_oportunidades
+  for update to authenticated using (user_id = (select auth.uid()))
+  with check (user_id = (select auth.uid()));
+drop policy if exists crm_oportunidades_insert on public.crm_oportunidades;
+create policy crm_oportunidades_insert on public.crm_oportunidades
+  for insert to authenticated with check (
+    user_id = (select auth.uid()) and exists (
+      select 1 from public.crm_clientes c
+      where c.user_id = crm_oportunidades.user_id
+        and c.cpf = crm_oportunidades.cpf
+    ) and (crm_oportunidades.convenio = '' or exists (
+      select 1 from public.crm_vinculos c
+      where c.user_id = crm_oportunidades.user_id
+        and c.cpf = crm_oportunidades.cpf
+        and c.convenio = crm_oportunidades.convenio
+    ))
+  );
+create unique index if not exists crm_oportunidade_aberta
+  on public.crm_oportunidades(user_id,cpf,produto,convenio)
+  where etapa not in ('ganho','perdido');
+create index if not exists crm_oportunidades_lista
+  on public.crm_oportunidades(user_id,created_at desc,id desc);
+
+commit;
+
+-- CRM Kanban e filtros
+begin;
+create table if not exists public.crm_card_settings (
+ user_id uuid primary key default auth.uid() references auth.users(id) on delete cascade,
+ visible text[] not null default array['cpf','produto','convenio','proxima_acao'],
+ fields jsonb not null default '[]'::jsonb,
+ updated_at timestamptz not null default now()
+);
+alter table public.crm_card_settings enable row level security;
+revoke all on public.crm_card_settings from public,anon,authenticated;
+grant select,insert(visible,fields),update(visible,fields) on public.crm_card_settings to authenticated;
+drop policy if exists crm_card_settings_owner on public.crm_card_settings;
+create policy crm_card_settings_owner on public.crm_card_settings for all to authenticated
+ using(user_id=(select auth.uid())) with check(user_id=(select auth.uid()));
+alter table public.crm_oportunidades add column if not exists campos jsonb not null default '{}'::jsonb;
+grant update(campos) on public.crm_oportunidades to authenticated;
+create or replace function apoiarcred_private.crm_validate_customization() returns trigger
+language plpgsql set search_path='' as $$
+declare f jsonb; k text; v jsonb; definitions jsonb; seen text[] := '{}';
+begin
+ if TG_TABLE_NAME='crm_card_settings' then
+  if not (new.visible <@ array['cpf','produto','convenio','proxima_acao']) or jsonb_typeof(new.fields)<>'array' or jsonb_array_length(new.fields)>30 then raise exception 'Configuração inválida'; end if;
+  for f in select value from jsonb_array_elements(new.fields) loop
+   if coalesce(f->>'id','') !~ '^cf_[a-f0-9]{16}$' or f->>'id'=any(seen)
+    or coalesce(f->>'label','') !~ '\S' or length(f->>'label')>60
+    or lower(f->>'label') ~ '(saldo|margem|margens)'
+    or coalesce(f->>'type','') not in ('text','number','date','boolean')
+    or jsonb_typeof(f->'visible') is distinct from 'boolean' then raise exception 'Campo personalizado inválido; saldo e margem são protegidos'; end if;
+   if TG_OP='UPDATE' and exists(select 1 from jsonb_array_elements(old.fields) x where x->>'id'=f->>'id' and x->>'type'<>f->>'type') then raise exception 'O tipo de um campo existente não pode mudar'; end if;
+   seen:=array_append(seen,f->>'id');
+  end loop;
+  if TG_OP='UPDATE' and exists(select 1 from jsonb_array_elements(old.fields) x where not (x->>'id'=any(seen))) then raise exception 'Oculte campos existentes para preservar os dados'; end if;
+  new.updated_at:=now();
+ else
+  if jsonb_typeof(new.campos)<>'object' or octet_length(new.campos::text)>64000 then raise exception 'Valores inválidos'; end if;
+  select fields into definitions from public.crm_card_settings where user_id=new.user_id;
+  for k,v in select * from jsonb_each(new.campos) loop
+   select value into f from jsonb_array_elements(coalesce(definitions,'[]')) where value->>'id'=k;
+   if f is null then raise exception 'Campo desconhecido'; end if;
+   if v<>'null'::jsonb and (case f->>'type' when 'number' then jsonb_typeof(v)<>'number' when 'boolean' then jsonb_typeof(v)<>'boolean' else jsonb_typeof(v)<>'string' or length(v#>>'{}')>2000 end) then raise exception 'Tipo de valor inválido'; end if;
+   if f->>'type'='date' and v<>'null'::jsonb then perform (v#>>'{}')::date; end if;
+  end loop;
+ end if;
+ return new;
+end $$;
+revoke all on function apoiarcred_private.crm_validate_customization() from public,anon,authenticated;
+drop trigger if exists crm_card_settings_validate on public.crm_card_settings;
+create trigger crm_card_settings_validate before insert or update on public.crm_card_settings for each row execute function apoiarcred_private.crm_validate_customization();
+drop trigger if exists crm_campos_validate on public.crm_oportunidades;
+create trigger crm_campos_validate before insert or update of campos on public.crm_oportunidades for each row execute function apoiarcred_private.crm_validate_customization();
+
+-- Filters evaluate UF and agreement on the same confirmed vínculo. No inferred classification.
+create or replace function public.crm_filter_clients(p_query text default '',p_uf text default '',p_convenio text default '',p_servico text default '',p_after text default '',p_limit integer default 26)
+returns setof public.crm_cadastros language sql stable security invoker set search_path='' as $$
+ select c.* from public.crm_cadastros c
+ where c.cpf>p_after
+ and (p_query='' or position(lower(p_query) in lower(coalesce(c.nome,'')))>0 or
+  (regexp_replace(p_query,'[^0-9]','','g')<>'' and position(regexp_replace(p_query,'[^0-9]','','g') in c.cpf)>0))
+ and ((p_uf='' and p_convenio='') or exists(select 1 from public.crm_vinculos v where v.user_id=c.user_id and v.cpf=c.cpf and (p_uf='' or v.uf=p_uf) and (p_convenio='' or v.convenio=p_convenio)))
+ and (p_servico='' or exists(select 1 from public.crm_consultas q where q.user_id=c.user_id and q.cpf=c.cpf and q.servico=p_servico and (p_convenio='' or q.convenio=p_convenio or (q.convenio is null and q.servico='digimais_saldo_parcela'))))
+ order by c.cpf limit greatest(1,least(coalesce(p_limit,26),500));
+$$;
+create or replace function public.crm_filter_options() returns table(uf text,convenio text)
+language sql stable security invoker set search_path='' as $$ select distinct v.uf,v.convenio from public.crm_vinculos v order by v.uf,v.convenio $$;
+revoke all on function public.crm_filter_clients(text,text,text,text,text,integer),public.crm_filter_options() from public,anon;
+grant execute on function public.crm_filter_clients(text,text,text,text,text,integer),public.crm_filter_options() to authenticated;
+create or replace view public.crm_opportunity_cards with(security_invoker=true) as
+ select o.*,q.saldo_liquidacao,q.emprestimo_disponivel,q.consultado_em as resultado_em,q.created_at as resultado_criado_em,q.servico as resultado_fonte
+ from public.crm_oportunidades o left join lateral (
+ select c.saldo_liquidacao,c.emprestimo_disponivel,c.consultado_em,c.created_at,c.servico
+ from public.crm_consultas c where c.user_id=o.user_id and c.cpf=o.cpf and
+ ((o.produto='recompra' and c.servico='digimais_saldo_parcela' and c.saldo_liquidacao is not null)
+ or (o.produto='margem' and o.convenio<>'' and c.convenio=o.convenio and c.servico='tjba_margem' and c.emprestimo_disponivel is not null))
+ order by c.consultado_em desc nulls last,c.created_at desc,c.id desc limit 1
+ ) q on true;
+revoke all on public.crm_opportunity_cards from public,anon,authenticated;
+grant select on public.crm_opportunity_cards to authenticated;
+notify pgrst,'reload schema';
+commit;
+
+begin;
+alter table public.crm_card_settings add column if not exists density text not null default 'comfortable' check(density in ('compact','comfortable'));
+grant insert(density),update(density) on public.crm_card_settings to authenticated;
+grant update(nome) on public.crm_oportunidades to authenticated;
+notify pgrst,'reload schema';
+commit;

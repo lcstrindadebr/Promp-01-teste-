@@ -24,17 +24,15 @@ function crmPath(view, params) {
 
 async function loadCrmClients(page) {
   const request = ++crmListRequest;
-  const params = {order:'ultima_atividade.desc,cpf.asc',limit:crmPageSize+1,offset:page*crmPageSize};
-  const digitsOnly = crmQuery.replace(/\D/g, '');
-  if (digitsOnly && /^[0-9.\s-]+$/.test(crmQuery)) params.cpf = 'ilike.*' + digitsOnly + '*';
-  else if (crmQuery) params.nome = 'ilike.*' + crmQuery.replace(/[%_*\\]/g, '') + '*';
+  const params = {...crmFilters, p_after:crmCursors[page] || '',p_limit:crmPageSize+1};
   $('#crmStatus').textContent = 'Carregando clientes…';
   $('#crmRows').replaceChildren();
   $('#crmPrevious').disabled = $('#crmNext').disabled = true;
   try {
-    const clients = await sbRequest(crmPath('crm_clientes', params));
+    const clients = await crmRpc('crm_filter_clients', params);
     if (request !== crmListRequest) return;
     crmPage = page;
+    if(clients.length>crmPageSize)crmCursors[page+1]=clients[crmPageSize-1].cpf;
     for (const client of clients.slice(0, crmPageSize)) {
       const button = document.createElement('button');
       button.type = 'button';
@@ -143,15 +141,17 @@ function syncCrmPage(page) {
   if (page === 'opportunities') loadCrmPipeline(0);
   if (!authenticated) $('#crmStageFilter').value = '';
   if (page === 'clients') {
-    loadCrmClients(crmPage);
+    loadCrmFilterOptions();loadCrmClients(crmPage);
     return;
   }
   crmListRequest++;
   closeCrmHistory();
   $('#crmRows').replaceChildren();
   if (!authenticated) {
+    document.querySelectorAll('.crm-dialog').forEach(dialog=>dialog.close());
     crmQuery = $('#crmQuery').value = '';
-    crmPage = 0;
+    crmPage = 0;crmCursors=[''];crmFilters={p_query:'',p_uf:'',p_convenio:'',p_servico:''};crmSettings=null;
+    for(const id of ['crmUF','crmAgreementFilter','crmServiceFilter'])$('#'+id).value='';
   }
 }
 
@@ -159,7 +159,8 @@ $('#crmSearch').onsubmit = event => {
   event.preventDefault();
   closeCrmHistory();
   crmQuery = $('#crmQuery').value.trim();
-  loadCrmClients(0);
+  crmFilters={p_query:crmQuery,p_uf:$('#crmUF').value,p_convenio:$('#crmAgreementFilter').value,p_servico:$('#crmServiceFilter').value};
+  crmCursors=[''];loadCrmClients(0);
 };
 $('#crmPrevious').onclick = () => { closeCrmHistory(); loadCrmClients(crmPage - 1); };
 $('#crmNext').onclick = () => { closeCrmHistory(); loadCrmClients(crmPage + 1); };
@@ -182,55 +183,45 @@ function crmStageOptions(select, value, includeAll = false) {
 
 async function loadCrmPipeline(page) {
   const request = ++crmPipelineRequest;
-  const params = {order:'created_at.desc,id.desc',limit:crmPageSize+1,offset:page*crmPageSize};
-  const stageFilter = $('#crmStageFilter').value;
-  if (stageFilter) params.etapa = 'eq.' + stageFilter;
-  const status = $('#crmPipelineStatus');
-  const table = $('#crmPipelineRows');
-  table.replaceChildren();
-  $('#crmPipelinePrevious').disabled = $('#crmPipelineNext').disabled = true;
-  status.textContent = 'Carregando oportunidades…';
+  const status=$('#crmPipelineStatus'), board=$('#crmPipelineRows');
+  board.replaceChildren();status.textContent='Carregando oportunidades…';
+  $('#crmPipelinePrevious').hidden=$('#crmPipelineNext').hidden=true;
   try {
-    const rows = await sbRequest(crmPath('crm_oportunidades', params));
-    if (request !== crmPipelineRequest) return;
-    crmPipelinePage = page;
-    for (const row of rows.slice(0, crmPageSize)) {
-      const identity = (row.nome || formatCpf(row.cpf)) + (row.convenio ? ' · ' + row.convenio.toUpperCase() : '');
-      const stage = document.createElement('select');
-      crmStageOptions(stage, row.etapa);
-      stage.setAttribute('aria-label','Etapa de ' + identity);
-      const action = document.createElement('input');
-      action.maxLength = 500;
-      action.value = row.proxima_acao || '';
-      action.setAttribute('aria-label','Próxima ação de ' + identity);
-      const save = document.createElement('button');
-      save.type = 'button';
-      save.textContent = 'Salvar';
-      save.onclick = async () => {
-        save.disabled = true;
+    const settings=await crmLoadSettings();
+    if(request!==crmPipelineRequest)return;
+    const selected=$('#crmStageFilter').value;
+    for(const [key,label] of Object.entries(crmStages)) {
+      if(selected&&key!==selected)continue;
+      const column=crmElement('section','crm-kanban-column');
+      const heading=crmElement('h2','',label), cards=crmElement('div','crm-kanban-cards');
+      const more=crmElement('button','','Carregar mais');more.type='button';
+      column.append(heading,cards,more);board.append(column);
+      let offset=0,busy=false;
+      const load=async()=>{
+        if(busy)return;busy=true;more.disabled=true;more.textContent='Carregando…';
         try {
-          const updated = await sbRequest(crmPath('crm_oportunidades', {id:'eq.' + row.id}), {
-            method:'PATCH', headers:{Prefer:'return=representation'},
-            body:JSON.stringify({etapa:stage.value,proxima_acao:action.value.trim() || null})
-          });
-          if (request !== crmPipelineRequest) return;
-          if (!updated?.length) throw Error();
-          if (stageFilter && stage.value !== stageFilter) loadCrmPipeline(0);
-          else status.textContent = 'Oportunidade atualizada.';
-        } catch {
-          if (request === crmPipelineRequest) status.textContent = 'Não foi possível atualizar a oportunidade.';
-        } finally {
-          save.disabled = false;
-        }
+          const rows=await sbRequest(crmPath('crm_opportunity_cards',{etapa:'eq.'+key,order:'created_at.desc,id.desc',limit:crmPageSize+1,offset}));
+          if(request!==crmPipelineRequest)return;
+          for(const row of rows.slice(0,crmPageSize))cards.append(crmOpportunityCard(row,settings,request));
+          offset+=Math.min(rows.length,crmPageSize);
+          heading.textContent=label+' · '+offset+(rows.length>crmPageSize?' +':'');
+          if(!offset)cards.append(crmElement('p','muted','Nenhuma oportunidade nesta etapa.'));
+          more.hidden=rows.length<=crmPageSize;more.textContent='Carregar mais';
+        }catch{if(request===crmPipelineRequest){status.textContent='Uma etapa não carregou. Use Tentar novamente.';more.textContent='Tentar novamente';}}
+        finally{busy=false;more.disabled=false;}
       };
-      table.append(crmRow([identity,crmProducts[row.produto],stage,action,save]));
+      more.onclick=load;
+      column.ondragover=event=>{event.preventDefault();};
+      column.ondrop=async event=>{
+        event.preventDefault();const id=event.dataTransfer.getData('text/plain');
+        if(!/^[a-f0-9-]{36}$/.test(id))return;
+        await crmMoveOpportunity(id,key,request);
+      };
+      await load();
+      if(request!==crmPipelineRequest)return;
     }
-    status.textContent = rows.length ? 'Página ' + (page+1) : 'Nenhuma oportunidade nesta etapa.';
-    $('#crmPipelinePrevious').disabled = page === 0;
-    $('#crmPipelineNext').disabled = rows.length <= crmPageSize;
-  } catch {
-    if (request === crmPipelineRequest) status.textContent = 'Não foi possível carregar as oportunidades.';
-  }
+    if(request===crmPipelineRequest&&!status.textContent.startsWith('Uma etapa'))status.textContent='Arraste um cartão ou use o seletor de etapa. Os valores financeiros vêm das consultas.';
+  }catch{if(request===crmPipelineRequest)status.textContent='Não foi possível carregar o funil. Clique em Atualizar.';}
 }
 
 crmStageOptions($('#crmStageFilter'), '', true);
@@ -260,3 +251,148 @@ $('#crmOpportunityForm').onsubmit = async event => {
     if (crmClient === client) button.disabled = false;
   }
 };
+
+let crmFilters={p_query:'',p_uf:'',p_convenio:'',p_servico:''};
+let crmCursors=[''];
+let crmSettings=null;
+let crmOptions=[];
+const crmBuiltinFields={cpf:'CPF',produto:'Produto',convenio:'Convênio',proxima_acao:'Próxima ação'};
+function crmElement(tag,className='',text='') {const el=document.createElement(tag);el.className=className;el.textContent=text;return el;}
+function crmRpc(name,params={}) {return sbRequest('/rest/v1/rpc/'+name,{method:'POST',body:JSON.stringify(params)});}
+async function loadCrmFilterOptions(){
+  const epoch=authEpoch;
+  try{
+    const options=await crmRpc('crm_filter_options');
+    if(currentPage!=='clients'||!authenticated||epoch!==authEpoch)return;
+    crmOptions=options;
+    const uf=$('#crmUF'),selected=uf.value;
+    uf.replaceChildren(new Option('Todos',''));
+    for(const value of [...new Set(options.map(x=>x.uf))])uf.add(new Option(value,value));
+    uf.value=selected;crmUpdateAgreements();
+  }catch{if(currentPage==='clients')$('#crmStatus').textContent='Não foi possível carregar os filtros. Tente abrir Clientes novamente.';}
+}
+function crmUpdateAgreements(){
+  const select=$('#crmAgreementFilter'),selected=select.value;
+  select.replaceChildren(new Option('Todos',''));
+  for(const item of crmOptions.filter(x=>!$('#crmUF').value||x.uf===$('#crmUF').value))select.add(new Option(item.convenio.toUpperCase()+' · '+item.uf,item.convenio));
+  select.value=Array.from(select.options).some(x=>x.value===selected)?selected:'';
+}
+$('#crmUF').onchange=crmUpdateAgreements;
+function crmCsvCell(value){let str=String(value??'');if(/^[=+@\-\t\r]/.test(str))str="'"+str;return '"'+str.replace(/"/g,'""')+'"';}
+$('#crmExport').onclick=async()=>{
+  const button=$('#crmExport'),status=$('#crmStatus'),epoch=authEpoch;button.disabled=true;
+  const filters={p_query:$('#crmQuery').value.trim(),p_uf:$('#crmUF').value,p_convenio:$('#crmAgreementFilter').value,p_servico:$('#crmServiceFilter').value};
+  const chunks=['\uFEFFNome;CPF;Telefone;Última atividade\r\n'];let after='',total=0;
+  try{
+    for(;;){
+      const rows=await crmRpc('crm_filter_clients',{...filters,p_after:after,p_limit:500});
+      if(!authenticated||epoch!==authEpoch)throw Error('Sessão encerrada');
+      if(!rows.length)break;
+      chunks.push(rows.map(x=>[x.nome,formatCpf(x.cpf),x.telefone,x.ultima_atividade?new Date(x.ultima_atividade).toLocaleString('pt-BR'):''].map(crmCsvCell).join(';')).join('\r\n')+'\r\n');
+      total+=rows.length;status.textContent='Exportando '+total+' clientes…';
+      const next=rows[rows.length-1].cpf;if(next<=after)throw Error('Paginação inválida');after=next;
+    }
+    if(!total){status.textContent='Nenhum cliente corresponde aos filtros.';return;}
+    const url=URL.createObjectURL(new Blob(chunks,{type:'text/csv;charset=utf-8'}));
+    const link=document.createElement('a');link.href=url;link.download='clientes-'+new Date().toISOString().slice(0,10)+'.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    status.textContent=total+' clientes exportados. Filtros aplicados ao arquivo inteiro.';
+  }catch{status.textContent='A exportação não foi concluída. Nenhum arquivo parcial foi baixado. Tente novamente.';}
+  finally{button.disabled=false;}
+};
+async function crmLoadSettings(){
+  const rows=await sbRequest(crmPath('crm_card_settings',{}));
+  crmSettings=rows[0]||{visible:Object.keys(crmBuiltinFields),fields:[]};return crmSettings;
+}
+async function crmMoveOpportunity(id,stage,request,extra={}){
+  try{
+    const rows=await sbRequest(crmPath('crm_oportunidades',{id:'eq.'+id}),{method:'PATCH',headers:{Prefer:'return=representation'},body:JSON.stringify({etapa:stage,...extra})});
+    if(!rows?.length)throw Error();
+    if(request===crmPipelineRequest){await loadCrmPipeline(0);$('#crmPipelineStatus').textContent='Oportunidade salva.';}
+    return true;
+  }catch{if(request===crmPipelineRequest)$('#crmPipelineStatus').textContent='Não foi possível salvar. O cartão permanece na etapa anterior.';return false;}
+}
+function crmOpportunityCard(row,settings,request){
+  const card=crmElement('article','crm-kanban-card'+(settings.density==='compact'?' compact':''));card.draggable=true;card.dataset.id=row.id;
+  card.ondragstart=event=>event.dataTransfer.setData('text/plain',row.id);
+  card.append(crmElement('h3','',row.nome||formatCpf(row.cpf)));
+  for(const key of settings.visible){const value=key==='cpf'?formatCpf(row.cpf):key==='produto'?crmProducts[row.produto]:row[key];if(value)card.append(crmElement('p','crm-card-detail',crmBuiltinFields[key]+': '+value));}
+  for(const field of settings.fields.filter(x=>x.visible)){
+    const value=row.campos?.[field.id];if(value!=null&&value!=='')card.append(crmElement('p','crm-card-detail',field.label+': '+(field.type==='boolean'?(value?'Sim':'Não'):value)));
+  }
+  const finance=crmElement('div','crm-card-finance','Buscando resultado financeiro…');card.append(finance);
+  crmCardFinance(row,finance,request);
+  const label=crmElement('label','','Mover para');const select=document.createElement('select');crmStageOptions(select,row.etapa);label.append(select);
+  select.setAttribute('aria-label','Etapa de '+(row.nome||formatCpf(row.cpf)));
+  select.onchange=async()=>{select.disabled=true;const ok=await crmMoveOpportunity(row.id,select.value,request);if(!ok){select.value=row.etapa;select.disabled=false;}};
+  const edit=crmElement('button','','Editar cartão');edit.type='button';edit.onclick=()=>crmEditOpportunity(row,settings,request);
+  card.append(label,edit);return card;
+}
+function crmCardFinance(row,target,request){
+  target.replaceChildren();
+  const key=row.produto==='recompra'?'saldo_liquidacao':'emprestimo_disponivel';
+  if(row[key]==null){target.textContent='Sem resultado financeiro vinculado.';return;}
+  target.append(crmElement('strong','',(key==='saldo_liquidacao'?'Saldo: ':'Margem: ')+crmMoney.format(row[key])));
+  target.append(crmElement('small','',(row.resultado_fonte==='digimais_saldo_parcela'?'Digi+':'ConsigX · '+row.convenio.toUpperCase())+' · '+new Date(row.resultado_em||row.resultado_criado_em).toLocaleString('pt-BR')));
+}
+function crmDialog(title){
+  const dialog=document.createElement('dialog');dialog.className='crm-dialog';
+  const header=crmElement('header','heading');header.append(crmElement('h2','',title));
+  const close=crmElement('button','','Fechar');close.type='button';close.onclick=()=>dialog.close();header.append(close);dialog.append(header);
+  const form=document.createElement('form');dialog.append(form);
+  dialog.addEventListener('close',()=>dialog.remove());document.body.append(dialog);dialog.showModal();return {dialog,form};
+}
+function crmLabeled(form,text,input){const label=crmElement('label','crm-edit-field',text);label.append(input);form.append(label);return input;}
+function crmEditOpportunity(row,settings,request){
+  const {dialog,form}=crmDialog('Editar oportunidade');
+  const title=document.createElement('input');title.value=row.nome||'';title.maxLength=160;crmLabeled(form,'Título do cartão (não altera o cadastro do cliente)',title);
+  const action=document.createElement('textarea');action.maxLength=500;action.value=row.proxima_acao||'';crmLabeled(form,'Próxima ação',action);
+  const inputs={};
+  for(const field of settings.fields){
+    const input=document.createElement('input');input.type=field.type==='boolean'?'checkbox':field.type==='number'?'number':field.type==='date'?'date':'text';input.maxLength=2000;if(input.type==='number')input.step='any';
+    if(field.type==='boolean')input.checked=!!row.campos?.[field.id];else input.value=row.campos?.[field.id]??'';
+    inputs[field.id]=input;crmLabeled(form,field.label,input);
+  }
+  form.append(crmElement('p','muted','Saldo e margem são dados de consulta e não podem ser editados.'));
+  const status=crmElement('p');status.setAttribute('role','status');form.append(status);
+  const save=crmElement('button','primary','Salvar alterações');save.type='submit';form.append(save);
+  form.onsubmit=async event=>{
+    event.preventDefault();save.disabled=true;const campos={};
+    for(const field of settings.fields){const input=inputs[field.id];campos[field.id]=field.type==='boolean'?input.checked:input.value===''?null:field.type==='number'?Number(input.value):input.value;}
+    const ok=await crmMoveOpportunity(row.id,row.etapa,request,{nome:title.value.trim()||null,proxima_acao:action.value.trim()||null,campos});
+    if(ok)dialog.close();else{status.textContent='Não foi possível salvar. Verifique sua conexão e tente novamente.';save.disabled=false;}
+  };
+}
+$('#crmCustomize').onclick=async()=>{
+  const button=$('#crmCustomize');button.disabled=true;
+  try{
+    const settings=await crmLoadSettings(),fields=structuredClone(settings.fields);
+    const {dialog,form}=crmDialog('Personalizar cartões');
+    form.append(crmElement('p','muted','Escolha o que aparece nos cartões. Saldo e margem permanecem protegidos. A configuração é salva na sua conta.'));
+    const density=document.createElement('select');density.add(new Option('Confortável','comfortable'));density.add(new Option('Compacto','compact'));density.value=settings.density||'comfortable';crmLabeled(form,'Espaçamento dos cartões',density);
+    const visible={};for(const [key,label] of Object.entries(crmBuiltinFields)){
+      const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.checked=settings.visible.includes(key);visible[key]=checkbox;crmLabeled(form,label,checkbox);
+    }
+    const list=crmElement('div','crm-custom-fields');form.append(list);
+    const draw=()=>{list.replaceChildren();for(const field of fields){
+      const item=crmElement('div','crm-custom-row');const input=document.createElement('input');input.value=field.label;input.maxLength=60;input.required=true;input.oninput=()=>field.label=input.value.trim();crmLabeled(item,'Nome do campo',input);
+      item.append(crmElement('small','',({text:'Texto',number:'Número',date:'Data',boolean:'Sim / Não'})[field.type]));
+      const check=document.createElement('input');check.type='checkbox';check.checked=field.visible;check.onchange=()=>field.visible=check.checked;crmLabeled(item,'Exibir no cartão',check);list.append(item);
+    }};draw();
+    const type=document.createElement('select');for(const [key,label] of Object.entries({text:'Texto',number:'Número',date:'Data',boolean:'Sim / Não'}))type.add(new Option(label,key));crmLabeled(form,'Tipo do novo campo',type);
+    const add=crmElement('button','','Adicionar campo');add.type='button';add.onclick=()=>{if(fields.length>=30)return;fields.push({id:'cf_'+crypto.randomUUID().replace(/-/g,'').slice(0,16),label:'Novo campo',type:type.value,visible:true});draw();};form.append(add);
+    const status=crmElement('p');status.setAttribute('role','status');form.append(status);const save=crmElement('button','primary','Salvar personalização');save.type='submit';form.append(save);
+    form.onsubmit=async event=>{
+      event.preventDefault();if(fields.some(f=>!f.label||/(saldo|margem|margens)/i.test(f.label))){status.textContent='Informe nomes válidos. Saldo e margem são reservados aos resultados.';return;}
+      save.disabled=true;
+      try{
+        const data={density:density.value,visible:Object.keys(visible).filter(k=>visible[k].checked),fields};
+        const saved=await sbRequest('/rest/v1/crm_card_settings'+(settings.user_id?'?user_id=eq.'+encodeURIComponent(settings.user_id):''),{method:settings.user_id?'PATCH':'POST',headers:{Prefer:'return=representation'},body:JSON.stringify(data)});
+        if(!saved?.length)throw Error();dialog.close();await loadCrmPipeline(0);
+      }catch{status.textContent='Não foi possível salvar a personalização. Tente novamente.';save.disabled=false;}
+    };
+  }catch{$('#crmPipelineStatus').textContent='Não foi possível carregar a personalização.';}finally{button.disabled=false;}
+};
+const crmRefresh=crmElement('button','','Atualizar');crmRefresh.type='button';crmRefresh.onclick=()=>loadCrmPipeline(0);$('#crmCustomize').after(crmRefresh);
+
+$('#crmImportClients').onclick=()=>{navigate('campaigns');if(currentPage==='campaigns'){$('#newCampaignPanel').open=true;$('#campaignName').focus();}};
+$('#sidebarToggle').onclick=()=>{const collapsed=$('#appShell').classList.toggle('sidebar-collapsed');$('#sidebarToggle').setAttribute('aria-expanded',String(!collapsed));};

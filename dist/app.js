@@ -193,12 +193,13 @@ $('#retryCampaign').onclick=async()=>{
 $('#rows').onclick=async e=>{const id=e.target.dataset.retry;if(!id)return;const r=records.find(r=>r.id===id);if(!r)return;e.target.disabled=true;try{await add([{nome:r.nome,cpf:digits(r.cpf),telefone:r.telefone}],r.servico||'digimais_saldo_parcela',r.convenio||'tjba')}catch(err){toast(err.message)}finally{if(e.target.isConnected)e.target.disabled=false}};
 $('#search').oninput=render;$('#filter').onchange=render;
 function navigate(page){
- currentPage=page;if(typeof tickMonitoring==='function')tickMonitoring();$('#serviceContext').classList.toggle('hide',!['home','campaigns'].includes(page));
+ currentPage=page;$('#consultationTabs').hidden=!['home','campaigns'].includes(page);document.querySelectorAll('[data-consultation]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.consultation===page)));if(typeof tickMonitoring==='function')tickMonitoring();$('#serviceContext').classList.toggle('hide',!['home','campaigns'].includes(page));
  $('#pageBreadcrumb').textContent=({opportunities:'Oportunidades',clients:'Clientes',home:'Consulta individual',campaigns:'Campanhas',settings:'Configurações'})[page];
- document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
+ document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page||(b.dataset.page==='home'&&page==='campaigns')));
  $('#opportunities').classList.toggle('hide',page!=='opportunities');
  $('#clients').classList.toggle('hide',page!=='clients');if(typeof syncCrmPage==='function')syncCrmPage(page);
  $('#home').classList.toggle('hide',page!=='home');$('#campaigns').classList.toggle('hide',page!=='campaigns');$('#settings').classList.toggle('hide',page!=='settings');$('#results').classList.toggle('hide',page!=='home');
 }
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>navigate(b.dataset.page));
+document.querySelectorAll('[data-consultation]').forEach(b=>b.onclick=()=>navigate(b.dataset.consultation));
 render();
