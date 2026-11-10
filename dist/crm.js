@@ -400,19 +400,35 @@ function crmOpportunityCard(row,settings,request){
   select.setAttribute('aria-label','Etapa de '+(row.nome||formatCpf(row.cpf)));
   select.onchange=async()=>{select.disabled=true;const ok=await crmMoveOpportunity(row.id,select.value,request);if(!ok){select.value=row.etapa;select.disabled=false;}};
   const edit=crmElement('button','','Editar cartão');edit.type='button';edit.onclick=()=>crmEditOpportunity(row,settings,request);
-  card.append(label,edit);return card;
+  const actions=crmElement('div','crm-card-actions');
+  actions.append(label,edit);card.append(actions);return card;
 }
 function crmCardFinance(row,target,request){
   target.replaceChildren();
   if(row.automatica){
-    for(const [source, data] of Object.entries(row.sinais_consulta || {})){
-      if(source === 'digimais') target.append(crmElement('p','','Digi+ · Cliente'+(data.saldo != null ? ' · Saldo '+crmMoney.format(data.saldo) : '')));
-      if(source.startsWith('amigoz_saque_')){
-        const offers = data.filter(item => String(item.elegivel).toLowerCase() === 'sim' && !item.erro_informado && item.valor_saque_disponivel > 0);
-        for(const offer of offers) target.append(crmElement('p','','Amigoz · Saque '+crmMoney.format(offer.valor_saque_disponivel)));
-      }
+    const tags=crmElement('div','crm-card-tags');
+    const metrics=crmElement('div','crm-card-metrics');
+    const metric=(label,value)=>{
+      if(value == null) return;
+      const item=crmElement('div','crm-card-metric');
+      item.append(crmElement('span','',label),crmElement('strong','',crmMoney.format(value)));
+      metrics.append(item);
+    };
+    const sources=Object.entries(row.sinais_consulta || {});
+    const digi=row.sinais_consulta?.digimais;
+    if(digi){
+      tags.append(crmElement('span','crm-card-tag crm-tag-digi','Cliente Digi+'));
+      metric('Saldo devedor',digi.saldo);
+      metric('Parcela',digi.parcela);
     }
-    if(!target.childNodes.length) target.textContent='Sem sinal comercial ativo.';
+    const offers=sources.filter(([source,data])=>source.startsWith('amigoz_saque_')&&Array.isArray(data))
+      .flatMap(([,data])=>data.filter(item=>item && String(item.elegivel).toLowerCase()==='sim' && !item.erro_informado && item.valor_saque_disponivel>0));
+    if(offers.length){
+      tags.append(crmElement('span','crm-card-tag crm-tag-amigoz','Saque Amigoz'));
+      for(const offer of offers) metric(offer.nome_oferta ? 'Saque · '+offer.nome_oferta : 'Saque disponível',offer.valor_saque_disponivel);
+    }
+    if(tags.childNodes.length) target.append(tags,metrics);
+    else target.textContent='Sem sinal comercial ativo.';
     return;
   }
   const key=row.produto==='recompra'?'saldo_liquidacao':'emprestimo_disponivel';
