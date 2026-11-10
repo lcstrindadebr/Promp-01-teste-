@@ -70,7 +70,7 @@ class AmigozTests(unittest.TestCase):
   self.assertNotIn('numero_cartao_cliente',result['saque']['dados']['ofertas'][0])
   self.assertEqual(result['margem']['status'],'erro')
   self.assertEqual(call.call_args_list[0].args[-1],{'cpf':'00000000001'})
-  self.assertEqual(call.call_args_list[1].args[-1],{'cpf':'00000000001','convenio':23,'averbadora':9,'numero_matricula':'00001'})
+  self.assertEqual(call.call_args_list[1].args[-1],{'cpf':'00000000001','convenio':'23','averbadora':'9','numero_matricula':'00001'})
 
  def test_pmsp_both_with_only_cpf_client_data(self):
   with patch.object(amigoz,'call',side_effect=[[],{}]) as provider:
@@ -78,7 +78,7 @@ class AmigozTests(unittest.TestCase):
   self.assertEqual(result['margem']['status'],'respondido')
   self.assertEqual(provider.call_count,2)
   self.assertEqual(provider.call_args_list[0].args[-1],{'cpf':'00000000001'})
-  self.assertEqual(provider.call_args_list[1].args[-1],{'cpf':'00000000001','convenio':33,'averbadora':amigoz.CATALOG[33]['averbadora']})
+  self.assertEqual(provider.call_args_list[1].args[-1],{'cpf':'00000000001','convenio':'33','averbadora':'9'})
 
  def test_missing_averbadora_does_not_contact_provider(self):
   with patch.object(amigoz,'call') as call:

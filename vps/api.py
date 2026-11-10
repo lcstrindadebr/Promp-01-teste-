@@ -143,7 +143,10 @@ def amigoz_admin(auth,method,path,payload):
       p_actor=actor,p_cpf=re.sub(r'[.\-\s]','',payload['cpf']),
       p_convenio='amigoz_'+str(convenio['id']),p_uf=convenio['uf'],
       p_modo=payload['modo'],p_matricula=payload.get('numero_matricula')))
-     execution.update(record[0] if isinstance(record,list) else record)
+     job=record[0] if isinstance(record,list) and record else record
+     if not isinstance(job,dict) or not job.get('id') or not job.get('lease'):
+      raise AdminError(502,'amigoz_history_start','O banco não confirmou o registro da consulta.')
+     execution.update(job)
     except urllib.error.HTTPError as error:
      if error.code==429:raise AdminError(429,'daily_limit','Limite diário de consultas atingido.') from None
      if error.code in (401,403):raise AdminError(403,'amigoz_access_denied','Acesso Amigoz não liberado.') from None
@@ -157,9 +160,11 @@ def amigoz_admin(auth,method,path,payload):
      saved=supabase_call('/rest/v1/rpc/finish_amigoz_import_job',dict(
       p_id=execution['id'],p_lease=execution['lease'],p_status=state,p_resultado=result,
       p_message='Resultado parcial.' if state=='revisao' else 'Consulta finalizada.'))
-    except Exception:saved=False
+    except Exception as error:
+     print(f'Amigoz | falha na gravação da consulta {execution["id"]} ({type(error).__name__}).',flush=True)
+     saved=False
     result['consulta_id']=execution['id']
-    result['salvo_no_historico']=bool(saved)
+    result['salvo_no_historico']=saved is True
    return 200,{'data':result}
   raise AdminError(404,'not_found','Rota não encontrada.')
  except amigoz.AmigozError as error:
