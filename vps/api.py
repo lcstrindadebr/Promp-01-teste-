@@ -218,6 +218,7 @@ class Handler(BaseHTTPRequestHandler):
    query=parse_qs(target.query,keep_blank_values=True)
    allowed=('page','page_size','servico','paused','status')
    if re.fullmatch(r'/api/v1/campanhas/[^/]+/leads',target.path):allowed+=('all',)
+   if target.path=='/api/v1/oportunidades':allowed=('page','page_size','etapa','tipos','exportaveis')
    if any(k not in allowed or len(v)!=1 for k,v in query.items()):return self.error(422,'invalid_filter','Filtros inválidos. CPF deve ser enviado por POST /leads/buscar.')
    payload={k:v[0] for k,v in query.items()}
   key=self.headers.get('Idempotency-Key')
@@ -229,6 +230,7 @@ class Handler(BaseHTTPRequestHandler):
    result=rpc(dict(p_hash=hashlib.sha256(token.encode()).hexdigest(),p_method=self.command,p_route=target.path[len('/api/v1'):],p_payload=payload,p_key=key))
    status=int(result['status']);body=result['body'];body['request_id']=self.request_id
    format_cpf_field(body)
+   if isinstance(body.get('data'),dict):format_cpf_field(body['data'])
    for field in ('data','accepted','duplicates'):
     rows=body.get(field)
     if isinstance(rows,list):

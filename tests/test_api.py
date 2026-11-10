@@ -59,11 +59,21 @@ class ApiHTTPTests(unittest.TestCase):
     self.assertTrue(records)
     self.assertTrue(all(row['cpf']=='001.234.567-89' for row in records))
     self.assertEqual(rpc.call_args.args[0]['p_payload'].get('cpf'),(payload or {}).get('cpf'))
+ def test_opportunity_routes_forward_filters_and_format_detail_cpf(self):
+  auth={'Authorization':'Bearer '+TOKEN}
+  with patch.object(api,'rpc',return_value={'status':200,'body':{'data':[]}}) as rpc:
+   status,_,_=self.call('/api/v1/oportunidades?etapa=novo&tipos=margem,saque&exportaveis=true',headers=auth)
+   self.assertEqual(status,200)
+   self.assertEqual(rpc.call_args.args[0]['p_payload'],{'etapa':'novo','tipos':'margem,saque','exportaveis':'true'})
+  with patch.object(api,'rpc',return_value={'status':200,'body':{'data':{'cpf':'00123456789'}}}):
+   status,body,_=self.call('/api/v1/oportunidades/00000000-0000-4000-8000-000000000001',headers=auth)
+   self.assertEqual(status,200)
+   self.assertEqual(body['data']['cpf'],'001.234.567-89')
  def test_outage_hides_internal_details(self):
   with patch.object(api,'rpc',side_effect=urllib.error.URLError('private-secret')):
    status,body,_=self.call('/api/v1/campanhas',headers={'Authorization':'Bearer '+TOKEN});self.assertEqual(status,503);self.assertNotIn('private-secret',json.dumps(body))
  def test_sql_only_execute_service_and_openapi_routes_match(self):
-  spec=json.loads((Path(__file__).resolve().parents[1]/'dist/openapi.json').read_text());self.assertEqual(sum(len(x) for x in spec['paths'].values()),14)
+  spec=json.loads((Path(__file__).resolve().parents[1]/'dist/openapi.json').read_text());self.assertEqual(sum(len(x) for x in spec['paths'].values()),18)
 
 class ApiNginxTests(unittest.TestCase):
  def test_ssl_preserved_and_config_idempotent(self):

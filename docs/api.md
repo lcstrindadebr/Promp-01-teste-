@@ -436,3 +436,20 @@ Campanhas também precisam de permissão no perfil. Idempotência evita cobranç
 repetida da mesma operação. Retentativa com chave nova é nova solicitação.
 A administração de parceiros exige sessão de administrador em /api/admin/parceiros;
 não pode ser feita por um token de integração.
+
+## Oportunidades
+
+Abra `/swagger.html` para navegar pela especificação Swagger ou importe `/openapi.json` no Postman. Os exemplos no Swagger são somente para consulta. Execute chamadas no seu cliente de API usando o token da sua conta.
+
+| Método | Rota sob `/api/v1` | Permissão |
+| --- | --- | --- |
+| GET | `/oportunidades` | `read` |
+| GET | `/oportunidades/{id}` | `read` |
+| POST | `/oportunidades/{id}/etapa` | `campanhas:write` |
+| POST | `/oportunidades/exportacao` | `campanhas:write` |
+
+Para exportar, liste as páginas com `GET /oportunidades?exportaveis=true&tipos=margem,recompra&page_size=100`. Os tipos são `margem` (contrato novo), `recompra` (Digi+) e `saque` (Amigoz). Use `etapa` para restringir a seleção. Cada linha deve corresponder a um ID de oportunidade. Um CPF pode ter várias oportunidades.
+
+Gere o arquivo com os dados lidos. Em seguida envie os IDs efetivamente incluídos e a etapa original de cada um para `POST /oportunidades/exportacao`. O servidor move para `exportada` apenas os registros da sua conta que continuam na etapa aberta informada. O retorno contém `movidas` e `ids`. A rota recebe até 500 itens por chamada. Use uma `Idempotency-Key` por lote e reutilize a mesma chave se precisar repetir o mesmo envio.
+
+Para uma movimentação individual, envie `{"etapa_original":"novo","etapa":"contato"}` com `Idempotency-Key`. Se a etapa já mudou, a API devolve 409.

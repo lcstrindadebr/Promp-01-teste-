@@ -627,7 +627,7 @@ uma única vez. A lista permite conferir último uso e revogar. Token nunca é
 salvo em texto no banco; as chaves Supabase não são tokens de integração.
 
 A documentação completa, payloads, respostas e cURLs ficam na própria página.
-Arquivo OpenAPI em `/openapi.json` e instruções também em [docs/api.md](docs/api.md).
+Swagger em `/swagger.html` e arquivo OpenAPI em `/openapi.json` e instruções também em [docs/api.md](docs/api.md).
 Base: `https://SEU_SUBDOMINIO/api/v1`. Cada token acessa somente sua conta.
 Crie campanha (pausada), adicione leads e inicie. Consultas são assíncronas e
 seguem a fila existente. POST de escrita exige Idempotency-Key por operação.
@@ -822,6 +822,7 @@ No projeto Supabase conectado, as migrações CRM já foram aplicadas. Para outr
 11. `supabase/upgrade_crm_enriquecimento.sql` (consolidação de cadastros e oportunidades)
 12. `supabase/upgrade_crm_exportacao.sql` (exportação e etapa Exportadas)
 13. `supabase/upgrade_crm_oportunidades_produto.sql` (oportunidades separadas por produto)
+14. `supabase/upgrade_api_oportunidades.sql` (rotas de oportunidades)
 
 Para banco novo, use o `supabase/schema.sql` completo. O instalador da VPS atualiza o código; não executa SQL em outro projeto automaticamente.
 

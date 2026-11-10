@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "ApoiarCred API",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "API assíncrona. Envie CPFs como texto, com ou sem pontuação. As respostas usam 000.000.000-00 e preservam zeros à esquerda. Digi+ exige nome e telefone; ConsigX apenas CPF e convênio. Nenhum resultado é inventado quando pendente. Cada token acessa somente sua conta. Campanhas nascem pausadas. Valores monetários em reais."
   },
   "servers": [
@@ -2052,6 +2052,485 @@
           }
         }
       }
+    },
+    "/oportunidades": {
+      "get": {
+        "tags": [
+          "Oportunidades"
+        ],
+        "summary": "Listar oportunidades",
+        "description": "Permissão necessária: read. Cada registro é uma oportunidade. Um CPF pode aparecer em diferentes produtos. Use exportaveis=true para preparar um arquivo.",
+        "operationId": "listOportunidades",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "etapa",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "novo",
+                "exportada",
+                "contato",
+                "simulacao",
+                "negociacao",
+                "ganho",
+                "perdido"
+              ]
+            },
+            "description": ""
+          },
+          {
+            "name": "tipos",
+            "in": "query",
+            "style": "form",
+            "explode": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "margem",
+                  "recompra",
+                  "saque"
+                ]
+              }
+            }
+          },
+          {
+            "name": "exportaveis",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "Quando true, restringe às etapas abertas elegíveis para exportação."
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000,
+              "default": 1
+            },
+            "description": ""
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            },
+            "description": ""
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Oportunidade"
+                      }
+                    },
+                    "pagination": {
+                      "type": "object",
+                      "properties": {
+                        "page": {
+                          "type": "integer"
+                        },
+                        "page_size": {
+                          "type": "integer"
+                        },
+                        "total": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "request_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição inválida"
+          },
+          "401": {
+            "description": "Token inválido"
+          },
+          "403": {
+            "description": "Sem permissão"
+          },
+          "404": {
+            "description": "Recurso não encontrado"
+          },
+          "409": {
+            "description": "Conflito de etapa ou idempotência"
+          },
+          "422": {
+            "description": "Dados inválidos"
+          },
+          "429": {
+            "description": "Limite de requisições"
+          }
+        }
+      }
+    },
+    "/oportunidades/{id}": {
+      "get": {
+        "tags": [
+          "Oportunidades"
+        ],
+        "summary": "Consultar oportunidade",
+        "description": "Permissão necessária: read. Retorna o cartão com os resultados consolidados do tipo.",
+        "operationId": "getOportunidade",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Oportunidade"
+                    },
+                    "request_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição inválida"
+          },
+          "401": {
+            "description": "Token inválido"
+          },
+          "403": {
+            "description": "Sem permissão"
+          },
+          "404": {
+            "description": "Recurso não encontrado"
+          },
+          "409": {
+            "description": "Conflito de etapa ou idempotência"
+          },
+          "422": {
+            "description": "Dados inválidos"
+          },
+          "429": {
+            "description": "Limite de requisições"
+          }
+        }
+      }
+    },
+    "/oportunidades/{id}/etapa": {
+      "post": {
+        "tags": [
+          "Oportunidades"
+        ],
+        "summary": "Mover oportunidade",
+        "description": "Permissão necessária: campanhas:write. Retorna 409 se a etapa atual já mudou.",
+        "operationId": "moveOportunidade",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "description": "Use a mesma chave ao repetir o mesmo pedido."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "etapa": {
+                          "type": "string",
+                          "enum": [
+                            "novo",
+                            "exportada",
+                            "contato",
+                            "simulacao",
+                            "negociacao",
+                            "ganho",
+                            "perdido"
+                          ]
+                        }
+                      }
+                    },
+                    "request_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição inválida"
+          },
+          "401": {
+            "description": "Token inválido"
+          },
+          "403": {
+            "description": "Sem permissão"
+          },
+          "404": {
+            "description": "Recurso não encontrado"
+          },
+          "409": {
+            "description": "Conflito de etapa ou idempotência"
+          },
+          "422": {
+            "description": "Dados inválidos"
+          },
+          "429": {
+            "description": "Limite de requisições"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "etapa",
+                  "etapa_original"
+                ],
+                "properties": {
+                  "etapa": {
+                    "type": "string",
+                    "enum": [
+                      "novo",
+                      "exportada",
+                      "contato",
+                      "simulacao",
+                      "negociacao",
+                      "ganho",
+                      "perdido"
+                    ]
+                  },
+                  "etapa_original": {
+                    "type": "string",
+                    "enum": [
+                      "novo",
+                      "exportada",
+                      "contato",
+                      "simulacao",
+                      "negociacao",
+                      "ganho",
+                      "perdido"
+                    ]
+                  }
+                }
+              },
+              "example": {
+                "etapa": "contato",
+                "etapa_original": "novo"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oportunidades/exportacao": {
+      "post": {
+        "tags": [
+          "Oportunidades"
+        ],
+        "summary": "Confirmar exportação de oportunidades",
+        "description": "Permissão necessária: campanhas:write. Chame após gerar o arquivo. Move apenas os IDs enviados que ainda estão na etapa aberta original. Para mais de 500, divida em lotes com chaves distintas.",
+        "operationId": "confirmExportOportunidades",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "description": "Use a mesma chave ao repetir o mesmo pedido."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "movidas": {
+                      "type": "integer"
+                    },
+                    "ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid"
+                      }
+                    },
+                    "request_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição inválida"
+          },
+          "401": {
+            "description": "Token inválido"
+          },
+          "403": {
+            "description": "Sem permissão"
+          },
+          "404": {
+            "description": "Recurso não encontrado"
+          },
+          "409": {
+            "description": "Conflito de etapa ou idempotência"
+          },
+          "422": {
+            "description": "Dados inválidos"
+          },
+          "429": {
+            "description": "Limite de requisições"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "itens"
+                ],
+                "properties": {
+                  "itens": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 500,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "etapa"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "etapa": {
+                          "type": "string",
+                          "enum": [
+                            "novo",
+                            "contato",
+                            "simulacao",
+                            "negociacao"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "example": {
+                "itens": [
+                  {
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "etapa": "novo"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2098,6 +2577,76 @@
           },
           "request_id": {
             "type": "string"
+          }
+        }
+      },
+      "Oportunidade": {
+        "type": "object",
+        "required": [
+          "id",
+          "cpf",
+          "produto",
+          "etapa"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cpf": {
+            "type": "string",
+            "example": "000.000.000-00"
+          },
+          "nome": {
+            "type": "string",
+            "nullable": true
+          },
+          "etapa": {
+            "type": "string",
+            "enum": [
+              "novo",
+              "exportada",
+              "contato",
+              "simulacao",
+              "negociacao",
+              "ganho",
+              "perdido"
+            ]
+          },
+          "produto": {
+            "type": "string",
+            "enum": [
+              "margem",
+              "recompra",
+              "saque"
+            ],
+            "description": "margem = contrato novo; recompra = Digi+; saque = Amigoz."
+          },
+          "convenio": {
+            "type": "string"
+          },
+          "proxima_acao": {
+            "type": "string",
+            "nullable": true
+          },
+          "automatica": {
+            "type": "boolean"
+          },
+          "sinais_consulta": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "saldo_liquidacao": {
+            "type": "number",
+            "nullable": true
+          },
+          "emprestimo_disponivel": {
+            "type": "number",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       }

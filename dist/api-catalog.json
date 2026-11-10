@@ -304,5 +304,82 @@
         "valor_parcela": null
       }
     }
+  },
+  {
+    "method": "GET",
+    "path": "/oportunidades",
+    "summary": "Listar oportunidades",
+    "scope": "read",
+    "body": null,
+    "status": 200,
+    "response": {
+      "data": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "cpf": "000.000.000-00",
+          "produto": "margem",
+          "etapa": "novo"
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "page_size": 50,
+        "total": 1
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/oportunidades/{id}",
+    "summary": "Consultar oportunidade",
+    "scope": "read",
+    "body": null,
+    "status": 200,
+    "response": {
+      "data": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "cpf": "000.000.000-00",
+        "produto": "margem",
+        "etapa": "novo"
+      }
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/oportunidades/{id}/etapa",
+    "summary": "Mover oportunidade",
+    "scope": "campanhas:write",
+    "body": {
+      "etapa": "contato",
+      "etapa_original": "novo"
+    },
+    "status": 200,
+    "response": {
+      "data": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "etapa": "contato"
+      }
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/oportunidades/exportacao",
+    "summary": "Confirmar exportação de oportunidades",
+    "scope": "campanhas:write",
+    "body": {
+      "itens": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "etapa": "novo"
+        }
+      ]
+    },
+    "status": 200,
+    "response": {
+      "movidas": 1,
+      "ids": [
+        "00000000-0000-4000-8000-000000000001"
+      ]
+    }
   }
 ]
