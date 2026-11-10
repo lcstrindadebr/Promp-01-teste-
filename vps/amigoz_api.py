@@ -64,10 +64,10 @@ def save_configuration(payload):
   previous=configuration() or {}
   url='https://'+endpoint(payload.get('url'))
   user=payload.get('usuario')
-  corban=payload.get('corban_id')
+  corban=payload.get('corban_id') or None
   password=payload.get('senha')
-  if not isinstance(user,str) or not 1<=len(user.strip())<=200 or type(corban) is not int or not 1<=corban<=2147483647:
-   raise AmigozError(422,'invalid_amigoz_config','Informe usuário e ID do Corban válidos.')
+  if not isinstance(user,str) or not 1<=len(user.strip())<=200 or (corban is not None and (type(corban) is not int or not 1<=corban<=2147483647)):
+   raise AmigozError(422,'invalid_amigoz_config','Informe um usuário válido.')
   user=user.strip()
   if not password and previous.get('url')==url and previous.get('usuario')==user:
    password=previous.get('senha')
@@ -102,7 +102,7 @@ class PublicHTTPS(http.client.HTTPSConnection):
 
 
 def request(config,path,payload,token=None):
- conn=PublicHTTPS(endpoint(config['url']),timeout=5,context=ssl.create_default_context())
+ conn=PublicHTTPS(endpoint(config['url']),timeout=30,context=ssl.create_default_context())
  headers={'Content-Type':'application/json','Accept':'application/json'}
  if token:
   headers['Authorization']='Bearer '+token
@@ -112,7 +112,7 @@ def request(config,path,payload,token=None):
   if response.status in (401,403):
    raise AmigozError(response.status,'amigoz_denied','A Amigoz recusou a autenticação ou a permissão para esta operação.')
   if not 200<=response.status<300:
-   raise AmigozError(502,'amigoz_upstream',f'A Amigoz respondeu HTTP {response.status}.')
+   raise AmigozError(response.status,'amigoz_upstream',f'A Amigoz respondeu HTTP {response.status} em {path}.')
   raw=response.read(MAX_RESPONSE+1)
   if len(raw)>MAX_RESPONSE:
    raise AmigozError(502,'amigoz_response','A resposta da Amigoz excedeu o tamanho permitido.')
@@ -132,7 +132,7 @@ def read_tokens(response):
  def token(*keys):
   return next((response[k] for k in keys if isinstance(response.get(k),str)
                and re.fullmatch(r'[A-Za-z0-9._~+/=-]{1,8192}',response[k])),None)
- return token('access_token','access','token'),token('refresh_token','refresh')
+ return token('access','access_token','token'),token('refresh_token','refresh')
 
 
 def start_session(config,refresh=None):
@@ -143,11 +143,8 @@ def start_session(config,refresh=None):
  token,next_refresh=read_tokens(response)
  if not token:
   raise AmigozError(502,'amigoz_token','A Amigoz devolveu um formato de token não reconhecido.')
- selected=request(config,'/api/login/seleciona-corban',{'corban_id':config['corban_id']},token)
- if isinstance(selected,dict) and (selected.get('success') is False or selected.get('error')):
-  raise AmigozError(502,'amigoz_corban','A Amigoz não confirmou a seleção do Corban.')
- scoped,scoped_refresh=read_tokens(selected)
- return scoped or token,scoped_refresh or next_refresh or refresh
+ # Match the working integration: use the access token returned by login.
+ return token,next_refresh or refresh
 
 
 def session(config,failed=None,force=False):
@@ -239,5 +236,5 @@ def consultation(config,payload,before_request=None):
    data=saque_result(value,convenio) if operation=='saque' else margin_result(value)
    result[operation]={'status':'respondido','dados':data}
   except AmigozError as error:
-   result[operation]={'status':'erro','mensagem':error.message}
+   result[operation]={'status':'erro','mensagem':error.message,'http_status':error.status,'codigo':error.code,'operacao':operation}
  return result

@@ -1,12 +1,11 @@
 (()=>{
 const amigozConfigPanel=$('#settings-amigoz-api');
 amigozConfigPanel.innerHTML=`<section class="card">
- <h2>Integração Amigoz</h2><p>Configure a API e valide o login e o Corban antes da primeira consulta.</p>
+ <h2>Integração Amigoz</h2><p>Configure a API e valide o login antes da primeira consulta.</p>
  <form id="amigozApiConfig">
   <label class="field" for="amigozApiUrl">URL base HTTPS</label><input id="amigozApiUrl" type="url" placeholder="https://api.exemplo.com.br" required>
   <label class="field" for="amigozApiUser">Usuário</label><input id="amigozApiUser" autocomplete="off" required maxlength="200">
   <label class="field" for="amigozApiPassword">Senha</label><input id="amigozApiPassword" type="password" autocomplete="new-password" maxlength="512"><small>Deixe em branco para manter a senha do mesmo usuário e endereço.</small>
-  <label class="field" for="amigozApiCorban">ID do Corban</label><input id="amigozApiCorban" type="number" min="1" max="2147483647" required>
   <div class="actions"><button class="primary" type="submit">Salvar credenciais</button><button id="amigozApiTest" type="button">Testar conexão salva</button></div>
  </form><p id="amigozConfigStatus" role="status"></p>
 </section>`;
@@ -106,7 +105,7 @@ async function loadAmigozConfig(){
   const value=await amigozRequest('configuracao');
   if(epoch!==authEpoch)return;
   $('#amigozApiUrl').value=value.url||'';$('#amigozApiUser').value=value.usuario||'';
-  $('#amigozApiCorban').value=value.corban_id||'';$('#amigozApiPassword').value='';
+  $('#amigozApiPassword').value='';
   $('#amigozConfigStatus').textContent=value.configured?'Credenciais cadastradas.':'Configure a conexão.';
  }catch(error){if(epoch===authEpoch)$('#amigozConfigStatus').textContent=error.message;}
 }
@@ -122,9 +121,9 @@ async function changeAmigozConfig(route,payload,message){
 }
 $('#amigozApiConfig').onsubmit=e=>{
  e.preventDefault();
- changeAmigozConfig('configuracao',{url:$('#amigozApiUrl').value.trim(),usuario:$('#amigozApiUser').value.trim(),senha:$('#amigozApiPassword').value,corban_id:Number($('#amigozApiCorban').value)},'Credenciais salvas.');
+ changeAmigozConfig('configuracao',{url:$('#amigozApiUrl').value.trim(),usuario:$('#amigozApiUser').value.trim(),senha:$('#amigozApiPassword').value},'Credenciais salvas.');
 };
-$('#amigozApiTest').onclick=()=>changeAmigozConfig('testar',{},'Login e seleção do Corban aceitos pela Amigoz.');
+$('#amigozApiTest').onclick=()=>changeAmigozConfig('testar',{},'Login aceito pela Amigoz.');
 
 function optionsAmigoz(select,placeholder,items){
  select.replaceChildren(new Option(placeholder,''),...items.map(([id,label])=>new Option(label,id)));

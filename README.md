@@ -844,3 +844,7 @@ Uma falha ao salvar repete apenas a gravação. Execuções Amigoz interrompidas
 Validação: testes de banco com rollback para filas, idempotência, isolamento e cota; testes Python do executor e respostas parciais. A execução real com credenciais da VPS deve ser conferida após atualizar.
 
 Consultas individuais Amigoz também criam registro persistente antes de chamar o provedor e salvam os resultados no mesmo histórico. A senha do servidor não é armazenada nesse registro. Se a gravação final falhar, a tela avisa explicitamente e preserva a resposta exibida.
+
+### Autenticação Amigoz — compatibilidade com o fluxo n8n
+
+O sistema usa POST `/api/login` com `usuario` e `senha`, depois o campo `access` como Bearer nas duas consultas. Não chama `seleciona-corban`. Saque V2 recebe CPF sem pontuação; margem PM-SP recebe CPF, `averbadora: 9` e `convenio: 33`. Matrícula e senha do servidor são opcionais. HTTP 401 permite uma renovação; HTTP 403 não é repetido como se fosse expiração. Falhas registram operação, código e status HTTP sem tokens ou senhas. Após atualizar, o serviço da API reinicia e descarta o token anterior.

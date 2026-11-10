@@ -32,19 +32,18 @@ class AmigozTests(unittest.TestCase):
    with self.assertRaises(amigoz.AmigozError):
     amigoz.save_configuration({**CONFIG,'url':'https://other.example.com','senha':''})
 
- def test_auth_login_corban_and_refresh(self):
+ def test_auth_uses_login_access_directly_and_refreshes_once(self):
   with patch.object(amigoz,'SESSION',None),patch.object(amigoz,'request',side_effect=[
    {'access':'initial','refresh':'renew'},
-   {'access_token':'scoped'},
    amigoz.AmigozError(401,'expired','Token expirado'),
    {'data':{'access':'renewed'}},
-   {},
    [],
   ]) as transport:
    self.assertEqual(amigoz.call(CONFIG,'/api/simulacao/v2/saque-complementar',{'cpf':'00000000001'}),[])
   calls=[call.args for call in transport.call_args_list]
-  self.assertEqual(calls[1][1:],('/api/login/seleciona-corban',{'corban_id':7},'initial'))
-  self.assertEqual(calls[3][1:],('/api/login/refresh',{'refresh':'renew'}))
+  self.assertEqual(calls[1][1:],('/api/simulacao/v2/saque-complementar',{'cpf':'00000000001'},'initial'))
+  self.assertFalse(any('seleciona-corban' in c[1] for c in calls))
+  self.assertEqual(calls[2][1:],('/api/login/refresh',{'refresh':'renew'}))
   self.assertEqual(calls[-1][-1],'renewed')
 
  def test_both_modes_preserve_success_and_match_only_selected_convenio(self):
