@@ -91,6 +91,7 @@ async function loadCrmLinks(client) {
         ? [data.status === 'nao_cliente' ? 'Digi+ · Não é cliente' : 'Digi+',
            data.saldo != null ? 'Saldo '+crmMoney.format(data.saldo) : null,
            data.parcela != null ? 'Parcela '+crmMoney.format(data.parcela) : null]
+        : source.startsWith('consigx_margem_') ? ['ConsigX', data.margem_emprestimo != null ? 'Margem empréstimo '+crmMoney.format(data.margem_emprestimo) : null, data.margem_cartao != null ? 'Margem cartão '+crmMoney.format(data.margem_cartao) : null]
         : ['Amigoz',columns.margemCartao,columns.limite && 'Limite '+columns.limite,columns.saque && 'Saque '+columns.saque];
       list.append(crmElement('li','',summary.filter(Boolean).join(' · ')));
     }
@@ -237,10 +238,10 @@ $('#crmClose').onclick = () => closeCrmHistory(true);
 $('#crmMoreHistory').onclick = loadCrmHistory;
 
 const crmStages = {
-  novo:'Novo', contato:'Em contato', simulacao:'Simulação enviada',
-  negociacao:'Em negociação', exportada:'Exportadas', ganho:'Ganho', perdido:'Perdido'
+  novo:'Novo', exportada:'Exportadas', contato:'Em contato', simulacao:'Simulação enviada',
+  negociacao:'Em negociação', ganho:'Ganho', perdido:'Perdido'
 };
-const crmProducts = {margem:'Margem',saque:'Saque complementar',recompra:'Compra de dívida'};
+const crmProducts = {margem:'Contrato novo',saque:'Saque complementar',recompra:'Compra de dívida'};
 let crmPipelineRequest = 0;
 let crmPipelinePage = 0;
 
@@ -298,7 +299,9 @@ $('#crmStageFilter').onchange = () => loadCrmPipeline(0);
 $('#crmExportOpportunities').onclick = async () => {
   const button = $('#crmExportOpportunities'), status = $('#crmExportOpportunitiesStatus');
   const stage = $('#crmStageFilter').value, epoch = authEpoch;
+  const products = Object.keys(crmProducts).filter(key=>$('#crmExportProduct-'+key).checked);
   const openStages = ['novo','contato','simulacao','negociacao'];
+  if (!products.length) {status.textContent = 'Selecione pelo menos um tipo para exportar.';return;}
   if (stage && !openStages.includes(stage)) {
     status.textContent = 'Selecione uma etapa aberta para exportar.';
     return;
@@ -310,6 +313,7 @@ $('#crmExportOpportunities').onclick = async () => {
   try {
     for (;;) {
       const params = {etapa:stage ? 'eq.'+stage : 'in.('+openStages.join(',')+')',order:'id.asc',limit:500};
+      params.produto = 'in.('+products.join(',')+')';
       if (after) params.id = 'gt.'+after;
       const page = await sbRequest(crmPath('crm_opportunity_cards',params));
       if (!authenticated || epoch !== authEpoch) return;
@@ -321,14 +325,14 @@ $('#crmExportOpportunities').onclick = async () => {
     }
     if (!rows.length) {status.textContent = 'Nenhuma oportunidade aberta neste filtro.';return;}
     const sheet = XLSX.utils.aoa_to_sheet([
-      ['Nome','CPF','Convênio','Produto','Etapa original','Próxima ação','Saldo Digi+','Parcela Digi+','Saque Amigoz'],
+      ['Nome','CPF','Convênio','Produto','Etapa original','Próxima ação','Saldo Digi+','Parcela Digi+','Saque Amigoz','Margem livre'],
       ...rows.map(row => {
         const signals = row.sinais_consulta || {};
         const offers = Object.entries(signals).filter(([key,value])=>key.startsWith('amigoz_saque_') && Array.isArray(value))
           .flatMap(([,items])=>items.filter(item=>item && String(item.elegivel).toLowerCase()==='sim' && !item.erro_informado && item.valor_saque_disponivel>0));
         return [row.nome,formatCpf(row.cpf),row.convenio,crmProducts[row.produto],crmStages[row.etapa],row.proxima_acao,
           signals.digimais?.saldo ?? row.saldo_liquidacao,signals.digimais?.parcela,
-          offers.map(item=>crmMoney.format(item.valor_saque_disponivel)).join(' · ')];
+          offers.map(item=>crmMoney.format(item.valor_saque_disponivel)).join(' · '),crmOpportunityMargins(signals).map(value=>crmMoney.format(value)).join(' · ')];
       })
     ]);
     const book = XLSX.utils.book_new();
@@ -455,6 +459,13 @@ function crmOpportunityCard(row,settings,request){
   const actions=crmElement('div','crm-card-actions');
   actions.append(label,edit);card.append(actions);return card;
 }
+function crmOpportunityMargins(signals) {
+  return Object.entries(signals).flatMap(([source,data])=>{
+    if(source.startsWith('amigoz_margem_') && Array.isArray(data)) return data.map(item=>item?.margem_atual);
+    if(source.startsWith('consigx_margem_')) return [data?.margem_emprestimo];
+    return [];
+  }).filter(value=>typeof value==='number' && value>20);
+}
 function crmCardFinance(row,target,request){
   target.replaceChildren();
   if(row.automatica){
@@ -478,6 +489,11 @@ function crmCardFinance(row,target,request){
     if(offers.length){
       tags.append(crmElement('span','crm-card-tag crm-tag-amigoz','Saque Amigoz'));
       for(const offer of offers) metric(offer.nome_oferta ? 'Saque · '+offer.nome_oferta : 'Saque disponível',offer.valor_saque_disponivel);
+    }
+    const margins=crmOpportunityMargins(row.sinais_consulta || {});
+    if(margins.length){
+      tags.append(crmElement('span','crm-card-tag crm-tag-amigoz','Contrato novo'));
+      for(const margin of margins) metric('Margem livre',margin);
     }
     if(tags.childNodes.length) target.append(tags,metrics);
     else target.textContent='Sem sinal comercial ativo.';

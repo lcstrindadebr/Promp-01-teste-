@@ -21,6 +21,8 @@ vm.createContext(ctx);vm.runInContext(fs.readFileSync('dist/crm.js','utf8'),ctx)
  // Failed moves leave stage unchanged; no success UI before server confirmation.
  handler=async()=>{throw Error('network')};assert.equal(await vm.runInContext("crmMoveOpportunity('id','ganho',crmPipelineRequest)",ctx),false);assert.match(get('#crmPipelineStatus').textContent,/etapa anterior/);
  handler=async path=>path.includes('crm_card_settings')?[]:[];await vm.runInContext('loadCrmPipeline(0)',ctx);assert.equal(get('#crmPipelineRows').children.length,7);
+ assert.deepEqual(get('#crmStageFilter').options.slice(1,3).map(option=>option.value),['novo','exportada']);
+ get('#crmExportProduct-saque').checked=true;
  let downloaded=false,moved=false;
  get('#crmPipelineRows').closest=()=>({});
  ctx.XLSX={utils:{aoa_to_sheet:rows=>rows,book_new:()=>({}),book_append_sheet:()=>{}},writeFile:()=>{downloaded=true;}};
@@ -29,7 +31,9 @@ vm.createContext(ctx);vm.runInContext(fs.readFileSync('dist/crm.js','utf8'),ctx)
      assert(downloaded);
      assert.deepEqual(JSON.parse(options.body).p_itens,[{id:'1',etapa:'novo'}]);moved=true;return 1;
    }
-   return new URLSearchParams(path.split('?')[1]).has('id')?[]:[{id:'1',cpf:'00000000001',etapa:'novo',produto:'saque'}];
+   const params=new URLSearchParams(path.split('?')[1]);
+   assert.equal(params.get('produto'),'in.(saque)');
+   return params.has('id')?[]:[{id:'1',cpf:'00000000001',etapa:'novo',produto:'saque'}];
  };
  await get('#crmExportOpportunities').onclick();assert(moved);
  assert.match(get('#crmExportOpportunitiesStatus').textContent,/1 movidas/);

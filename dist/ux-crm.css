@@ -418,3 +418,8 @@ button.crm-danger:hover:not(:disabled) { color: #782020; border-color: #b75858; 
 .crm-card-actions {display: grid; gap: .35rem;}
 .crm-card-actions label {display: grid; gap: .2rem;}
 .crm-card-actions button {justify-self: start;}
+
+.crm-export-types {padding: .4rem .55rem;}
+.crm-export-types summary {cursor: pointer; font-weight: 600;}
+.crm-export-types label {display: block; margin-top: .3rem;}
+.crm-export-types input {width: auto;}
