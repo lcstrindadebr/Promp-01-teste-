@@ -121,7 +121,8 @@ class PublicHTTPS(http.client.HTTPSConnection):
 
 
 def request(config,path,payload,token=None):
- conn=PublicHTTPS(endpoint(config['url']),timeout=30,context=ssl.create_default_context())
+ timeout = 60 if path == '/api/consulta-margem' else 30
+ conn=PublicHTTPS(endpoint(config['url']),timeout=timeout,context=ssl.create_default_context())
  headers={'Content-Type':'application/json','Accept':'application/json'}
  if token:
   headers['Authorization']='Bearer '+token
@@ -135,9 +136,15 @@ def request(config,path,payload,token=None):
   raw=response.read(MAX_RESPONSE+1)
   if len(raw)>MAX_RESPONSE:
    raise AmigozError(502,'amigoz_response','A resposta da Amigoz excedeu o tamanho permitido.')
-  return json.loads(raw) if raw else None
- except (OSError,http.client.HTTPException,ValueError):
-  raise AmigozError(502,'amigoz_response','Não foi possível obter uma resposta válida da Amigoz.') from None
+  if not raw:
+   raise AmigozError(502,'amigoz_empty_response',f'A Amigoz devolveu uma resposta vazia em {path}.')
+  return json.loads(raw)
+ except TimeoutError:
+  raise AmigozError(504,'amigoz_timeout',f'Tempo de espera pela Amigoz excedido em {path} ({timeout} s por operação de rede).') from None
+ except (json.JSONDecodeError, UnicodeDecodeError):
+  raise AmigozError(502,'amigoz_invalid_json',f'A Amigoz devolveu uma resposta que não é JSON em {path}.') from None
+ except (OSError,http.client.HTTPException):
+  raise AmigozError(502,'amigoz_transport',f'A conexão com a Amigoz falhou em {path}.') from None
  finally:
   conn.close()
 

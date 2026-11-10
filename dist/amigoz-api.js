@@ -58,7 +58,7 @@ async function amigozRequest(route,body){
  await refreshSession();
  const response=await fetch('/api/admin/amigoz/'+route,{
   method:body?'POST':'GET',headers:{Authorization:'Bearer '+session.access_token,'Content-Type':'application/json'},
-  ...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(40000)
+  ...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(route === 'consultar' ? 240000 : 40000)
  });
  let value;
  try{value=await response.json();}catch{throw Error('Não foi possível acessar a API Amigoz do ApoiarCred.');}
