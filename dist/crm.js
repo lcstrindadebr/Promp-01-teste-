@@ -53,7 +53,11 @@ async function loadCrmClients(page) {
         loadCrmHistory();
         loadCrmLinks(client);
       };
-      $('#crmRows').append(crmRow([client.nome, formatCpf(client.cpf), client.telefone, button]));
+      const actions=crmElement('div','crm-client-actions');
+      const profile=crmElement('button','','Abrir ficha');profile.type='button';
+      profile.onclick=()=>crmOpenClientProfile(client);
+      actions.append(profile,button);
+      $('#crmRows').append(crmRow([client.nome, formatCpf(client.cpf), client.telefone, actions]));
     }
     $('#crmStatus').textContent = clients.length ? 'Página ' + (page + 1) : 'Nenhum cliente encontrado.';
     $('#crmPrevious').disabled = page === 0;
@@ -236,6 +240,7 @@ $('#crmPrevious').onclick = () => { closeCrmHistory(); loadCrmClients(crmPage - 
 $('#crmNext').onclick = () => { closeCrmHistory(); loadCrmClients(crmPage + 1); };
 $('#crmClose').onclick = () => closeCrmHistory(true);
 $('#crmMoreHistory').onclick = loadCrmHistory;
+$('#crmOpenClientProfile').onclick = () => {if (crmClient) crmOpenClientProfile(crmClient);};
 
 const crmStages = {
   novo:'Novo', exportada:'Exportadas', contato:'Em contato', simulacao:'Simulação enviada',
@@ -314,7 +319,7 @@ $('#crmExportOpportunities').onclick = async () => {
   form.append(types,crmElement('p','muted','Etapa: '+(crmStages[stage] || 'Todas as etapas abertas')));
   const status = crmElement('p','muted','Carregando estados e convênios…');
   status.setAttribute('role','status');
-  const submit = crmElement('button','primary','Baixar planilha e mover para Exportadas');
+  const submit = crmElement('button','primary','Ver prévia');
   submit.type = 'submit';submit.disabled = true;
   form.append(status,submit);
   try {
@@ -339,14 +344,14 @@ $('#crmExportOpportunities').onclick = async () => {
     form.onsubmit = async event=>{
       event.preventDefault();
       if (submit.disabled || epoch !== authEpoch) return;
-      await crmDownloadOpportunities({stage,uf:uf.value,convenio:convenio.value,products:checks.filter(box=>box.checked).map(box=>box.value)},submit,status);
+      await crmDownloadOpportunities({stage,uf:uf.value,convenio:convenio.value,products:checks.filter(box=>box.checked).map(box=>box.value)},submit,status,form);
     };
   } catch {
     status.textContent = 'Não foi possível carregar os filtros de exportação.';
   }
 };
 
-async function crmDownloadOpportunities({stage,uf,convenio,products},button,status) {
+async function crmDownloadOpportunities({stage,uf,convenio,products},button,status,previewForm) {
   const epoch = authEpoch;
   const openStages = ['novo','contato','simulacao','negociacao'];
   if (!products.length) {status.textContent = 'Selecione pelo menos um tipo para exportar.';return;}
@@ -354,6 +359,7 @@ async function crmDownloadOpportunities({stage,uf,convenio,products},button,stat
     status.textContent = 'Selecione uma etapa aberta para exportar.';
     return;
   }
+  previewForm?.querySelector('.crm-export-preview')?.remove();
   button.disabled = true;
   status.textContent = 'Preparando planilha…';
   const rows = [];
@@ -371,28 +377,49 @@ async function crmDownloadOpportunities({stage,uf,convenio,products},button,stat
       after = next;
     }
     if (!rows.length) {status.textContent = 'Nenhuma oportunidade aberta neste filtro.';return;}
-    const sheet = XLSX.utils.aoa_to_sheet([
-      ['Nome','CPF','Convênio','Produto','Etapa original','Próxima ação','Saldo Digi+','Parcela Digi+','Saque Amigoz','Margem livre'],
+    const workbookRows = [
+      ['Nome','CPF','Convênio','Produto','Etapa original','Responsável','Próxima ação','Saldo Digi+','Parcela Digi+','Saque Amigoz','Margem livre'],
       ...rows.map(row => {
         const signals = row.sinais_consulta || {};
         const offers = Object.entries(signals).filter(([key,value])=>key.startsWith('amigoz_saque_') && Array.isArray(value))
           .flatMap(([,items])=>items.filter(item=>item && String(item.elegivel).toLowerCase()==='sim' && !item.erro_informado && item.valor_saque_disponivel>0));
-        return [row.nome,formatCpf(row.cpf),row.convenio,crmProducts[row.produto],crmStages[row.etapa],row.proxima_acao,
+        return [row.nome,formatCpf(row.cpf),row.convenio,crmProducts[row.produto],crmStages[row.etapa],row.responsavel,row.proxima_acao,
           signals.digimais?.saldo ?? row.saldo_liquidacao,signals.digimais?.parcela,
           offers.map(item=>crmMoney.format(item.valor_saque_disponivel)).join(' · '),crmOpportunityMargins(signals).map(value=>crmMoney.format(value)).join(' · ')];
       })
-    ]);
-    const book = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(book,sheet,'Oportunidades');
-    XLSX.writeFile(book,'oportunidades-'+new Date().toISOString().slice(0,10)+'.xlsx');
-    downloaded = true;
-    status.textContent = 'Download iniciado. Movendo oportunidades…';
-    const moved = await crmRpc('crm_marcar_exportadas',{p_itens:rows.map(({id,etapa})=>({id,etapa}))});
-    if (!authenticated || epoch !== authEpoch) return;
-    status.textContent = rows.length+' no arquivo · '+moved+' movidas para Exportadas.'+
-      (moved < rows.length ? ' As demais já mudaram de etapa.' : '');
-    $('#crmExportOpportunitiesStatus').textContent = status.textContent;
-    if (!$('#crmPipelineRows').closest('[hidden]')) await loadCrmPipeline(0);
+    ];
+    const download = async (trigger)=>{
+      trigger.disabled = true;
+      try {
+        if (!authenticated || epoch !== authEpoch) return;
+        crmSaveOpportunityWorkbook(workbookRows);
+        downloaded = true;
+        status.textContent = 'Download iniciado. Registrando lote e movimentando cartões…';
+        const moved = await crmRpc('crm_registrar_exportacao',{
+          p_lote:batchId,p_itens:rows.map(({id,etapa})=>({id,etapa})),p_planilha:workbookRows
+        });
+        if (!authenticated || epoch !== authEpoch) return;
+        status.textContent = rows.length+' no arquivo · '+moved+' movidas para Exportadas.';
+        $('#crmExportOpportunitiesStatus').textContent = status.textContent;
+        if (!$('#crmPipelineRows').closest('[hidden]')) await loadCrmPipeline(0);
+      } catch {
+        status.textContent = downloaded ? 'Download iniciado. O lote não foi confirmado. Tente novamente nesta janela.' : 'Não foi possível gerar a planilha.';
+        trigger.disabled = false;
+      }
+    };
+    const batchId = crypto.randomUUID();
+    if (!previewForm) {await download(button);return;}
+    const preview = crmElement('section','crm-export-preview');
+    preview.append(crmElement('h3','',rows.length+' oportunidades na planilha'));
+    for (const [key,label] of Object.entries(crmProducts)) {
+      const count = rows.filter(row=>row.produto===key).length;
+      if (count) preview.append(crmElement('p','',label+' · '+count));
+    }
+    const confirm = crmElement('button','primary','Baixar planilha e mover para Exportadas');
+    confirm.type = 'button';confirm.onclick = ()=>download(confirm);
+    preview.append(confirm);previewForm.append(preview);
+    previewForm.onchange = ()=>{preview.remove();status.textContent='Filtros alterados. Gere uma nova prévia.';};
+    status.textContent = 'Confira a seleção antes de baixar.';
   } catch {
     if (epoch === authEpoch) status.textContent = downloaded
       ? 'Download iniciado. Não foi possível confirmar a movimentação. Confira o Kanban.'
@@ -493,7 +520,12 @@ async function crmMoveOpportunity(id,stage,request,extra={}){
 function crmOpportunityCard(row,settings,request){
   const card=crmElement('article','crm-kanban-card'+(settings.density==='compact'?' compact':''));card.draggable=true;card.dataset.id=row.id;
   card.ondragstart=event=>event.dataTransfer.setData('text/plain',row.id);
-  card.append(crmElement('h3','',row.nome||formatCpf(row.cpf)));
+  const title=crmElement('button','crm-card-title',row.nome||formatCpf(row.cpf));
+  title.type='button';title.onclick=()=>crmOpenClientProfile(row,row.id);
+  const heading=crmElement('h3');heading.append(title);card.append(heading);
+  card.onclick=event=>{if (!event.target.closest('button,select,label,input,textarea,a')) crmOpenClientProfile(row,row.id);};
+  card.append(crmElement('p','crm-card-detail','Responsável: '+(row.responsavel||'Não atribuído')));
+  if(row.proxima_acao) card.append(crmElement('p','crm-card-detail','Próxima ação: '+row.proxima_acao));
   for(const key of settings.visible){const value=key==='cpf'?formatCpf(row.cpf):key==='produto'?crmProducts[row.produto]:row[key];if(value)card.append(crmElement('p','crm-card-detail',crmBuiltinFields[key]+': '+value));}
   for(const field of settings.fields.filter(x=>x.visible)){
     const value=row.campos?.[field.id];if(value!=null&&value!=='')card.append(crmElement('p','crm-card-detail',field.label+': '+(field.type==='boolean'?(value?'Sim':'Não'):value)));
@@ -540,7 +572,7 @@ function crmCardFinance(row,target,request){
     }
     const margins=crmOpportunityMargins(row.sinais_consulta || {});
     if(margins.length){
-      tags.append(crmElement('span','crm-card-tag crm-tag-amigoz','Contrato novo'));
+      tags.append(crmElement('span','crm-card-tag crm-tag-amigoz','Contrato novo / agregação'));
       for(const margin of margins) metric('Margem livre',margin);
     }
     if(tags.childNodes.length) target.append(tags,metrics);
@@ -552,6 +584,124 @@ function crmCardFinance(row,target,request){
   target.append(crmElement('strong','',(key==='saldo_liquidacao'?'Saldo: ':'Margem: ')+crmMoney.format(row[key])));
   target.append(crmElement('small','',(row.resultado_fonte==='digimais_saldo_parcela'?'Digi+':'ConsigX · '+row.convenio.toUpperCase())+' · '+new Date(row.resultado_em||row.resultado_criado_em).toLocaleString('pt-BR')));
 }
+function crmSaveOpportunityWorkbook(rows) {
+  const book = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet(rows),'Oportunidades');
+  XLSX.writeFile(book,'oportunidades-'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
+
+$('#crmExportHistory').onclick = async () => {
+  const {dialog,form} = crmDialog('Histórico de exportações');
+  const epoch = authEpoch;
+  const status = crmElement('p','muted','Carregando lotes…');
+  status.setAttribute('role','status');
+  const list = crmElement('div','crm-export-history');
+  const more = crmElement('button','','Carregar mais');more.type='button';more.hidden=true;
+  form.append(status,list,more);
+  let offset=0;
+  const load=async()=>{
+    more.disabled=true;
+    try {
+      const batches=await sbRequest(crmPath('crm_exportacoes',{select:'id,criada_em,total,movidas',order:'criada_em.desc,id.desc',limit:26,offset}));
+      if (!dialog.open || epoch!==authEpoch) return;
+      for (const batch of batches.slice(0,25)) {
+        const item=crmElement('div','crm-export-batch');
+        item.append(crmElement('strong','',new Date(batch.criada_em).toLocaleString('pt-BR')));
+        item.append(crmElement('span','muted',batch.total+' no arquivo · '+batch.movidas+' movidas'));
+        const download=crmElement('button','','Baixar novamente');download.type='button';
+        download.onclick=async()=>{
+          download.disabled=true;
+          try {
+            const [saved]=await sbRequest(crmPath('crm_exportacoes',{id:'eq.'+batch.id,select:'planilha'}));
+            if (dialog.open && epoch===authEpoch && saved) crmSaveOpportunityWorkbook(saved.planilha);
+          } catch {status.textContent='Não foi possível baixar este lote.';}
+          finally {download.disabled=false;}
+        };
+        item.append(download);list.append(item);
+      }
+      offset+=Math.min(25,batches.length);
+      more.hidden=batches.length<=25;
+      status.textContent=offset?'':'Nenhum lote registrado.';
+    } catch {status.textContent='Não foi possível carregar os lotes.';more.hidden=false;}
+    finally {more.disabled=false;}
+  };
+  more.onclick=load;await load();
+};
+
+async function crmOpenClientProfile(row,selectedId) {
+  const {dialog,form}=crmDialog('Ficha · '+(row.nome||formatCpf(row.cpf)));
+  dialog.classList.add('crm-client-drawer');
+  const epoch=authEpoch;
+  const status=crmElement('p','muted','Carregando cadastro e consultas…');status.setAttribute('role','status');form.append(status);
+  const scope={cpf:'eq.'+row.cpf,user_id:'eq.'+row.user_id};
+  const money=value=>value==null?'Não informado':crmMoney.format(value);
+  try {
+    const [clients,links,opportunities,history]=await Promise.all([
+      sbRequest(crmPath('crm_cadastros',{...scope,limit:1})),
+      sbRequest(crmPath('crm_vinculos',{...scope,order:'confirmado_em.desc'})),
+      sbRequest(crmPath('crm_opportunity_cards',{...scope,order:'created_at.desc,id.desc'})),
+      sbRequest(crmPath('crm_consultas',{...scope,order:'created_at.desc,id.desc',limit:25}))
+    ]);
+    if (!dialog.open || epoch!==authEpoch) return;
+    const client=clients[0]||row;
+    status.remove();
+    const registration=crmElement('section','crm-profile-section');
+    registration.append(crmElement('h3','','Cadastro'));
+    for (const [label,value] of [['Nome',client.nome],['CPF',formatCpf(row.cpf)],['Telefone',client.telefone],['Nascimento',client.data_nascimento?.split('-').reverse().join('/')]]) {
+      registration.append(crmElement('p','',label+': '+(value||'Não informado')));
+    }
+    for (const link of links) registration.append(crmElement('p','','Matrícula '+link.matricula+' · '+link.uf+' · '+link.convenio));
+    form.append(registration);
+    const cards=crmElement('section','crm-profile-section');cards.append(crmElement('h3','','Oportunidades deste cliente'));
+    const ordered=[...opportunities].sort((a,b)=>Number(b.id===selectedId)-Number(a.id===selectedId));
+    for (const opportunity of ordered) {
+      const item=crmElement('div','crm-profile-opportunity'+(opportunity.id===selectedId?' selected':''));
+      item.append(crmElement('strong','',crmProducts[opportunity.produto]+' · '+crmStages[opportunity.etapa]),
+        crmElement('p','','Responsável: '+(opportunity.responsavel||'Não atribuído')),
+        crmElement('p','','Próxima ação: '+(opportunity.proxima_acao||'Não informada')));
+      const finance=crmElement('div','crm-card-finance');crmCardFinance(opportunity,finance);item.append(finance);cards.append(item);
+    }
+    if(!ordered.length) cards.append(crmElement('p','muted','Nenhuma oportunidade registrada.'));
+    form.append(cards);
+    const consultations=crmElement('section','crm-profile-section');
+    consultations.append(crmElement('h3','','Consultas recentes'));
+    const seen=new Set();
+    const list=crmElement('div');consultations.append(list);
+    const append=items=>{
+      for (const result of items) {
+        const source=result.servico.startsWith('amigoz_')?'Amigoz':result.servico==='tjba_margem'?'ConsigX':'Digi+';
+        const key=source+'|'+(result.convenio||'');
+        const detail=crmElement('details','crm-profile-consultation');
+        detail.open=!seen.has(key);seen.add(key);
+        detail.append(crmElement('summary','',[
+          source,result.convenio,statusNames[result.status]||result.status,new Date(result.consultado_em||result.created_at).toLocaleString('pt-BR')
+        ].filter(Boolean).join(' · ')));
+        const columns=crmAmigozColumns(result.resultado_amigoz,money);
+        const fields=source==='Amigoz' ? [['Matrícula',columns.matricula||result.matricula],['Margem por produto',columns.margemCartao],['Limite',columns.limite],['Saque disponível',columns.saque]]
+          : source==='ConsigX' ? [['Matrícula',result.matricula],['Situação funcional',result.situacao_atual],['Margem empréstimo',money(result.emprestimo_disponivel)],['Margem cartão',money(result.cartao_disponivel)]]
+          : [['Saldo devedor',money(result.saldo_liquidacao)],['Parcela',money(result.valor_parcela)]];
+        for(const [label,value] of fields) detail.append(crmElement('p','',label+': '+(value??'Não informado')));
+        if(result.detalhe) detail.append(crmElement('p','muted',result.detalhe));
+        list.append(detail);
+      }
+    };
+    append(history);
+    if(!history.length) list.append(crmElement('p','muted','Nenhuma consulta registrada.'));
+    let offset=history.length;
+    const more=crmElement('button','','Carregar consultas anteriores');more.type='button';more.hidden=history.length<25;
+    more.onclick=async()=>{
+      more.disabled=true;
+      try {
+        const page=await sbRequest(crmPath('crm_consultas',{...scope,order:'created_at.desc,id.desc',limit:25,offset}));
+        if (!dialog.open || epoch!==authEpoch) return;
+        append(page);offset+=page.length;more.hidden=page.length<25;
+      } catch {more.textContent='Tentar carregar novamente';}
+      finally {more.disabled=false;}
+    };
+    consultations.append(more);form.append(consultations);
+  } catch {status.textContent='Não foi possível carregar a ficha. Feche e tente novamente.';}
+}
+
 function crmDialog(title){
   const dialog=document.createElement('dialog');dialog.className='crm-dialog';
   const header=crmElement('header','heading');header.append(crmElement('h2','',title));
@@ -563,6 +713,7 @@ function crmLabeled(form,text,input){const label=crmElement('label','crm-edit-fi
 function crmEditOpportunity(row,settings,request){
   const {dialog,form}=crmDialog('Editar oportunidade');
   const title=document.createElement('input');title.value=row.nome||'';title.maxLength=160;crmLabeled(form,'Título do cartão (não altera o cadastro do cliente)',title);
+  const owner=document.createElement('input');owner.maxLength=120;owner.value=row.responsavel||'';crmLabeled(form,'Responsável',owner);
   const action=document.createElement('textarea');action.maxLength=500;action.value=row.proxima_acao||'';crmLabeled(form,'Próxima ação',action);
   const inputs={};
   for(const field of settings.fields){
@@ -576,7 +727,7 @@ function crmEditOpportunity(row,settings,request){
   form.onsubmit=async event=>{
     event.preventDefault();save.disabled=true;const campos={};
     for(const field of settings.fields){const input=inputs[field.id];campos[field.id]=field.type==='boolean'?input.checked:input.value===''?null:field.type==='number'?Number(input.value):input.value;}
-    const ok=await crmMoveOpportunity(row.id,row.etapa,request,{nome:title.value.trim()||null,proxima_acao:action.value.trim()||null,campos});
+    const ok=await crmMoveOpportunity(row.id,row.etapa,request,{nome:title.value.trim()||null,responsavel:owner.value.trim()||null,proxima_acao:action.value.trim()||null,campos});
     if(ok)dialog.close();else{status.textContent='Não foi possível salvar. Verifique sua conexão e tente novamente.';save.disabled=false;}
   };
 }

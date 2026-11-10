@@ -27,7 +27,7 @@ vm.createContext(ctx);vm.runInContext(fs.readFileSync('dist/crm.js','utf8'),ctx)
  get('#crmPipelineRows').closest=()=>({});
  ctx.XLSX={utils:{aoa_to_sheet:rows=>rows,book_new:()=>({}),book_append_sheet:()=>{}},writeFile:()=>{downloaded=true;}};
  handler=async(path,options)=>{
-   if(path.includes('crm_marcar_exportadas')){
+   if(path.includes('crm_registrar_exportacao')){
      assert(downloaded);
      assert.deepEqual(JSON.parse(options.body).p_itens,[{id:'1',etapa:'novo'}]);moved=true;return 1;
    }
