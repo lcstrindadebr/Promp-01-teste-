@@ -103,6 +103,29 @@ async function loadCrmLinks(client) {
   }
 }
 
+function crmAmigozColumns(result, money) {
+  const margins = result?.margem?.status === 'respondido' && Array.isArray(result.margem.dados)
+    ? result.margem.dados.filter(item => item && typeof item === 'object') : [];
+  const offers = result?.saque?.status === 'respondido' && Array.isArray(result.saque.dados?.ofertas)
+    ? result.saque.dados.ofertas.filter(item => item && !item.erro_informado) : [];
+  const currency = value => typeof value === 'number' && Number.isFinite(value) ? money(value) : null;
+  const join = values => [...new Set(values.filter(Boolean))].join(' · ') || null;
+  const cardType = item => ({7:'Benefício',15:'Consignado'})[item.idProduto ?? item.tipo_produto];
+  const offerValues = field => join(offers.map(item => {
+    const amount = currency(item[field]);
+    return amount && (item.nome_oferta ? item.nome_oferta + ': ' + amount : amount);
+  }));
+  return {
+    matricula: join(margins.map(item => item.numeroMatricula != null ? String(item.numeroMatricula) : null)),
+    margemCartao: join(margins.map(item => {
+      const type = cardType(item), amount = currency(item.margem_atual);
+      return type && amount ? type + ': ' + amount : null;
+    })),
+    limite: offerValues('limite_cartao'),
+    saque: offerValues('valor_saque_disponivel')
+  };
+}
+
 async function loadCrmHistory() {
   const request = ++crmHistoryRequest;
   const params = {cpf:'eq.'+crmClient.cpf,user_id:'eq.'+crmClient.user_id,
@@ -120,14 +143,16 @@ async function loadCrmHistory() {
         agreements.add(new Option(row.convenio.toUpperCase(), row.convenio));
       }
       const service = row.servico.startsWith('amigoz_') ? 'Amigoz · ' + ({amigoz_ambos:'Margem e saque',amigoz_margem:'Margem',amigoz_saque:'Saque complementar'}[row.servico] || row.servico) : row.convenio ? 'ConsigX · ' + row.convenio.toUpperCase() : 'Digi+';
+      const amigoz = row.servico.startsWith('amigoz_');
+      const columns = crmAmigozColumns(row.resultado_amigoz, money);
       $('#crmHistoryRows').append(crmRow([service, statusNames[row.status] || row.status,
-        row.matricula, row.situacao_atual, money(row.emprestimo_disponivel),
-        money(row.cartao_disponivel), money(row.saldo_liquidacao), money(row.valor_parcela),
+        columns.matricula ?? row.matricula, row.situacao_atual, money(row.emprestimo_disponivel),
+        columns.margemCartao ?? money(row.cartao_disponivel), money(row.saldo_liquidacao), money(row.valor_parcela),
+        columns.limite, columns.saque,
         new Date(row.consultado_em || row.created_at).toLocaleString('pt-BR')]));
-    }
-    for (const row of rows.slice(0, crmPageSize).filter(row => row.servico.startsWith('amigoz_'))) {
+      if (!amigoz) continue;
       const detailRow = document.createElement('tr'), cell = document.createElement('td');
-      cell.colSpan = 9;
+      cell.colSpan = 11;
       const details = document.createElement('details'), summary = document.createElement('summary');
       summary.textContent = 'Amigoz · ' + (row.detalhe || (row.status === 'aguardando' ? 'Aguardando processamento na VPS' : 'Detalhes da consulta'));
       details.append(summary);
