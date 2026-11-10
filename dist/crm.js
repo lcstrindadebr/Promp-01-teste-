@@ -297,9 +297,57 @@ async function loadCrmPipeline(page) {
 crmStageOptions($('#crmStageFilter'), '', true);
 $('#crmStageFilter').onchange = () => loadCrmPipeline(0);
 $('#crmExportOpportunities').onclick = async () => {
-  const button = $('#crmExportOpportunities'), status = $('#crmExportOpportunitiesStatus');
-  const stage = $('#crmStageFilter').value, epoch = authEpoch;
-  const products = Object.keys(crmProducts).filter(key=>$('#crmExportProduct-'+key).checked);
+  const {dialog,form} = crmDialog('Exportar oportunidades');
+  const epoch = authEpoch;
+  const stage = $('#crmStageFilter').value;
+  const uf = document.createElement('select'), convenio = document.createElement('select');
+  crmLabeled(form,'Estado',uf);
+  crmLabeled(form,'Convênio',convenio);
+  const types = crmElement('fieldset','crm-export-types');
+  types.append(crmElement('legend','','Tipos de oportunidade'));
+  const checks = Object.entries(crmProducts).map(([key,name])=>{
+    const box = document.createElement('input');
+    box.type = 'checkbox';box.value = key;box.checked = true;
+    crmLabeled(types,name,box);
+    return box;
+  });
+  form.append(types,crmElement('p','muted','Etapa: '+(crmStages[stage] || 'Todas as etapas abertas')));
+  const status = crmElement('p','muted','Carregando estados e convênios…');
+  status.setAttribute('role','status');
+  const submit = crmElement('button','primary','Baixar planilha e mover para Exportadas');
+  submit.type = 'submit';submit.disabled = true;
+  form.append(status,submit);
+  try {
+    const [options,catalog] = await Promise.all([crmRpc('crm_filter_options'),crmGetImportCatalog().catch(()=>[])]);
+    if (epoch !== authEpoch || !dialog.open) return;
+    uf.add(new Option('Todos os estados',''));
+    for (const code of [...new Set(options.map(item=>item.uf))]) uf.add(new Option(crmStates[code] || code,code));
+    const updateAgreements = ()=>{
+      convenio.replaceChildren(new Option('Todos os convênios',''));
+      const shown = new Set();
+      for (const item of options) {
+        if ((uf.value && item.uf !== uf.value) || shown.has(item.convenio)) continue;
+        shown.add(item.convenio);
+        const name = catalog.find(row=>row.uf===item.uf && row.codigo===item.convenio)?.nome || item.convenio.toUpperCase();
+        convenio.add(new Option(name,item.convenio));
+      }
+    };
+    uf.onchange = updateAgreements;
+    updateAgreements();
+    status.textContent = '';
+    submit.disabled = false;
+    form.onsubmit = async event=>{
+      event.preventDefault();
+      if (submit.disabled || epoch !== authEpoch) return;
+      await crmDownloadOpportunities({stage,uf:uf.value,convenio:convenio.value,products:checks.filter(box=>box.checked).map(box=>box.value)},submit,status);
+    };
+  } catch {
+    status.textContent = 'Não foi possível carregar os filtros de exportação.';
+  }
+};
+
+async function crmDownloadOpportunities({stage,uf,convenio,products},button,status) {
+  const epoch = authEpoch;
   const openStages = ['novo','contato','simulacao','negociacao'];
   if (!products.length) {status.textContent = 'Selecione pelo menos um tipo para exportar.';return;}
   if (stage && !openStages.includes(stage)) {
@@ -312,10 +360,9 @@ $('#crmExportOpportunities').onclick = async () => {
   let after = '', downloaded = false;
   try {
     for (;;) {
-      const params = {etapa:stage ? 'eq.'+stage : 'in.('+openStages.join(',')+')',order:'id.asc',limit:500};
-      params.produto = 'in.('+products.join(',')+')';
-      if (after) params.id = 'gt.'+after;
-      const page = await sbRequest(crmPath('crm_opportunity_cards',params));
+      const page = await crmRpc('crm_export_opportunities',{
+        p_uf:uf,p_convenio:convenio,p_tipos:products,p_etapa:stage,p_after:after || null
+      });
       if (!authenticated || epoch !== authEpoch) return;
       if (!page.length) break;
       rows.push(...page);
@@ -344,13 +391,14 @@ $('#crmExportOpportunities').onclick = async () => {
     if (!authenticated || epoch !== authEpoch) return;
     status.textContent = rows.length+' no arquivo · '+moved+' movidas para Exportadas.'+
       (moved < rows.length ? ' As demais já mudaram de etapa.' : '');
+    $('#crmExportOpportunitiesStatus').textContent = status.textContent;
     if (!$('#crmPipelineRows').closest('[hidden]')) await loadCrmPipeline(0);
   } catch {
     if (epoch === authEpoch) status.textContent = downloaded
       ? 'Download iniciado. Não foi possível confirmar a movimentação. Confira o Kanban.'
       : 'Não foi possível gerar a planilha.';
   } finally {button.disabled = false;}
-};
+}
 $('#crmPipelinePrevious').onclick = () => loadCrmPipeline(crmPipelinePage-1);
 $('#crmPipelineNext').onclick = () => loadCrmPipeline(crmPipelinePage+1);
 $('#crmOpportunityForm').onsubmit = async event => {

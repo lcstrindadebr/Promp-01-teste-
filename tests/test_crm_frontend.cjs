@@ -22,7 +22,7 @@ vm.createContext(ctx);vm.runInContext(fs.readFileSync('dist/crm.js','utf8'),ctx)
  handler=async()=>{throw Error('network')};assert.equal(await vm.runInContext("crmMoveOpportunity('id','ganho',crmPipelineRequest)",ctx),false);assert.match(get('#crmPipelineStatus').textContent,/etapa anterior/);
  handler=async path=>path.includes('crm_card_settings')?[]:[];await vm.runInContext('loadCrmPipeline(0)',ctx);assert.equal(get('#crmPipelineRows').children.length,7);
  assert.deepEqual(get('#crmStageFilter').options.slice(1,3).map(option=>option.value),['novo','exportada']);
- get('#crmExportProduct-saque').checked=true;
+ const exportFile=()=>vm.runInContext("crmDownloadOpportunities({stage:'novo',uf:'SP',convenio:'amigoz_33',products:['saque']},$('#crmExportOpportunities'),$('#crmExportOpportunitiesStatus'))",ctx);
  let downloaded=false,moved=false;
  get('#crmPipelineRows').closest=()=>({});
  ctx.XLSX={utils:{aoa_to_sheet:rows=>rows,book_new:()=>({}),book_append_sheet:()=>{}},writeFile:()=>{downloaded=true;}};
@@ -31,14 +31,15 @@ vm.createContext(ctx);vm.runInContext(fs.readFileSync('dist/crm.js','utf8'),ctx)
      assert(downloaded);
      assert.deepEqual(JSON.parse(options.body).p_itens,[{id:'1',etapa:'novo'}]);moved=true;return 1;
    }
-   const params=new URLSearchParams(path.split('?')[1]);
-   assert.equal(params.get('produto'),'in.(saque)');
-   return params.has('id')?[]:[{id:'1',cpf:'00000000001',etapa:'novo',produto:'saque'}];
+   assert(path.includes('crm_export_opportunities'));
+   const params=JSON.parse(options.body);
+   assert.deepEqual(params.p_tipos,['saque']);assert.equal(params.p_uf,'SP');assert.equal(params.p_convenio,'amigoz_33');
+   return params.p_after?[]:[{id:'1',cpf:'00000000001',etapa:'novo',produto:'saque'}];
  };
- await get('#crmExportOpportunities').onclick();assert(moved);
+ await exportFile();assert(moved);
  assert.match(get('#crmExportOpportunitiesStatus').textContent,/1 movidas/);
  moved=false;ctx.XLSX.writeFile=()=>{throw Error('falha ao gerar');};
- await get('#crmExportOpportunities').onclick();assert.equal(moved,false);
+ await exportFile();assert.equal(moved,false);
  const html=fs.readFileSync('dist/index.html','utf8');const nav=html.match(/<nav>(.*?)<\/nav>/s)[1];assert(!nav.includes('data-page="campaigns"'));assert(html.includes('data-consultation="campaigns"'));
  console.log('PASS: CRM cursor pagination, 1,201-row export, failed export, failed stage move, seven Kanban columns, unified navigation');
 })().catch(e=>{console.error(e);process.exitCode=1});
