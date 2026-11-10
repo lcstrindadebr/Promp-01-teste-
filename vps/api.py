@@ -124,7 +124,7 @@ def amigoz_admin(auth,method,path,payload):
    raise
  try:
   if method=='GET' and route=='/convenios':
-   return 200,{'data':list(amigoz.CATALOG.values())}
+   return 200,{'data':amigoz.public_catalog()}
   if method=='POST' and route=='/configuracao':
    return 200,{'data':amigoz.save_configuration(payload)}
   config=amigoz.configuration()

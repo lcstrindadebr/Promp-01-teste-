@@ -21,6 +21,17 @@ class AmigozTests(unittest.TestCase):
   self.assertNotIn(150,amigoz.CATALOG)
   self.assertIsNone(amigoz.CATALOG[131]['averbadora'])
 
+ def test_full_catalog_is_backend_only_and_keeps_provider_rules(self):
+  row=amigoz.CATALOG[33]
+  self.assertEqual(row['averbadora'],9)
+  self.assertTrue(row['orgao_obrigatorio'])
+  self.assertTrue(row['matricula_obrigatoria'])
+  self.assertIn('sub_orgao',row)
+  self.assertIn('ocupacao',row)
+  public=next(r for r in amigoz.public_catalog() if r['id']==33)
+  self.assertNotIn('sub_orgao',public)
+  self.assertEqual(len(amigoz.public_catalog()),113)
+
  def test_saved_password_is_private_and_cannot_follow_a_changed_host(self):
   with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,STATE_DIRECTORY=directory):
    summary=amigoz.save_configuration(CONFIG)

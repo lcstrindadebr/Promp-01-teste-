@@ -21,7 +21,26 @@ class AmigozError(Exception):
   self.message=message
 
 
-CATALOG = {row['id']:row for row in json.loads(Path(__file__).with_name('amigoz_convenios.json').read_text())}
+def load_catalog():
+ rows=json.loads(Path(__file__).with_name('amigoz_convenios.json').read_text())
+ result={}
+ for row in rows:
+  if type(row.get('id')) is not int or row['id'] in result or not row.get('uf') or not row.get('nome'):
+   raise ValueError('Catálogo Amigoz inválido: identificador, estado ou nome.')
+  if row.get('averbadora') is not None and type(row['averbadora']) is not int:
+   raise ValueError('Catálogo Amigoz inválido: averbadora.')
+  if any(type(product.get('codigo_produto')) is not int or type(product.get('tipo_margem')) is not int for product in row.get('produtos',[])):
+   raise ValueError('Catálogo Amigoz inválido: produto ou margem.')
+  result[row['id']]=row
+ return {key:row for key,row in result.items() if row.get('operacional',True)}
+
+CATALOG = load_catalog()
+
+
+def public_catalog():
+ # Full contractual metadata stays on the backend; picker receives only its fields.
+ fields=('id','nome','uf','averbadora','matricula_obrigatoria','senha_servidor','produtos')
+ return [{key:row[key] for key in fields} for row in CATALOG.values()]
 LOCK = threading.Lock()
 SESSION = None
 MAX_RESPONSE = 1024 * 1024

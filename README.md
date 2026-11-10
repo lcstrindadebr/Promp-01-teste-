@@ -848,3 +848,7 @@ Consultas individuais Amigoz também criam registro persistente antes de chamar 
 ### Autenticação Amigoz — compatibilidade com o fluxo n8n
 
 O sistema usa POST `/api/login` com `usuario` e `senha`, depois o campo `access` como Bearer nas duas consultas. Não chama `seleciona-corban`. Saque V2 recebe CPF sem pontuação; margem PM-SP recebe CPF, `averbadora: 9` e `convenio: 33`. Matrícula e senha do servidor são opcionais. HTTP 401 permite uma renovação; HTTP 403 não é repetido como se fosse expiração. Falhas registram operação, código e status HTTP sem tokens ou senhas. Após atualizar, o serviço da API reinicia e descarta o token anterior.
+
+### Catálogo completo Amigoz
+
+`vps/amigoz_convenios.json` preserva os 114 registros fornecidos, incluindo produtos, tipos de margem, subórgãos, ocupações e regras cadastrais. O registro 150, marcado pelo fornecedor como simulação/não digitar, fica com `operacional: false`. O backend valida IDs duplicados e tipos dos identificadores ao iniciar. A seleção pública retorna somente os campos necessários à tela. Regras cadastrais não são automaticamente transformadas em campos obrigatórios na consulta simplificada. Atualização via instalador preserva as credenciais existentes.
