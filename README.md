@@ -801,7 +801,7 @@ depois dessa validação.
 
 **Clientes** usa cadastro persistente por conta/CPF. Consultas enriquecem os vínculos com matrícula, origem e data; excluir uma consulta não apaga o cadastro. A busca é paginada no servidor. Filtros de estado e convênio usam classificações importadas e vínculos confirmados. Registros legados sem classificação continuam disponíveis na listagem geral. O filtro de serviço seleciona consultas existentes. **Exportar todos os filtrados** percorre todas as páginas, sem teto total de 500/1.000/5.000; nenhuma exportação incompleta é baixada em caso de erro. Dados podem receber atualizações durante a exportação; ela não é um snapshot transacional.
 
-**Importar base** em Clientes pede estado, convênio e intenção de usar Digi+, nessa ordem. O CPF é obrigatório. Nome e telefone são opcionais. A importação não cria campanhas, não inicia consultas e não consome cota.
+**Importar base** em Clientes pede estado, convênio cadastrado e consultas previstas, nessa ordem. O catálogo reúne ConsigX e Amigoz. Saldo e parcela Digi+ é uma opção adicional. O CPF é obrigatório. Nome e telefone são opcionais. A importação não cria campanhas, não inicia consultas e não consome cota.
 
 Em **Configurações → Conta e diagnóstico**, um administrador ativo pode usar **Zerar minha conta**. A confirmação digitada apaga dados operacionais da própria conta e preserva login, permissões e configurações.
 
@@ -816,6 +816,7 @@ No projeto Supabase conectado, as migrações CRM já foram aplicadas. Para outr
 5. `supabase/upgrade_crm_card_presentation.sql`
 6. `supabase/upgrade_crm_importacao.sql`
 7. `supabase/upgrade_crm_zerar_conta.sql`
+8. `supabase/upgrade_crm_catalogo_importacao.sql`
 
 Para banco novo, use o `supabase/schema.sql` completo. O instalador da VPS atualiza o código; não executa SQL em outro projeto automaticamente.
 

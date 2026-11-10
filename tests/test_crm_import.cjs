@@ -21,3 +21,14 @@ test('rejects mismatched region and duplicate CPF without partial import', async
   await assert.rejects(read('cpf;convênio\n00000000101;Outro'),/convênio diferente/);
   await assert.rejects(read('cpf\n00000000101\n000.000.001-01'),/CPF repetido/);
 });
+
+test('accepts the provider code or catalog display name in an imported row', async () => {
+  for (const name of ['amigoz_33', 'Polícia Militar - São Paulo']) {
+    const csv = 'cpf;estado;convênio\n00000000101;São Paulo;' + name;
+    const rows = await context.crmReadClientFile(
+      {name:'base.csv',size:csv.length,text:async () => csv},
+      'SP','amigoz_33','Polícia Militar - São Paulo'
+    );
+    assert.equal(rows[0].cpf,'00000000101');
+  }
+});

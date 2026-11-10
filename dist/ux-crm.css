@@ -368,3 +368,29 @@ button.crm-danger:hover:not(:disabled) { color: #782020; border-color: #b75858; 
   #clients > .consultation-header, .crm-import-dialog { padding: 16px; }
   .crm-import-steps li { padding-inline: 4px; }
 }
+
+.crm-import-services {
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--crm-border-strong);
+  border-radius: 8px;
+}
+.crm-import-services legend { padding: 0 6px; font-size: 13px; font-weight: 700; }
+.crm-import-services [data-services] { display: grid; gap: 6px; margin-top: 10px; }
+.crm-import-services label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 36px;
+  font-size: 13px;
+  font-weight: 550;
+}
+.crm-import-services input[type=checkbox] {
+  width: 17px;
+  height: 17px;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--crm-action);
+}
+.crm-planned-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-block: 6px 10px; }

@@ -39,7 +39,7 @@ A pessoa será o centro do CRM. Campanhas organizam o processamento; consultas p
 
 ### 3.1 Importar uma base cadastral
 
-Em Clientes, informar estado e convênio nessa ordem, responder se pretende usar a base no Digi+ e importar a planilha. A importação registra clientes e classificações informadas, sem criar tarefas. Uma campanha é criada separadamente em Consultas, com os participantes e o serviço selecionados.
+Em Clientes, informar estado e convênio nessa ordem, selecionar as consultas previstas para o convênio, com Digi+ como opção adicional e importar a planilha. A importação registra clientes e classificações informadas, sem criar tarefas. Uma campanha é criada separadamente em Consultas, com os participantes e o serviço selecionados.
 
 ### 3.2 Consultar uma pessoa
 
@@ -103,7 +103,7 @@ Quadro por etapa comercial e alternativa em tabela. Cartões com cliente, produt
 
 ## 5. Importação cadastral e criação de campanha
 
-Em **Clientes**, selecione estado, informe o convênio e depois indique a intenção de uso no Digi+. Envie a planilha e confirme **Importar clientes**. O cadastro não consome cota nem enfileira tarefas.
+Em **Clientes**, selecione estado, escolha um convênio cadastrado e depois marque as consultas previstas. Envie a planilha e confirme **Importar clientes**. O cadastro não consome cota nem enfileira tarefas.
 
 As etapas abaixo descrevem a criação de campanha em **Consultas**.
 

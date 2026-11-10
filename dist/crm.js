@@ -70,9 +70,10 @@ async function loadCrmLinks(client) {
   status.textContent = 'Carregando vínculos…';
   try {
     const owner = {cpf:'eq.' + client.cpf, user_id:'eq.' + client.user_id, limit:100};
-    const [links, classifications] = await Promise.all([
+    const [links, classifications, catalog] = await Promise.all([
       sbRequest(crmPath('crm_vinculos', {...owner, order:'confirmado_em.desc,convenio.asc,matricula.asc'})),
-      sbRequest(crmPath('crm_classificacoes', {...owner, order:'importado_em.desc'}))
+      sbRequest(crmPath('crm_classificacoes', {...owner, order:'importado_em.desc'})),
+      crmGetImportCatalog().catch(() => [])
     ]);
     if (crmClient !== client) return;
     for (const link of links) {
@@ -87,9 +88,14 @@ async function loadCrmLinks(client) {
       }
     }
     for (const classification of classifications) {
-      const label = classification.uf + ' · ' + classification.convenio.toUpperCase();
-      const preference = classification.usar_digimais ? 'Pretende usar Digi+' : 'Sem previsão de usar Digi+';
-      list.append(crmElement('li','',label + ' · Informado na importação · ' + preference));
+      const agreement = catalog.find(row => row.uf === classification.uf && row.codigo === classification.convenio);
+      const label = classification.uf + ' · ' + (agreement?.nome || classification.convenio.toUpperCase());
+      const planned = classification.servicos_planejados?.length ? classification.servicos_planejados
+        : classification.usar_digimais ? ['digimais_saldo'] : [];
+      const preference = planned.map(service => crmPlannedServices[service] || service).join(', ') || 'Sem consultas previstas';
+      const item = crmElement('li','',label + ' · Informado na importação · ' + preference);
+      if (agreement) crmAddPlannedActions(item, client, agreement, planned);
+      list.append(item);
     }
     status.textContent = links.length ? '' : 'Nenhum vínculo confirmado por consulta.';
   } catch {
@@ -268,9 +274,15 @@ function crmRpc(name,params={}) {return sbRequest('/rest/v1/rpc/'+name,{method:'
 async function loadCrmFilterOptions(){
   const epoch=authEpoch;
   try{
-    const options=await crmRpc('crm_filter_options');
+    const [options, catalog] = await Promise.all([
+      crmRpc('crm_filter_options'),
+      typeof crmGetImportCatalog === 'function' ? crmGetImportCatalog().catch(() => []) : []
+    ]);
     if(currentPage!=='clients'||!authenticated||epoch!==authEpoch)return;
-    crmOptions=options;
+    crmOptions=options.map(option => ({
+      ...option,
+      nome:catalog.find(row => row.uf === option.uf && row.codigo === option.convenio)?.nome
+    }));
     const uf=$('#crmUF'),selected=uf.value;
     uf.replaceChildren(new Option('Todos',''));
     for(const value of [...new Set(options.map(x=>x.uf))])uf.add(new Option(value,value));
@@ -280,7 +292,7 @@ async function loadCrmFilterOptions(){
 function crmUpdateAgreements(){
   const select=$('#crmAgreementFilter'),selected=select.value;
   select.replaceChildren(new Option('Todos',''));
-  for(const item of crmOptions.filter(x=>!$('#crmUF').value||x.uf===$('#crmUF').value))select.add(new Option(item.convenio.toUpperCase()+' · '+item.uf,item.convenio));
+  for(const item of crmOptions.filter(x=>!$('#crmUF').value||x.uf===$('#crmUF').value))select.add(new Option((item.nome || item.convenio.toUpperCase())+' · '+item.uf,item.convenio));
   select.value=Array.from(select.options).some(x=>x.value===selected)?selected:'';
 }
 $('#crmUF').onchange=crmUpdateAgreements;
