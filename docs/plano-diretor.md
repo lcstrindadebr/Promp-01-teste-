@@ -26,7 +26,7 @@ A pessoa será o centro do CRM. Campanhas organizam o processamento; consultas p
 
 1. Uma importação corresponde a um único estado e convênio. Importações mistas não serão oferecidas.
 2. Escolher estado, depois convênio, depois as possibilidades de consulta.
-3. Importar a base cadastral sem iniciar consultas. Confirmar uma campanha separadamente para iniciar o processamento autorizado.
+3. Importar a base e iniciar automaticamente as consultas marcadas na confirmação. Sem serviços marcados, apenas cadastrar. A importação continua distinta da criação manual de campanha.
 4. Manter consulta individual e criação de campanhas específicas.
 5. Atualizar o cadastro com informações obtidas nas consultas, incluindo matrícula.
 6. Preservar histórico, resultados parciais e campanhas existentes.
@@ -39,7 +39,7 @@ A pessoa será o centro do CRM. Campanhas organizam o processamento; consultas p
 
 ### 3.1 Importar uma base cadastral
 
-Em Clientes, informar estado e convênio nessa ordem, selecionar as consultas previstas para o convênio, com Digi+ como opção adicional e importar a planilha. A importação registra clientes e classificações informadas, sem criar tarefas. Uma campanha é criada separadamente em Consultas, com os participantes e o serviço selecionados.
+Em Clientes, informar estado e convênio nessa ordem, selecionar as consultas previstas para o convênio, com Digi+ como opção adicional e importar a planilha. A confirmação registra clientes e classificações e agenda os serviços marcados. Consultas permite criar campanhas específicas separadamente.
 
 ### 3.2 Consultar uma pessoa
 
@@ -69,7 +69,7 @@ Pausar, atualizar o sistema ou reiniciar um trabalhador sem perder resultados. R
 | Oportunidades | Funil comercial e visualização em tabela. |
 | Configurações | Operação, acessos, robôs, comissões, integrações e usuários conforme permissão. |
 
-**Importar base**, em Clientes, cadastra pessoas e registra o contexto da base. **Nova campanha**, em Consultas, configura a execução em lote. São ações independentes.
+**Importar base**, em Clientes, cadastra pessoas e registra o contexto da base. **Nova campanha**, em Consultas, configura a execução em lote. São ações distintas; a importação com serviços selecionados agenda o processamento automaticamente.
 
 ### 4.1 Diretrizes visuais
 
@@ -103,7 +103,7 @@ Quadro por etapa comercial e alternativa em tabela. Cartões com cliente, produt
 
 ## 5. Importação cadastral e criação de campanha
 
-Em **Clientes**, selecione estado, escolha um convênio cadastrado e depois marque as consultas previstas. Envie a planilha e confirme **Importar clientes**. O cadastro não consome cota nem enfileira tarefas.
+Em **Clientes**, selecione estado, escolha um convênio cadastrado e depois marque as consultas previstas. Envie a planilha e confirme **Importar clientes**. Sem serviços selecionados, o cadastro não consome cota nem enfileira tarefas. Com seleção, a confirmação reserva a cota aplicável e cria tarefas de forma atômica e idempotente.
 
 As etapas abaixo descrevem a criação de campanha em **Consultas**.
 

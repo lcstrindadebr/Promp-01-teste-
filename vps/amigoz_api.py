@@ -217,10 +217,10 @@ def consultation(config,payload,before_request=None):
   raise AmigozError(422,'invalid_amigoz_query','Informe CPF, convênio e tipo de consulta válidos.')
  margin={'cpf':cpf,'convenio':convenio_id,'averbadora':convenio['averbadora']}
  if mode in ('margem','ambos') and convenio['averbadora'] is not None:
-  for field,required,label in (('numero_matricula',convenio['matricula_obrigatoria'],'matrícula'),
-                               ('senha_servidor',convenio['senha_servidor'],'senha do servidor')):
+  # OpenAPI ConsultaQueryParams: these nullable fields are optional.
+  for field,label in (('numero_matricula','matrícula'),('senha_servidor','senha do servidor')):
    value=payload.get(field)
-   if (value is not None and (not isinstance(value,str) or len(value)>256)) or (required and not value):
+   if (value is not None and (not isinstance(value,str) or len(value)>256)):
     raise AmigozError(422,'invalid_amigoz_margin_input',f'Informe {label} para este convênio.')
    if value:
     margin[field]=value

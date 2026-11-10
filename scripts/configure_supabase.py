@@ -23,6 +23,8 @@ def probe(url, public, secret):
     checks=[('/auth/v1/settings',{'apikey':public}),
             ('/rest/v1/consulta_jobs?select=id,lote_id,user_id,nome,cpf,telefone,status,servico,saldo_liquidacao,total_parcelas,valor_parcela,resultado_saldo,resultado_parcela,message,created_at,consultado_em,progress,stage&limit=0',{'apikey':secret}),
             ('/rest/v1/consulta_lotes?select=id,user_id,nome,tipo,servico&limit=0',{'apikey':secret}),
+            ('/rest/v1/amigoz_jobs?select=id,status,lease&limit=0',{'apikey':secret}),
+            ('/rest/v1/crm_catalogo_importacao?select=matricula_obrigatoria,senha_servidor&limit=0',{'apikey':secret}),
             ('/rest/v1/vps_monitoramento?select=id,updated_at,payload&limit=0',{'apikey':secret}),
             ('/rest/v1/tjba_jobs?select=id,lote_id,user_id,cpf,status,emprestimo_disponivel,cartao_disponivel,matricula,tipo_servidor,situacao_atual,tjba_status,resultado_tjba&limit=0',{'apikey':secret}),
             ('/rest/v1/tjba_lotes?select=id,user_id,nome,tipo,servico&limit=0',{'apikey':secret})]

@@ -135,7 +135,32 @@ def amigoz_admin(auth,method,path,payload):
    if route=='/testar':
     amigoz.session(config,force=True)
     return 200,{'data':{'connected':True}}
-   return 200,{'data':amigoz.consultation(config,payload,before_request=lambda:authorize(True))}
+   execution={}
+   def begin():
+    convenio=amigoz.CATALOG[payload['convenio_id']]
+    try:
+     record=supabase_call('/rest/v1/rpc/start_amigoz_individual',dict(
+      p_actor=actor,p_cpf=re.sub(r'[.\-\s]','',payload['cpf']),
+      p_convenio='amigoz_'+str(convenio['id']),p_uf=convenio['uf'],
+      p_modo=payload['modo'],p_matricula=payload.get('numero_matricula')))
+     execution.update(record[0] if isinstance(record,list) else record)
+    except urllib.error.HTTPError as error:
+     if error.code==429:raise AdminError(429,'daily_limit','Limite diário de consultas atingido.') from None
+     if error.code in (401,403):raise AdminError(403,'amigoz_access_denied','Acesso Amigoz não liberado.') from None
+     raise
+   result=amigoz.consultation(config,payload,before_request=begin)
+   if execution:
+    operations=[result[key] for key in ('saque','margem') if key in result]
+    failures=sum(operation.get('status')!='respondido' for operation in operations)
+    state='erro' if failures==len(operations) else 'revisao' if failures else 'concluida'
+    try:
+     saved=supabase_call('/rest/v1/rpc/finish_amigoz_import_job',dict(
+      p_id=execution['id'],p_lease=execution['lease'],p_status=state,p_resultado=result,
+      p_message='Resultado parcial.' if state=='revisao' else 'Consulta finalizada.'))
+    except Exception:saved=False
+    result['consulta_id']=execution['id']
+    result['salvo_no_historico']=bool(saved)
+   return 200,{'data':result}
   raise AdminError(404,'not_found','Rota não encontrada.')
  except amigoz.AmigozError as error:
   raise AdminError(502 if error.status in (401,403) else error.status,error.code,error.message) from None
@@ -215,4 +240,8 @@ class Handler(BaseHTTPRequestHandler):
  def do_DELETE(self):self.do_OPTIONS()
  def do_PATCH(self):self.do_OPTIONS()
 
-if __name__=='__main__':Server(('127.0.0.1',8877),Handler).serve_forever()
+if __name__=='__main__':
+ import amigoz_queue
+ queue_stop=amigoz_queue.start(supabase_call)
+ try:Server(('127.0.0.1',8877),Handler).serve_forever()
+ finally:queue_stop.set()

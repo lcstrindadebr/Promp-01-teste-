@@ -38,10 +38,10 @@ amigozConsultPanel.innerHTML=`<header class="amigoz-consult-heading"><h2>Consult
   <fieldset class="amigoz-form-group"><legend>Dados do cliente</legend>
    <div class="amigoz-form-fields">
     <div><label class="field" for="amigozConsultCpf">CPF</label><input id="amigozConsultCpf" inputmode="numeric" placeholder="000.000.000-00" required></div>
-    <div id="amigozExtraMargin" class="amigoz-form-fields amigoz-field-wide" hidden>
-     <div><label class="field" for="amigozRegistration">Matrícula</label><input id="amigozRegistration" maxlength="256"></div>
-     <div id="amigozServerPasswordField" hidden><label class="field" for="amigozServerPassword">Senha do servidor</label><input id="amigozServerPassword" type="password" autocomplete="off" maxlength="256"></div>
-    </div>
+    <details id="amigozExtraMargin" class="amigoz-field-wide" hidden><summary>Dados adicionais (opcionais)</summary>
+     <div><label class="field" for="amigozRegistration">Matrícula (opcional)</label><input id="amigozRegistration" maxlength="256"></div>
+     <div id="amigozServerPasswordField" hidden><label class="field" for="amigozServerPassword">Senha do servidor (opcional)</label><input id="amigozServerPassword" type="password" autocomplete="off" maxlength="256"></div>
+    </details>
    </div>
   </fieldset>
   <div class="actions"><button type="submit" class="primary">Consultar Amigoz</button><p id="amigozConsultStatus" role="status"></p></div>
@@ -133,9 +133,9 @@ function updateAmigozConvenio(){
  const convenio=amigozCatalog.find(row=>String(row.id)===$('#amigozConvenio').value);
  const wantsMargin=$('#amigozMode').value!=='saque',available=Boolean(convenio&&convenio.averbadora!=null);
  $('#amigozExtraMargin').hidden=!wantsMargin||!available;
- $('#amigozRegistration').required=wantsMargin&&available&&convenio.matricula_obrigatoria;
+ $('#amigozRegistration').required=false;
  $('#amigozServerPasswordField').hidden=!wantsMargin||!available||!convenio.senha_servidor;
- $('#amigozServerPassword').required=wantsMargin&&available&&convenio.senha_servidor;
+ $('#amigozServerPassword').required=false;
  if($('#amigozServerPasswordField').hidden)$('#amigozServerPassword').value='';
  const products=convenio?.produtos.map(p=>`${p.produto} (produto ${p.codigo_produto}, margem ${p.tipo_margem})`).join(' · ');
  $('#amigozConvenioHint').textContent=[wantsMargin&&convenio&&!available?'Margem indisponível. O catálogo não informa a averbadora.':'',products].filter(Boolean).join(' ');
@@ -207,7 +207,7 @@ $('#amigozConsultForm').onsubmit=async e=>{
  try{
   const result=await amigozRequest('consultar',payload);
   if(epoch!==authEpoch||!amigozCanConsult())return;
-  $('#amigozConsultStatus').textContent='Resposta recebida para '+result.cpf+'.';showAmigozResult(result);
+  $('#amigozConsultStatus').textContent='Resposta recebida para '+result.cpf+'.' + (result.salvo_no_historico === false ? ' Não foi possível salvar o resultado. Não repita a consulta; confira o histórico e o diagnóstico.' : result.salvo_no_historico ? ' Salva no histórico do cliente.' : '');showAmigozResult(result);
  }catch(error){if(epoch===authEpoch)$('#amigozConsultStatus').textContent=error.message;}
  finally{amigozBusy=false;button.disabled=false;if(epoch===authEpoch)refreshMyAccess(true).catch(()=>{});}
 };

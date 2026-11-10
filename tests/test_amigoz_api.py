@@ -62,6 +62,14 @@ class AmigozTests(unittest.TestCase):
   self.assertEqual(call.call_args_list[0].args[-1],{'cpf':'00000000001'})
   self.assertEqual(call.call_args_list[1].args[-1],{'cpf':'00000000001','convenio':23,'averbadora':9,'numero_matricula':'00001'})
 
+ def test_pmsp_both_with_only_cpf_client_data(self):
+  with patch.object(amigoz,'call',side_effect=[[],{}]) as provider:
+   result=amigoz.consultation(CONFIG,{'modo':'ambos','cpf':'00000000001','convenio_id':33})
+  self.assertEqual(result['margem']['status'],'respondido')
+  self.assertEqual(provider.call_count,2)
+  self.assertEqual(provider.call_args_list[0].args[-1],{'cpf':'00000000001'})
+  self.assertEqual(provider.call_args_list[1].args[-1],{'cpf':'00000000001','convenio':33,'averbadora':amigoz.CATALOG[33]['averbadora']})
+
  def test_missing_averbadora_does_not_contact_provider(self):
   with patch.object(amigoz,'call') as call:
    result=amigoz.consultation(CONFIG,{'modo':'margem','cpf':'00000000001','convenio_id':131})
@@ -77,12 +85,15 @@ class AmigozTests(unittest.TestCase):
   config.assert_not_called()
 
  def test_partner_consultation_checks_access_and_consumes_one_shared_unit(self):
-  with patch.object(api,'supabase_call',side_effect=[{'id':'fixture'},True,True]) as rpc,patch.object(amigoz,'configuration',return_value=CONFIG),patch.object(amigoz,'call',side_effect=[[],{}]) as provider:
+  with patch.object(api,'supabase_call',side_effect=[{'id':'fixture'},True,[{'id':'job','lease':'lease'}],True]) as rpc,patch.object(amigoz,'configuration',return_value=CONFIG),patch.object(amigoz,'call',side_effect=[[],{}]) as provider:
    status,result=api.amigoz_admin('Bearer fixture','POST','/api/admin/amigoz/consultar',
     {'modo':'ambos','cpf':'00000000001','convenio_id':23,'numero_matricula':'1'})
   self.assertEqual(status,200)
   self.assertEqual(provider.call_count,2)
-  self.assertEqual([c.args[1]['p_consume'] for c in rpc.call_args_list[1:]],[False,True])
+  self.assertEqual(rpc.call_args_list[1].args[1]['p_consume'],False)
+  self.assertEqual(rpc.call_args_list[2].args[0],'/rest/v1/rpc/start_amigoz_individual')
+  self.assertEqual(rpc.call_args_list[3].args[1]['p_resultado']['margem']['status'],'respondido')
+  self.assertTrue(result['data']['salvo_no_historico'])
 
  def test_exhausted_partner_never_contacts_provider(self):
   from urllib.error import HTTPError
@@ -91,6 +102,13 @@ class AmigozTests(unittest.TestCase):
     api.amigoz_admin('Bearer fixture','POST','/api/admin/amigoz/consultar',{'modo':'saque','cpf':'00000000001','convenio_id':23})
   self.assertEqual(caught.exception.status,429)
   provider.assert_not_called()
+
+ def test_history_save_failure_preserves_response_and_warns(self):
+  with patch.object(api,'supabase_call',side_effect=[{'id':'fixture'},True,{'id':'job','lease':'lease'},RuntimeError('database unavailable')]),patch.object(amigoz,'configuration',return_value=CONFIG),patch.object(amigoz,'call',return_value=[]):
+   status,result=api.amigoz_admin('Bearer fixture','POST','/api/admin/amigoz/consultar',{'modo':'saque','cpf':'00000000001','convenio_id':33})
+  self.assertEqual(status,200)
+  self.assertFalse(result['data']['salvo_no_historico'])
+  self.assertEqual(result['data']['saque']['status'],'respondido')
 
  def test_partner_cannot_read_configuration(self):
   from urllib.error import HTTPError

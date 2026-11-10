@@ -45,7 +45,8 @@ async function crmReadClientFile(file, uf, convenio, convenioNome = convenio) {
     if (seen.has(cpf)) invalid('CPF repetido na planilha.');
     if ((entry.nome || '').length > 160 || (telefone && !/^\d{10,13}$/.test(telefone))) invalid('nome ou telefone inválido.');
     seen.add(cpf);
-    return {cpf, nome:entry.nome || null, telefone:telefone || null};
+    return {cpf, nome:entry.nome || null, telefone:telefone || null,
+      ...((entry.matricula || entry.numero_matricula || entry['numero matricula']) ? {numero_matricula:entry.matricula || entry.numero_matricula || entry['numero matricula']} : {})};
   });
 }
 
@@ -64,7 +65,7 @@ async function crmOpenClientImport() {
   heading.id = 'crmImportTitle';
   dialog.setAttribute('aria-labelledby', heading.id);
   form.innerHTML = `
-    <p class="crm-import-intro">Escolha o convênio e marque as consultas que pretende fazer depois. A importação apenas cadastra a base.</p>
+    <p class="crm-import-intro">Escolha o convênio e marque as consultas para iniciar automaticamente após importar. Sem opções marcadas, apenas os clientes serão cadastrados.</p>
     <ol class="crm-import-steps" aria-label="Etapas da importação">
       <li>Estado</li><li>Convênio</li><li>Consultas e planilha</li>
     </ol>
@@ -72,13 +73,13 @@ async function crmOpenClientImport() {
       <label>Estado<select name="uf" required><option value="">Selecione o estado</option></select></label>
       <label hidden>Convênio<select name="convenio" required disabled></select></label>
       <fieldset class="crm-import-services" hidden>
-        <legend>Consultas previstas</legend>
-        <small>Marque uma ou mais opções ou deixe todas desmarcadas.</small>
+        <legend>Consultas automáticas</legend>
+        <small>As consultas selecionadas entram na fila da VPS, mesmo se você fechar esta página.</small>
         <div data-services></div>
       </fieldset>
       <div class="crm-import-file" hidden>
         <label>Planilha de clientes<input name="arquivo" type="file" accept=".csv,.tsv,.xlsx,.xls" required disabled></label>
-        <small>CPF obrigatório. Nome e telefone são opcionais. Até 2 MB e 10.000 clientes.</small>
+        <small>CPF obrigatório. Digi+ exige nome e telefone. Amigoz exige apenas CPF; matrícula é opcional. Até 2 MB e 10.000 clientes.</small>
         <a href="modelo-clientes.csv" download>Baixar modelo de cadastro</a>
       </div>
     </div>
@@ -89,7 +90,8 @@ async function crmOpenClientImport() {
   const serviceList = form.querySelector('[data-services]');
   const file = form.elements.arquivo, submit = form.querySelector('[type=submit]');
   const status = form.querySelector('[role=status]'), steps = form.querySelectorAll('li');
-  let rows = [], generation = 0, saving = false;
+  let rows = [], generation = 0, saving = false, requestId = crypto.randomUUID();
+  let submitted = null;
   const cancel = form.querySelector('[data-cancel]');
   const close = dialog.querySelector('header button');
   cancel.onclick = () => dialog.close();
@@ -116,7 +118,9 @@ async function crmOpenClientImport() {
     serviceGroup.hidden = !selectedAgreement();
     file.disabled = saving || !selectedAgreement();
     file.closest('.crm-import-file').hidden = !selectedAgreement();
+    const selected = [...serviceList.querySelectorAll('input:checked')].map(input => input.value);
     submit.disabled = saving || file.disabled || !rows.length;
+    submit.textContent = selected.length ? 'Importar e iniciar consultas' : 'Importar clientes';
     const step = !uf.value ? 0 : !convenio.value.trim() ? 1 : 2;
     steps.forEach((item, index) => {
       if (index === step) item.setAttribute('aria-current','step');
@@ -125,6 +129,7 @@ async function crmOpenClientImport() {
   }
   function resetFile() {
     generation++;
+    requestId = crypto.randomUUID(); submitted = null;
     file.value = '';
     rows = [];
     status.textContent = '';
@@ -145,6 +150,11 @@ async function crmOpenClientImport() {
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
       checkbox.value = service;
+      const rule = service === 'consigx_margem' ? accessRule('tjba_margem') : accessRule('digimais_saldo_parcela');
+      const allowed = currentAccess?.role === 'admin' || (service.startsWith('amigoz_') ? amigozCanConsult() : rule?.enabled && rule?.allow_campaign);
+      checkbox.disabled = !allowed;
+      if (checkbox.disabled) label.title = 'Sem permissão para consultar em lote.';
+      checkbox.onchange = refresh;
       label.append(checkbox, crmPlannedServices[service] || service);
       serviceList.append(label);
     }
@@ -173,12 +183,15 @@ async function crmOpenClientImport() {
     if (saving || !rows.length || !authenticated || authEpoch !== epoch) return;
     saving = uf.disabled = cancel.disabled = close.disabled = true;
     refresh();
-    status.textContent = 'Salvando cadastros…';
+    status.textContent = 'Salvando clientes e agendando consultas…';
     try {
-      const count = await crmRpc('crm_import_catalog_clients', {
-        p_uf:uf.value, p_convenio:convenio.value, p_rows:rows,
-        p_servicos:[...serviceList.querySelectorAll('input:checked')].map(input => input.value)
-      });
+      const selected = [...serviceList.querySelectorAll('input:checked')].map(input => input.value);
+      if (selected.includes('digimais_saldo') && rows.some(row => !row.nome || !row.telefone)) throw Error('Digi+ exige nome e telefone com DDD em todas as linhas.');
+      const payload = {p_uf:uf.value,p_convenio:convenio.value,p_rows:rows,p_servicos:selected};
+      const fingerprint = JSON.stringify(payload);
+      if (submitted && submitted !== fingerprint) requestId = crypto.randomUUID();
+      submitted = fingerprint;
+      const result = await crmRpc('crm_import_and_start', {...payload,p_request_id:requestId});
       if (authEpoch !== epoch) return;
       dialog.close();
       closeCrmHistory();
@@ -186,7 +199,7 @@ async function crmOpenClientImport() {
       crmFilters = {p_query:'',p_uf:'',p_convenio:'',p_servico:''};
       crmCursors = [''];
       await Promise.all([loadCrmClients(0),loadCrmFilterOptions()]);
-      if (currentPage === 'clients' && authEpoch === epoch) toast(count + ' clientes cadastrados ou atualizados.');
+      if (currentPage === 'clients' && authEpoch === epoch) toast(result.clientes + ' clientes cadastrados. ' + (result.consultas ? result.consultas + ' consultas na fila. Acompanhe em Ver histórico.' : 'Nenhuma consulta selecionada.'));
     } catch (error) {
       if (authEpoch === epoch) status.textContent = error.message || 'Não foi possível importar a base.';
     } finally {

@@ -119,11 +119,25 @@ async function loadCrmHistory() {
       if (row.convenio && !Array.from(agreements.options).some(option => option.value === row.convenio)) {
         agreements.add(new Option(row.convenio.toUpperCase(), row.convenio));
       }
-      const service = row.convenio ? 'ConsigX · ' + row.convenio.toUpperCase() : 'Digi+';
+      const service = row.servico.startsWith('amigoz_') ? 'Amigoz · ' + ({amigoz_ambos:'Margem e saque',amigoz_margem:'Margem',amigoz_saque:'Saque complementar'}[row.servico] || row.servico) : row.convenio ? 'ConsigX · ' + row.convenio.toUpperCase() : 'Digi+';
       $('#crmHistoryRows').append(crmRow([service, statusNames[row.status] || row.status,
         row.matricula, row.situacao_atual, money(row.emprestimo_disponivel),
         money(row.cartao_disponivel), money(row.saldo_liquidacao), money(row.valor_parcela),
         new Date(row.consultado_em || row.created_at).toLocaleString('pt-BR')]));
+    }
+    for (const row of rows.slice(0, crmPageSize).filter(row => row.servico.startsWith('amigoz_'))) {
+      const detailRow = document.createElement('tr'), cell = document.createElement('td');
+      cell.colSpan = 9;
+      const details = document.createElement('details'), summary = document.createElement('summary');
+      summary.textContent = 'Amigoz · ' + (row.detalhe || (row.status === 'aguardando' ? 'Aguardando processamento na VPS' : 'Detalhes da consulta'));
+      details.append(summary);
+      if (row.resultado_amigoz) {
+        const body = document.createElement('pre');
+        body.textContent = JSON.stringify(row.resultado_amigoz,null,2);
+        body.style.whiteSpace = 'pre-wrap';
+        details.append(body);
+      }
+      cell.append(details); detailRow.append(cell); $('#crmHistoryRows').append(detailRow);
     }
     crmHistoryOffset += Math.min(crmPageSize, rows.length);
     more.hidden = rows.length <= crmPageSize;
