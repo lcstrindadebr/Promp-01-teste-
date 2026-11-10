@@ -820,6 +820,7 @@ No projeto Supabase conectado, as migrações CRM já foram aplicadas. Para outr
 9. `supabase/upgrade_crm_import_auto.sql`
 10. `supabase/upgrade_amigoz_individual_history.sql`
 11. `supabase/upgrade_crm_enriquecimento.sql` (consolidação de cadastros e oportunidades)
+12. `supabase/upgrade_crm_exportacao.sql` (exportação e etapa Exportadas)
 
 Para banco novo, use o `supabase/schema.sql` completo. O instalador da VPS atualiza o código; não executa SQL em outro projeto automaticamente.
 

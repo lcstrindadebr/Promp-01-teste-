@@ -238,7 +238,7 @@ $('#crmMoreHistory').onclick = loadCrmHistory;
 
 const crmStages = {
   novo:'Novo', contato:'Em contato', simulacao:'Simulação enviada',
-  negociacao:'Em negociação', ganho:'Ganho', perdido:'Perdido'
+  negociacao:'Em negociação', exportada:'Exportadas', ganho:'Ganho', perdido:'Perdido'
 };
 const crmProducts = {margem:'Margem',saque:'Saque complementar',recompra:'Compra de dívida'};
 let crmPipelineRequest = 0;
@@ -295,6 +295,58 @@ async function loadCrmPipeline(page) {
 
 crmStageOptions($('#crmStageFilter'), '', true);
 $('#crmStageFilter').onchange = () => loadCrmPipeline(0);
+$('#crmExportOpportunities').onclick = async () => {
+  const button = $('#crmExportOpportunities'), status = $('#crmExportOpportunitiesStatus');
+  const stage = $('#crmStageFilter').value, epoch = authEpoch;
+  const openStages = ['novo','contato','simulacao','negociacao'];
+  if (stage && !openStages.includes(stage)) {
+    status.textContent = 'Selecione uma etapa aberta para exportar.';
+    return;
+  }
+  button.disabled = true;
+  status.textContent = 'Preparando planilha…';
+  const rows = [];
+  let after = '', downloaded = false;
+  try {
+    for (;;) {
+      const params = {etapa:stage ? 'eq.'+stage : 'in.('+openStages.join(',')+')',order:'id.asc',limit:500};
+      if (after) params.id = 'gt.'+after;
+      const page = await sbRequest(crmPath('crm_opportunity_cards',params));
+      if (!authenticated || epoch !== authEpoch) return;
+      if (!page.length) break;
+      rows.push(...page);
+      const next = page[page.length-1].id;
+      if (!next || next <= after) throw Error('Paginação inválida');
+      after = next;
+    }
+    if (!rows.length) {status.textContent = 'Nenhuma oportunidade aberta neste filtro.';return;}
+    const sheet = XLSX.utils.aoa_to_sheet([
+      ['Nome','CPF','Convênio','Produto','Etapa original','Próxima ação','Saldo Digi+','Parcela Digi+','Saque Amigoz'],
+      ...rows.map(row => {
+        const signals = row.sinais_consulta || {};
+        const offers = Object.entries(signals).filter(([key,value])=>key.startsWith('amigoz_saque_') && Array.isArray(value))
+          .flatMap(([,items])=>items.filter(item=>item && String(item.elegivel).toLowerCase()==='sim' && !item.erro_informado && item.valor_saque_disponivel>0));
+        return [row.nome,formatCpf(row.cpf),row.convenio,crmProducts[row.produto],crmStages[row.etapa],row.proxima_acao,
+          signals.digimais?.saldo ?? row.saldo_liquidacao,signals.digimais?.parcela,
+          offers.map(item=>crmMoney.format(item.valor_saque_disponivel)).join(' · ')];
+      })
+    ]);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book,sheet,'Oportunidades');
+    XLSX.writeFile(book,'oportunidades-'+new Date().toISOString().slice(0,10)+'.xlsx');
+    downloaded = true;
+    status.textContent = 'Download iniciado. Movendo oportunidades…';
+    const moved = await crmRpc('crm_marcar_exportadas',{p_itens:rows.map(({id,etapa})=>({id,etapa}))});
+    if (!authenticated || epoch !== authEpoch) return;
+    status.textContent = rows.length+' no arquivo · '+moved+' movidas para Exportadas.'+
+      (moved < rows.length ? ' As demais já mudaram de etapa.' : '');
+    if (!$('#crmPipelineRows').closest('[hidden]')) await loadCrmPipeline(0);
+  } catch {
+    if (epoch === authEpoch) status.textContent = downloaded
+      ? 'Download iniciado. Não foi possível confirmar a movimentação. Confira o Kanban.'
+      : 'Não foi possível gerar a planilha.';
+  } finally {button.disabled = false;}
+};
 $('#crmPipelinePrevious').onclick = () => loadCrmPipeline(crmPipelinePage-1);
 $('#crmPipelineNext').onclick = () => loadCrmPipeline(crmPipelinePage+1);
 $('#crmOpportunityForm').onsubmit = async event => {

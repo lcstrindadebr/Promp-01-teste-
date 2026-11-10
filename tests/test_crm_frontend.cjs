@@ -20,7 +20,21 @@ vm.createContext(ctx);vm.runInContext(fs.readFileSync('dist/crm.js','utf8'),ctx)
  blobs=[];let count=0;handler=async()=>{if(++count===2)throw Error('network');return [{cpf:'00000000001'}]};await get('#crmExport').onclick();assert.equal(blobs.length,0);assert.match(get('#crmStatus').textContent,/Nenhum arquivo parcial/);
  // Failed moves leave stage unchanged; no success UI before server confirmation.
  handler=async()=>{throw Error('network')};assert.equal(await vm.runInContext("crmMoveOpportunity('id','ganho',crmPipelineRequest)",ctx),false);assert.match(get('#crmPipelineStatus').textContent,/etapa anterior/);
- handler=async path=>path.includes('crm_card_settings')?[]:[];await vm.runInContext('loadCrmPipeline(0)',ctx);assert.equal(get('#crmPipelineRows').children.length,6);
+ handler=async path=>path.includes('crm_card_settings')?[]:[];await vm.runInContext('loadCrmPipeline(0)',ctx);assert.equal(get('#crmPipelineRows').children.length,7);
+ let downloaded=false,moved=false;
+ get('#crmPipelineRows').closest=()=>({});
+ ctx.XLSX={utils:{aoa_to_sheet:rows=>rows,book_new:()=>({}),book_append_sheet:()=>{}},writeFile:()=>{downloaded=true;}};
+ handler=async(path,options)=>{
+   if(path.includes('crm_marcar_exportadas')){
+     assert(downloaded);
+     assert.deepEqual(JSON.parse(options.body).p_itens,[{id:'1',etapa:'novo'}]);moved=true;return 1;
+   }
+   return new URLSearchParams(path.split('?')[1]).has('id')?[]:[{id:'1',cpf:'00000000001',etapa:'novo',produto:'saque'}];
+ };
+ await get('#crmExportOpportunities').onclick();assert(moved);
+ assert.match(get('#crmExportOpportunitiesStatus').textContent,/1 movidas/);
+ moved=false;ctx.XLSX.writeFile=()=>{throw Error('falha ao gerar');};
+ await get('#crmExportOpportunities').onclick();assert.equal(moved,false);
  const html=fs.readFileSync('dist/index.html','utf8');const nav=html.match(/<nav>(.*?)<\/nav>/s)[1];assert(!nav.includes('data-page="campaigns"'));assert(html.includes('data-consultation="campaigns"'));
- console.log('PASS: CRM cursor pagination, 1,201-row export, failed export, failed stage move, six Kanban columns, unified navigation');
+ console.log('PASS: CRM cursor pagination, 1,201-row export, failed export, failed stage move, seven Kanban columns, unified navigation');
 })().catch(e=>{console.error(e);process.exitCode=1});
