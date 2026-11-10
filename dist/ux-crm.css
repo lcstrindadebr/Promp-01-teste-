@@ -121,11 +121,13 @@ aside footer small { color: #abbed0; }
 }
 #sidebarToggle:hover { background: #2a4665; color: #fff; }
 main { margin-left: 232px; padding: 24px 32px 64px; max-width: none; min-width: 0; }
+@media (min-width: 761px) {
 .sidebar-collapsed aside { width: 72px; padding: 20px 10px; }
 .sidebar-collapsed main { margin-left: 72px; }
 .sidebar-collapsed aside nav button { justify-content: center; padding: 12px; }
 .sidebar-collapsed aside nav button.active { box-shadow: inset 0 -3px 0 #68c5a3; }
 .sidebar-collapsed #sidebarToggle { margin: 8px auto 14px; }
+}
 
 /* 3. Cabeçalho e organização entre módulos */
 .top {
