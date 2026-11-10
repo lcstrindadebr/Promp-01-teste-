@@ -123,7 +123,17 @@ function syncQueryContext(){const context=$('#serviceContext');context.classList
 $('#newCampaignPanel').ontoggle=syncQueryContext;
 const originalServiceChange=$('#serviceSelect').onchange;
 $('#serviceSelect').onchange=()=>{originalServiceChange();syncQueryContext();};
-$('#convenioSelect').onchange=()=>{if(selectedService()==='tjba_margem'){$('#singleServiceLabel').textContent=queryDescription({servico:'tjba_margem',convenio:selectedConvenio()});updateServiceCopy();}};
+$('#convenioSelect').onchange=()=>{if(selectedService()==='tjba_margem'){$('#singleServiceLabel').textContent=queryDescription({servico:'tjba_margem',convenio:selectedConvenio()});updateServiceCopy();
+  if(currentPage==='campaigns' && ($('#file').value || readingImport)){
+   importGeneration++;
+   pending=[];
+   readingImport=false;
+   importError='';
+   $('#file').value='';
+   $('#preview').classList.add('hide');
+   syncImportButton('Convênio alterado. Selecione a planilha novamente.');
+  }
+ }};
 // The selector affects new requests. Existing campaigns retain their saved service.
 updateServiceCopy=function(){const margin=selectedService()==='tjba_margem';$('#serviceAvailability').textContent=margin&&selectedConvenio()!=='tjba'?'Em homologação':'Pronto para consultar';$('#singleDescription').textContent=margin?'Informe o CPF. Nome e telefone são opcionais.':'Informe nome, CPF e telefone com DDD.';$('#resultsDescription').textContent='Resultados das consultas individuais do tipo selecionado.';$('#resultsFootnote').textContent='— significa informação não retornada. Erros e revisões podem ser tratados em Ações.';};
 updateServiceCopy();syncQueryContext();render();
@@ -132,10 +142,16 @@ updateServiceCopy();syncQueryContext();render();
 const creationPanel=$('#newCampaignPanel'),creationContent=creationPanel.querySelector(':scope > div');
 const contextAnchor=document.createElement('div');$('#serviceContext').before(contextAnchor);
 const originalCreationNodes=[...creationContent.childNodes];
-creationContent.innerHTML='<div class="wizard-steps" aria-label="Etapas da campanha"><button type="button" data-step="1">1 <span>Consulta</span></button><button type="button" data-step="2">2 <span>Planilha</span></button><button type="button" data-step="3">3 <span>Conferir</span></button></div><div id="campaignStep1" class="wizard-stage"><h3>O que você quer consultar nesta lista?</h3><p>A escolha fica salva na campanha.</p></div><div id="campaignStep2" class="wizard-stage" hidden><h3>Nomeie a campanha e envie os clientes</h3></div><div id="campaignStep3" class="wizard-stage" hidden><h3>Confira antes de iniciar</h3><div id="campaignConfirmation"></div></div><div class="wizard-navigation"><button id="wizardBack" type="button">Voltar</button><button id="wizardNext" type="button" class="primary">Continuar →</button></div>';
-for(const node of originalCreationNodes){const lastStep=['import','importStatus','preview'].includes(node.id);$('#campaignStep'+(lastStep?'3':'2')).appendChild(node);}
+creationContent.innerHTML='<div class="wizard-steps" aria-label="Etapas da campanha"><button type="button" data-step="1">1 <span>Consulta</span></button><button type="button" data-step="2">2 <span>Planilha</span></button><button type="button" data-step="3">3 <span>Conferir</span></button></div><div id="campaignStep1" class="wizard-stage"><h3>Defina o contexto da campanha</h3><p>Selecione a consulta disponível. Para margem, confira o estado e o convênio antes de enviar a planilha.</p></div><div id="campaignStep2" class="wizard-stage" hidden><h3>Nomeie a campanha e envie os clientes</h3></div><div id="campaignStep3" class="wizard-stage" hidden><h3>Confira antes de iniciar</h3><div id="campaignConfirmation"></div></div><p id="wizardFeedback" class="wizard-feedback" role="status"></p><div class="wizard-navigation"><button id="wizardBack" type="button">Voltar</button><button id="wizardNext" type="button" class="primary">Continuar →</button></div>';
+for(const node of originalCreationNodes){const lastStep=['import'].includes(node.id);$('#campaignStep'+(lastStep?'3':'2')).appendChild(node);}
 let creationStep=1;
-function drawCreationStep(){
+function drawCreationStep(moveFocus=false){
+ $('#wizardFeedback').textContent='';
+ if(moveFocus){
+  const title=$('#campaignStep'+creationStep).querySelector('h3');
+  title.tabIndex=-1;
+  requestAnimationFrame(()=>title.focus());
+ }
  for(let i=1;i<=3;i++)$('#campaignStep'+i).hidden=i!==creationStep;
  creationContent.querySelectorAll('[data-step]').forEach(b=>{b.classList.toggle('current',Number(b.dataset.step)===creationStep);b.disabled=Number(b.dataset.step)>creationStep;b.setAttribute('aria-current',Number(b.dataset.step)===creationStep?'step':'false');});
  $('#wizardBack').hidden=creationStep===1;$('#wizardNext').hidden=creationStep===3;
@@ -144,9 +160,9 @@ function drawCreationStep(){
 function moveQueryContext(){if(currentPage==='campaigns')$('#campaignStep1').appendChild($('#serviceContext'));else if(currentPage==='home'&&$('#individualServiceContext'))$('#individualServiceContext').appendChild($('#serviceContext'));else contextAnchor.after($('#serviceContext'));syncQueryContext();}
 const workspaceNavigate=navigate;navigate=function(page){workspaceNavigate(page);moveQueryContext();};
 creationPanel.ontoggle=()=>{if(!creationPanel.open){creationStep=1;drawCreationStep();}moveQueryContext();};
-$('#wizardNext').onclick=()=>{if(creationStep===2){if(!$('#campaignName').value.trim()){toast('Dê um nome para a campanha.');$('#campaignName').focus();return;}const quotaError=typeof campaignImportError==='function'?campaignImportError(pending.length):'';if(readingImport||!pending.length||importError||quotaError){toast(quotaError||importError||'Envie uma planilha válida antes de continuar.');return;}}creationStep=Math.min(3,creationStep+1);drawCreationStep();};
-$('#wizardBack').onclick=()=>{creationStep=Math.max(1,creationStep-1);drawCreationStep();};
-creationContent.querySelectorAll('[data-step]').forEach(b=>b.onclick=()=>{creationStep=Number(b.dataset.step);drawCreationStep();});
+$('#wizardNext').onclick=()=>{if(creationStep===2){if(!$('#campaignName').value.trim()){$('#wizardFeedback').textContent='Informe o nome da campanha.';$('#campaignName').focus();return;}const quotaError=typeof campaignImportError==='function'?campaignImportError(pending.length):'';if(readingImport||!pending.length||importError||quotaError){$('#wizardFeedback').textContent=quotaError||importError||(readingImport?'Aguarde a leitura da planilha.':'Envie uma planilha válida antes de continuar.');return;}}creationStep=Math.min(3,creationStep+1);drawCreationStep(true);};
+$('#wizardBack').onclick=()=>{creationStep=Math.max(1,creationStep-1);drawCreationStep(true);};
+creationContent.querySelectorAll('[data-step]').forEach(b=>b.onclick=()=>{creationStep=Number(b.dataset.step);drawCreationStep(true);});
 drawCreationStep();moveQueryContext();
 
 const workspaceShowLogin=showLogin;

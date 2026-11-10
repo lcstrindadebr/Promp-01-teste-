@@ -89,6 +89,39 @@ function importHeader(value){
  const key=value.trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[_\s]+/g,' ');
  return ({'nome completo':'nome','nome do cliente':'nome','celular':'telefone','telefone com ddd':'telefone','telefone 1':'telefone','whatsapp':'telefone'})[key]||key;
 }
+function validateImportClassification(headers, rows, expected = null) {
+ const normalized = value => String(value || '').normalize('NFD')
+   .replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+ const stateAliases = {bahia:'ba',saopaulo:'sp'};
+ const agreementAliases = {
+   tribunaldejusticadabahia:'tjba',tribunaldejustica:'tjba',
+   defensoriapublicadabahia:'dpeba',defensoriapublica:'dpeba',
+   governodabahia:'saeb',governobasaeb:'saeb',suprevprevidencia:'suprev'
+ };
+ const aliases = {uf:stateAliases,convenio:agreementAliases};
+ const groups = {uf:['uf','estado'],convenio:['convenio','orgao convenio']};
+ for (const [field, names] of Object.entries(groups)) {
+   const positions = headers.map((name,index) => names.includes(name) ? index : -1).filter(index => index >= 0);
+   let firstValue = null;
+   rows.forEach((row,index) => {
+     for (const position of positions) {
+       const raw = normalized(row[position]);
+       if (!raw) continue;
+       const value = aliases[field][raw] || raw;
+       if (firstValue && firstValue !== value) {
+         throw Error('Linha ' + (index+2) + ': a planilha contém ' +
+           (field === 'uf' ? 'estados diferentes.' : 'convênios diferentes.') +
+           ' Importe uma lista por estado e convênio.');
+       }
+       firstValue = value;
+       if (expected?.[field] && value !== expected[field]) {
+         throw Error('Linha ' + (index+2) + ': ' + field +
+           ' diferente da seleção da campanha. Corrija a planilha ou a seleção.');
+       }
+     }
+   });
+ }
+}
 $('#file').onchange=async e=>{
  const generation=++importGeneration;pending=[];readingImport=true;importError='';
  $('#preview').classList.remove('hide');$('#preview').textContent='';syncImportButton();
@@ -116,6 +149,8 @@ $('#file').onchange=async e=>{
  if(new Set(headers).size!==headers.length)throw Error('Há títulos de colunas repetidos. Mantenha uma coluna nome, cpf e telefone.');
  if(!admin&&rows.length>1000)throw Error('Envie até 1.000 registros por campanha.');
  if(!rows.length)throw Error('A planilha contém apenas o cabeçalho. Adicione os clientes antes de enviar.');
+ validateImportClassification(headers, rows, selectedService()==='tjba_margem'
+   ? {uf:'ba',convenio:selectedConvenio()} : null);
  const errors=[],seen=new Set(),valid=[];
  rows.forEach((row,i)=>{try{
  const r=Object.fromEntries(headers.map((h,j)=>[h,(row[j]||'').trim()]));
@@ -137,7 +172,7 @@ $('#import').onclick=async()=>{
  creatingCampaign=true;importError='';syncImportButton();
  try{const name=$('#campaignName').value.trim();if(!name)throw Error('Informe o nome da campanha.');if(!pending.length)throw Error('Selecione uma planilha com clientes válidos.');
  activeCampaign=await createCampaign(name,pending);pending=[];$('#campaignName').value='';$('#file').value='';$('#preview').classList.add('hide');$('#newCampaignPanel').open=false;renderCampaigns();toast('Campanha criada. Consultas adicionadas à fila.');
- }catch(e){toast(e.message);if(typeof refreshMyAccess==='function')await refreshMyAccess(true).catch(()=>{});}
+ }catch(e){toast(e.message);const feedback=$('#wizardFeedback');if(feedback)feedback.textContent=e.message;if(typeof refreshMyAccess==='function')await refreshMyAccess(true).catch(()=>{});}
  finally{creatingCampaign=false;syncImportButton();}
 };
 function download(name,content){const u=URL.createObjectURL(new Blob(['\uFEFF'+content],{type:'text/csv;charset=utf-8'})),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)}
