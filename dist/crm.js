@@ -507,22 +507,22 @@ async function crmExportClients(template,excel=false){
   const button=$(excel?'#crmExportTemplateExcel':template?'#crmExportTemplate':'#crmExport'),status=$('#crmStatus'),epoch=authEpoch;
   button.disabled=true;
   const filters={p_query:$('#crmQuery').value.trim(),p_uf:$('#crmUF').value,p_convenio:$('#crmAgreementFilter').value,p_servico:$('#crmServiceFilter').value};
-  const chunks=[template
-    ? '\uFEFFcpf;nome;telefone;matricula;data_nascimento;margem_livre;saque_amigoz_elegivel;saque_amigoz_valor;uf;convenio\r\n'
-    : '\uFEFFNome;CPF;Telefone;Última atividade\r\n'];
-  const workbookRows=excel?[chunks[0].trim().split(';')]:null;
   let after='',total=0;
   try{
-    if(template && (!filters.p_uf || !filters.p_convenio)){
+    const agreement=template && (await crmGetImportCatalog()).find(item=>item.uf===filters.p_uf && item.codigo===filters.p_convenio);
+    if(template && !agreement){
       status.textContent='Selecione Estado e Convênio para baixar no modelo padrão.';
       return;
     }
+    const headers=template?crmAgreementTemplate(agreement,false)[0]:['Nome','CPF','Telefone','Última atividade'];
+    const chunks=['\uFEFF'+headers.join(';')+'\r\n'];
+    const workbookRows=excel?[headers]:null;
     for(;;){
       const rows=await crmRpc('crm_filter_clients',{...filters,p_after:after,p_limit:500});
       if(!authenticated||epoch!==authEpoch)throw Error('Sessão encerrada');
       if(!rows.length)break;
       const cells = template
-        ? await crmClientTemplateRows(rows,filters)
+        ? await crmClientTemplateRows(rows,filters,headers)
         : rows.map(x=>[x.nome,formatCpf(x.cpf),x.telefone,x.ultima_atividade?new Date(x.ultima_atividade).toLocaleString('pt-BR'):'']);
       if(!authenticated||epoch!==authEpoch)throw Error('Sessão encerrada');
       if(excel) workbookRows.push(...cells);
@@ -533,18 +533,15 @@ async function crmExportClients(template,excel=false){
     if(!total){status.textContent='Nenhum cliente corresponde aos filtros.';return;}
     let file;
     if(excel){
-      const sheet=XLSX.utils.aoa_to_sheet(workbookRows);
-      sheet['!cols']=[19,32,19,17,21,17,26,23,10,23].map(wch=>({wch}));
-      const book=XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(book,sheet,'Clientes');
+      const book=crmAgreementWorkbook(agreement,workbookRows);
       const bytes=XLSX.write(book,{type:'array',bookType:'xlsx',compression:true});
       file=new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-      if(total>10000 || file.size>2000000){
-        status.textContent='O arquivo excede o limite de importação. Reduza o filtro para baixar um lote reimportável.';
-        return;
-      }
     }else{
       file=new Blob(chunks,{type:'text/csv;charset=utf-8'});
+    }
+    if(template && (total>10000 || file.size>2000000)){
+      status.textContent='O arquivo excede o limite de importação. Reduza o filtro para baixar um lote reimportável.';
+      return;
     }
     const url=URL.createObjectURL(file);
     const link=document.createElement('a');link.href=url;
@@ -554,7 +551,7 @@ async function crmExportClients(template,excel=false){
   }catch{status.textContent='A exportação não foi concluída. Nenhum arquivo parcial foi baixado. Tente novamente.';}
   finally{button.disabled=false;}
 }
-async function crmClientTemplateRows(rows,filters){
+async function crmClientTemplateRows(rows,filters,headers){
   const registrations=new Map();
   for(let start=0;start<rows.length;start+=100){
     const group=rows.slice(start,start+100);
@@ -572,22 +569,27 @@ async function crmClientTemplateRows(rows,filters){
   const agreement=filters.p_convenio;
   return rows.map(row=>{
     const facts=row.resumo_consultas||{};
-    const margins=[
-      [facts['margem_importada_'+agreement],value=>value?.margem_emprestimo],
-      [facts['consigx_margem_'+agreement],value=>value?.margem_emprestimo],
-      [facts['amigoz_margem_'+agreement],value=>{
-        const values=Array.isArray(value)?value.map(item=>item?.margem_atual).filter(Number.isFinite):[];
+    const latest = entries=>entries.filter(([fact])=>fact)
+      .sort(([a],[b])=>String(b.data).localeCompare(String(a.data)))
+      .map(([fact,read])=>read(fact.dados)).find(Number.isFinite);
+    const imported=facts['margem_importada_'+agreement], consigx=facts['consigx_margem_'+agreement];
+    const loan=latest([[imported,d=>d?.margem_emprestimo],[consigx,d=>d?.margem_emprestimo]]);
+    const card=latest([[imported,d=>d?.margem_cartao],[consigx,d=>d?.margem_cartao],
+      [facts['amigoz_margem_'+agreement],data=>{
+        const values=Array.isArray(data)?data.map(item=>item?.margem_atual).filter(Number.isFinite):[];
         return values.length?Math.max(...values):null;
-      }]
-    ].filter(([fact])=>fact).sort(([a],[b])=>String(b.data).localeCompare(String(a.data)));
-    const margin=margins.map(([fact,read])=>read(fact.dados)).find(Number.isFinite);
+      }]]);
     const offers=facts['amigoz_saque_'+agreement]?.dados;
     const valid=Array.isArray(offers)?offers.filter(item=>item && !item.erro_informado):[];
     const eligible=valid.filter(item=>String(item.elegivel).toLowerCase()==='sim');
     const declined=valid.some(item=>['não','nao'].includes(String(item.elegivel).toLowerCase()));
     const values=(eligible.length?eligible:valid).map(item=>item.valor_saque_disponivel).filter(Number.isFinite);
-    return [formatCpf(row.cpf),row.nome,row.telefone,registrations.get(row.cpf),row.data_nascimento,margin,
-      eligible.length?'Sim':declined?'Não':'',values.length && (eligible.length || !declined)?Math.max(...values):null,filters.p_uf,agreement];
+    const cells={cpf:formatCpf(row.cpf),nome:row.nome,telefone:row.telefone,
+      matricula:registrations.get(row.cpf),data_nascimento:row.data_nascimento,
+      margem_emprestimo:loan,margem_cartao:card,saque_amigoz_elegivel:eligible.length?'Sim':declined?'Não':'',
+      saque_amigoz_valor:values.length && (eligible.length || !declined)?Math.max(...values):null,
+      uf:filters.p_uf,convenio:agreement};
+    return headers.map(field=>cells[field]);
   });
 }
 async function crmLoadSettings(){
@@ -627,7 +629,8 @@ function crmOpportunityCard(row,settings,request){
 function crmOpportunityMargins(signals) {
   return Object.entries(signals).flatMap(([source,data])=>{
     if(source.startsWith('amigoz_margem_') && Array.isArray(data)) return data.map(item=>item?.margem_atual);
-    if(source.startsWith('consigx_margem_') || source.startsWith('margem_importada_')) return [data?.margem_emprestimo];
+    if(source.startsWith('consigx_margem_')) return [data?.margem_emprestimo];
+    if(source.startsWith('margem_importada_')) return [data?.margem_emprestimo,data?.margem_cartao];
     return [];
   }).filter(value=>typeof value==='number' && value>20);
 }
@@ -751,8 +754,13 @@ async function crmOpenClientProfile(row,selectedId) {
           'Elegível: '+(offer.elegivel ?? 'Não informado')+' · Valor disponível: '+money(offer.valor_saque_disponivel)));
         if(!fact.dados.length) entry.append(crmElement('p','','Sem oferta registrada.'));
       } else if(fact.tipo==='margem'){
-        const values=Array.isArray(fact.dados) ? fact.dados.map(item=>item.margem_atual) : [fact.dados.margem_emprestimo,fact.dados.margem_cartao];
-        entry.append(crmElement('p','','Margem livre: '+(values.filter(value=>value!=null).map(money).join(' · ') || 'Não informado')));
+        if(Array.isArray(fact.dados)){
+          for(const item of fact.dados) entry.append(crmElement('p','',
+            'Margem de cartão'+(item.idProduto===7?' Benefício':item.idProduto===15?' Consignado':'')+': '+money(item.margem_atual)));
+        } else {
+          entry.append(crmElement('p','','Margem de empréstimo: '+money(fact.dados.margem_emprestimo)),
+            crmElement('p','','Margem de cartão: '+money(fact.dados.margem_cartao)));
+        }
       } else if(fact.tipo==='saldo_parcela'){
         entry.append(crmElement('p','',fact.dados.status==='nao_cliente'?'Não é cliente':'Saldo: '+money(fact.dados.saldo)+' · Parcela: '+money(fact.dados.parcela)));
       }

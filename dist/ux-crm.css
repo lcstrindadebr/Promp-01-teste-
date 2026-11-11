@@ -346,7 +346,12 @@ td:last-child { white-space: normal; }
 .crm-import-fields { display: grid; gap: 14px; margin: 20px 0; }
 .crm-import-fields label { display: grid; gap: 6px; font-weight: 650; }
 .crm-import-file { display: grid; gap: 8px; padding: 14px; border: 1px dashed #9dbbb6; border-radius: 8px; background: #f6faf9; }
-.crm-import-file a { justify-self: start; color: #17594e; }
+.crm-import-file[hidden] { display: none; }
+.crm-import-downloads { display: flex; flex-wrap: wrap; gap: 8px; }
+.crm-import-directory { margin-block: 12px; }
+.crm-import-directory summary { cursor: pointer; font-weight: 650; }
+.crm-import-directory ul { max-height: 12rem; overflow: auto; padding-inline-start: 24px; }
+.crm-import-directory li { margin-block: 6px; }
 .crm-import-status { min-height: 20px; }
 .crm-import-dialog footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .crm-reset-panel { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-top: 16px; border-color: #edc7c7; }

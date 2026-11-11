@@ -826,6 +826,7 @@ No projeto Supabase conectado, as migrações CRM já foram aplicadas. Para outr
 15. `supabase/upgrade_crm_export_filtros.sql` (filtros de exportação)
 16. `supabase/upgrade_crm_ficha_exportacoes.sql` (responsável e histórico de exportações)
 17. `supabase/upgrade_crm_dados_cliente.sql` (dados do perfil e filtros do Kanban)
+18. `supabase/upgrade_crm_modelos_convenio.sql` (modelos, margens separadas e API de importação)
 
 Para banco novo, use o `supabase/schema.sql` completo. O instalador da VPS atualiza o código; não executa SQL em outro projeto automaticamente.
 

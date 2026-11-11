@@ -56,3 +56,26 @@ test('downloads a real Excel template with exactly the import columns', () => {
   assert.equal(JSON.stringify(rows),JSON.stringify([expected]));
   assert(xlsx.utils.decode_range(sheet['!fullref']||sheet['!ref']).e.r<=10000);
 });
+
+test('filled agreement workbooks round-trip through the Excel import', async () => {
+  vm.runInContext(fs.readFileSync('dist/vendor/xlsx-0.20.3.min.js','utf8'),context);
+  const agreements=[
+    {uf:'BA',codigo:'saeb',nome:'Governo da Bahia',servicos:['consigx_margem']},
+    {uf:'SP',codigo:'amigoz_23',nome:'Governo de São Paulo',servicos:['amigoz_margem','amigoz_saque','digimais_saldo']}
+  ];
+  for (const agreement of agreements) {
+    const rows=context.crmAgreementTemplate(agreement,true);
+    const book=context.crmAgreementWorkbook(agreement,rows,true);
+    const buffer=context.XLSX.write(book,{type:'array',bookType:'xlsx',compression:true});
+    assert.equal(book.SheetNames.join(','),'Clientes,Como preencher');
+    const [client]=await context.crmReadClientFile({name:'exemplo.xlsx',size:buffer.byteLength,arrayBuffer:async()=>buffer},
+      agreement.uf,agreement.codigo,agreement.nome,agreement.servicos);
+    assert.equal(client.margem_emprestimo,180.50);
+    assert.equal(client.margem_cartao,65.20);
+    assert.equal(client.numero_matricula,'000123');
+    assert.equal(client.saque_amigoz_valor,agreement.uf==='SP'?250:undefined);
+  }
+  await assert.rejects(context.crmReadClientFile({
+    name:'base.csv',size:100,text:async()=> 'cpf;saque_amigoz_elegivel\n00000000892;Sim'
+  },'BA','saeb','Governo da Bahia',['consigx_margem']),/Saque Amigoz indisponível/);
+});

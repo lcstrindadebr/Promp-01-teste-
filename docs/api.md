@@ -453,3 +453,56 @@ Para exportar, liste as páginas com `GET /oportunidades?exportaveis=true&tipos=
 Gere o arquivo com os dados lidos. Em seguida envie os IDs efetivamente incluídos e a etapa original de cada um para `POST /oportunidades/exportacao`. O servidor move para `exportada` apenas os registros da sua conta que continuam na etapa aberta informada. O retorno contém `movidas` e `ids`. A rota recebe até 500 itens por chamada. Use uma `Idempotency-Key` por lote e reutilize a mesma chave se precisar repetir o mesmo envio.
 
 Para uma movimentação individual, envie `{"etapa_original":"novo","etapa":"contato"}` com `Idempotency-Key`. Se a etapa já mudou, a API devolve 409.
+
+## Importação da base de clientes
+
+`GET /api/v1/clientes/convenios?uf=BA` lista os IDs, os campos e os serviços liberados para cada convênio. O filtro `uf` é opcional. Use um token com escopo `read`. Na interface, os mesmos dados ficam em **Clientes → Importar base → Lista de convênios e IDs**.
+
+`POST /api/v1/clientes/importacoes` aceita de 1 a 10.000 clientes de um mesmo convênio por envio, com até 2 MB de JSON. Envie `Authorization: Bearer SEU_TOKEN` com escopo `campanhas:write`, `Content-Type: application/json` e uma `Idempotency-Key` de 1 a 128 caracteres por importação. A chave fica registrada por 24 horas após o sucesso. Repita a mesma chave e o mesmo conteúdo se precisar reenviar.
+
+### Bahia — SAEB
+
+Use `servicos: []` para cadastrar margens já conhecidas ou `["consigx_margem"]` para enfileirar a consulta de margem. O SAEB oferece margem de empréstimo e de cartão pelo ConsigX.
+
+```json
+{
+  "uf": "BA",
+  "convenio": "saeb",
+  "servicos": [],
+  "clientes": [
+    {
+      "cpf": "000.000.008-92",
+      "nome": "Pessoa Exemplo",
+      "numero_matricula": "000123",
+      "data_nascimento": "1985-04-23",
+      "margem_emprestimo": 120.5,
+      "margem_cartao": 45.25
+    }
+  ]
+}
+```
+
+### Governo de São Paulo
+
+Neste exemplo, o catálogo retorna `amigoz_23` e oferece Digi+. Nome e telefone com DDD são obrigatórios quando `digimais_saldo` é selecionado. Consulte o catálogo para ver os demais serviços do convênio.
+
+```json
+{
+  "uf": "SP",
+  "convenio": "amigoz_23",
+  "servicos": [
+    "digimais_saldo"
+  ],
+  "clientes": [
+    {
+      "cpf": "000.000.008-92",
+      "nome": "Pessoa Exemplo",
+      "telefone": "11900000000"
+    }
+  ]
+}
+```
+
+Envie CPF, telefone e matrícula como texto para preservar zeros à esquerda. Use `AAAA-MM-DD` para data de nascimento e números em reais para `margem_emprestimo`, `margem_cartao` e `saque_amigoz_valor`. `margem_livre` é um alias legado da margem de empréstimo. O valor zero é um valor informado. Campos cadastrais e margens omitidos são preservados. Para atualizar um saque coletado por consulta, envie a elegibilidade e o valor juntos.
+
+A resposta `201` traz `data.clientes`, `data.consultas` e `data.campanhas`. O contador de consultas representa itens enfileirados. Uma lista de serviços vazia retorna zero consultas. Cada lote é atômico. Qualquer linha inválida, CPF duplicado ou serviço não permitido cancela o lote inteiro. Serviços incompatíveis e dados inválidos geram `422`. Uma chave repetida com outro conteúdo gera `409`. Consulte o [Swagger](../dist/openapi.json) para os campos e exemplos completos.

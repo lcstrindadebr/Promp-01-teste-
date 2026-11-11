@@ -381,5 +381,66 @@
         "00000000-0000-4000-8000-000000000001"
       ]
     }
+  },
+  {
+    "method": "GET",
+    "path": "/clientes/convenios",
+    "summary": "Catálogo e requisitos de importação",
+    "scope": "read",
+    "body": null,
+    "status": 200,
+    "response": {
+      "data": [
+        {
+          "uf": "BA",
+          "id": "saeb",
+          "nome": "Governo do Estado da Bahia (SAEB)",
+          "servicos": [
+            "consigx_margem"
+          ],
+          "campos_obrigatorios": [
+            "cpf"
+          ],
+          "campos_opcionais": [
+            "nome",
+            "telefone",
+            "numero_matricula",
+            "data_nascimento",
+            "margem_emprestimo",
+            "margem_cartao"
+          ],
+          "requisitos_servicos": {}
+        }
+      ]
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/clientes/importacoes",
+    "summary": "Importar clientes de um convênio",
+    "scope": "campanhas:write",
+    "body": {
+      "uf": "BA",
+      "convenio": "saeb",
+      "servicos": [],
+      "clientes": [
+        {
+          "cpf": "000.000.008-92",
+          "nome": "Pessoa Exemplo",
+          "numero_matricula": "000123",
+          "data_nascimento": "1985-04-23",
+          "margem_emprestimo": 120.5,
+          "margem_cartao": 45.25
+        }
+      ]
+    },
+    "status": 201,
+    "response": {
+      "data": {
+        "clientes": 1,
+        "consultas": 0,
+        "campanhas": []
+      }
+    }
   }
 ]

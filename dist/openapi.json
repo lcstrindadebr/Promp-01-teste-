@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "ApoiarCred API",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "description": "API assíncrona. Envie CPFs como texto, com ou sem pontuação. As respostas usam 000.000.000-00 e preservam zeros à esquerda. Digi+ exige nome e telefone; ConsigX apenas CPF e convênio. Nenhum resultado é inventado quando pendente. Cada token acessa somente sua conta. Campanhas nascem pausadas. Valores monetários em reais."
   },
   "servers": [
@@ -2528,6 +2528,359 @@
                 ]
               }
             }
+          }
+        }
+      }
+    },
+    "/clientes/convenios": {
+      "get": {
+        "summary": "Listar convênios e requisitos de importação",
+        "operationId": "get_clientes_convenios",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "description": "Escopo read. Use o id retornado no campo convenio da importação. IDs dos produtos de provedores não substituem o código deste catálogo.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "uf",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z]{2}$"
+            },
+            "example": "BA"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Catálogo com serviços e campos disponíveis",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "uf": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "nome": {
+                            "type": "string"
+                          },
+                          "servicos": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "campos_obrigatorios": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "campos_opcionais": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "requisitos_servicos": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "data": [
+                    {
+                      "uf": "BA",
+                      "id": "saeb",
+                      "nome": "Governo do Estado da Bahia (SAEB)",
+                      "servicos": [
+                        "consigx_margem"
+                      ],
+                      "campos_obrigatorios": [
+                        "cpf"
+                      ],
+                      "campos_opcionais": [
+                        "nome",
+                        "telefone",
+                        "numero_matricula",
+                        "data_nascimento",
+                        "margem_emprestimo",
+                        "margem_cartao"
+                      ],
+                      "requisitos_servicos": {}
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente ou inválido"
+          },
+          "403": {
+            "description": "Token sem escopo read"
+          },
+          "422": {
+            "description": "UF inválida. Informe duas letras."
+          }
+        }
+      }
+    },
+    "/clientes/importacoes": {
+      "post": {
+        "summary": "Importar clientes de um convênio",
+        "operationId": "post_clientes_importacoes",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "description": "Escopo campanhas:write. Um único convênio por requisição. A lista servicos vazia cadastra os dados sem iniciar consultas. Quando selecionados, os serviços são enfileirados. Consulte /clientes/convenios antes de enviar. Se a requisição falhar, repita com o mesmo corpo e a mesma chave de idempotência. O lote é atômico. Uma linha inválida cancela o lote inteiro. O limite é de 10.000 clientes e 2 MB por requisição. CPFs duplicados no mesmo lote são rejeitados.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "importacao-ba-001"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "uf",
+                  "convenio",
+                  "clientes"
+                ],
+                "properties": {
+                  "uf": {
+                    "type": "string",
+                    "description": "UF do convênio.",
+                    "pattern": "^[A-Za-z]{2}$"
+                  },
+                  "convenio": {
+                    "type": "string",
+                    "description": "ID retornado por GET /clientes/convenios."
+                  },
+                  "servicos": {
+                    "type": "array",
+                    "default": [],
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "consigx_margem",
+                        "digimais_saldo",
+                        "amigoz_margem",
+                        "amigoz_saque"
+                      ]
+                    }
+                  },
+                  "clientes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 10000,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "cpf"
+                      ],
+                      "properties": {
+                        "cpf": {
+                          "type": "string",
+                          "description": "CPF com 11 dígitos, com ou sem pontuação. Envie como texto para preservar zeros."
+                        },
+                        "nome": {
+                          "type": "string",
+                          "description": "Nome do cliente. Obrigatório ao solicitar Digi+."
+                        },
+                        "telefone": {
+                          "type": "string",
+                          "description": "DDD e número, somente dígitos. Obrigatório ao solicitar Digi+.",
+                          "pattern": "^[0-9]{10,13}$"
+                        },
+                        "numero_matricula": {
+                          "type": "string",
+                          "description": "Matrícula do vínculo no convênio. Preserve zeros à esquerda.",
+                          "maxLength": 256
+                        },
+                        "data_nascimento": {
+                          "type": "string",
+                          "description": "Data em formato ISO, AAAA-MM-DD.",
+                          "format": "date"
+                        },
+                        "margem_emprestimo": {
+                          "type": "number",
+                          "description": "Margem mensal para empréstimo, em reais."
+                        },
+                        "margem_cartao": {
+                          "type": "number",
+                          "description": "Margem mensal para cartão, em reais."
+                        },
+                        "margem_livre": {
+                          "type": "number",
+                          "deprecated": true,
+                          "description": "Campo legado aceito como margem de empréstimo quando margem_emprestimo estiver ausente."
+                        },
+                        "saque_amigoz_elegivel": {
+                          "type": "boolean",
+                          "description": "Elegibilidade conhecida para saque complementar Amigoz."
+                        },
+                        "saque_amigoz_valor": {
+                          "type": "number",
+                          "minimum": 0,
+                          "description": "Saque complementar Amigoz disponível, em reais."
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "examples": {
+                "Bahia": {
+                  "summary": "SAEB com margens conhecidas",
+                  "value": {
+                    "uf": "BA",
+                    "convenio": "saeb",
+                    "servicos": [],
+                    "clientes": [
+                      {
+                        "cpf": "000.000.008-92",
+                        "nome": "Pessoa Exemplo",
+                        "numero_matricula": "000123",
+                        "data_nascimento": "1985-04-23",
+                        "margem_emprestimo": 120.5,
+                        "margem_cartao": 45.25
+                      }
+                    ]
+                  }
+                },
+                "SaoPaulo": {
+                  "summary": "Governo de São Paulo com Digi+",
+                  "value": {
+                    "uf": "SP",
+                    "convenio": "amigoz_23",
+                    "servicos": [
+                      "digimais_saldo"
+                    ],
+                    "clientes": [
+                      {
+                        "cpf": "000.000.008-92",
+                        "nome": "Pessoa Exemplo",
+                        "telefone": "11900000000"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Importação registrada. Consultas contabiliza itens enfileirados e campanhas retorna os lotes criados.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "clientes",
+                        "consultas",
+                        "campanhas"
+                      ],
+                      "properties": {
+                        "clientes": {
+                          "type": "integer"
+                        },
+                        "consultas": {
+                          "type": "integer"
+                        },
+                        "campanhas": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "servico": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "data": {
+                    "clientes": 1,
+                    "consultas": 0,
+                    "campanhas": []
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Chave de idempotência ausente ou inválida"
+          },
+          "401": {
+            "description": "Token ausente ou inválido"
+          },
+          "403": {
+            "description": "Token sem permissão"
+          },
+          "409": {
+            "description": "Chave de idempotência reutilizada com outro conteúdo"
+          },
+          "422": {
+            "description": "Dados, convênio ou serviços inválidos"
+          },
+          "429": {
+            "description": "Cota ou taxa de requisições atingida"
+          },
+          "415": {
+            "description": "Envie Content-Type application/json."
+          },
+          "503": {
+            "description": "API temporariamente indisponível. Repita com o mesmo corpo e a mesma chave de idempotência."
           }
         }
       }

@@ -9,6 +9,7 @@ const nodes=new Map(),get=s=>{if(!nodes.has(s))nodes.set(s,new Element(s.include
 let handler=async()=>[],calls=[],blobs=[];
 const ctx={document:{createElement:tag=>new Element(tag),body:new Element(),querySelectorAll:()=>[]},$:get,HTMLElement:Element,Option:class{constructor(text,value){this.text=text;this.value=value}},URLSearchParams,Intl,Date,structuredClone,crypto:require('node:crypto').webcrypto,URL:{createObjectURL:b=>{blobs.push(b);return 'blob:test'},revokeObjectURL(){}},Blob,setTimeout:()=>{},authenticated:true,authEpoch:1,currentPage:'clients',statusNames:{},formatCpf:x=>x.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,'$1.$2.$3-$4'),sbRequest:async(path,options)=>{calls.push({path,options});return handler(path,options)}};
 vm.createContext(ctx);vm.runInContext(fs.readFileSync('dist/crm.js','utf8'),ctx);
+vm.runInContext(fs.readFileSync('dist/crm-import.js','utf8'),ctx);
 (async()=>{
  handler=async(path,options)=>path.includes('crm_filter_clients')?Array.from({length:26},(_,i)=>({cpf:String(i+1).padStart(11,'0'),nome:'Cliente teste'})):[];
  await vm.runInContext('loadCrmClients(0)',ctx);assert.equal(get('#crmRows').children.length,25);assert.equal(get('#crmNext').disabled,false);
@@ -43,6 +44,7 @@ vm.createContext(ctx);vm.runInContext(fs.readFileSync('dist/crm.js','utf8'),ctx)
  blobs=[];
  get('#crmUF').value='SP';get('#crmAgreementFilter').value='amigoz_33';
  handler=async(path,options)=>{
+  if(path.includes('crm_catalogo_importacao'))return [{uf:'SP',codigo:'amigoz_33',servicos:['amigoz_margem','amigoz_saque','digimais_saldo']}];
   if(path.includes('crm_vinculos')) return new URLSearchParams(path.split('?')[1]).get('offset')==='0'?[{cpf:'00000000001',matricula:'0007'}]:[];
   const params=JSON.parse(options.body);
   return params.p_after?[]:[{cpf:'00000000001',nome:'Teste',resumo_consultas:{
@@ -50,10 +52,11 @@ vm.createContext(ctx);vm.runInContext(fs.readFileSync('dist/crm.js','utf8'),ctx)
    amigoz_saque_amigoz_33:{dados:[{elegivel:'Sim',valor_saque_disponivel:250}]}
   }}];
  };
+ vm.runInContext('crmImportCatalog=undefined',ctx);
  await get('#crmExportTemplate').onclick();
  const template=await blobs[0].text();
- assert.match(template,/margem_livre;saque_amigoz_elegivel;saque_amigoz_valor;uf;convenio/);
- assert(template.includes('"0007"') && template.includes('"0";"Sim";"250";"SP";"amigoz_33"'));
+ assert.match(template,/margem_emprestimo;margem_cartao;saque_amigoz_elegivel;saque_amigoz_valor;uf;convenio/);
+ assert(template.includes('"0007"') && template.includes('"0";"";"Sim";"250";"SP";"amigoz_33"'));
  const html=fs.readFileSync('dist/index.html','utf8');const nav=html.match(/<nav>(.*?)<\/nav>/s)[1];assert(!nav.includes('data-page="campaigns"'));assert(html.includes('data-consultation="campaigns"'));
  console.log('PASS: CRM cursor pagination, 1,201-row export, failed export, failed stage move, seven Kanban columns, unified navigation');
 })().catch(e=>{console.error(e);process.exitCode=1});

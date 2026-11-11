@@ -7,7 +7,7 @@ const crmStates = {
   SC:'Santa Catarina', SP:'São Paulo', SE:'Sergipe', TO:'Tocantins'
 };
 
-async function crmReadClientFile(file, uf, convenio, convenioNome = convenio) {
+async function crmReadClientFile(file, uf, convenio, convenioNome = convenio, services = null) {
   if (!/\.(csv|tsv|xlsx|xls)$/i.test(file.name)) throw Error('Envie um arquivo CSV, TSV, XLSX ou XLS.');
   if (file.size > 2_000_000) throw Error('O arquivo deve ter até 2 MB.');
   let rows, date1904 = false;
@@ -68,6 +68,8 @@ async function crmReadClientFile(file, uf, convenio, convenioNome = convenio) {
       return Number(normalized);
     };
     const margemLivre = amount(entry['margem livre'],'Margem livre');
+    const margemEmprestimo = amount(entry['margem emprestimo'],'Margem de empréstimo');
+    const margemCartao = amount(entry['margem cartao'],'Margem de cartão');
     const saqueValor = amount(entry['saque amigoz valor'] || entry['valor saque complementar amigoz'],'Valor do saque Amigoz');
     const eligibility = normalize(entry['saque amigoz elegivel'] || entry['saque complementar amigoz']);
     let saqueElegivel = null;
@@ -77,9 +79,15 @@ async function crmReadClientFile(file, uf, convenio, convenioNome = convenio) {
       else invalid('Elegibilidade de saque Amigoz deve ser Sim ou Não.');
     }
     if (saqueValor < 0 || (saqueElegivel === false && saqueValor > 0)) invalid('Dados de saque Amigoz incompatíveis.');
+    if (services && [margemLivre,margemEmprestimo,margemCartao].some(value=>value !== null)
+        && !services.some(service=>service.endsWith('_margem'))) invalid('Margem indisponível neste convênio.');
+    if (services && (saqueElegivel !== null || saqueValor !== null)
+        && !services.includes('amigoz_saque')) invalid('Saque Amigoz indisponível neste convênio.');
     seen.add(cpf);
     return {cpf, nome:entry.nome || null, telefone:telefone || null,
       ...(margemLivre !== null ? {margem_livre:margemLivre} : {}),
+      ...(margemEmprestimo !== null ? {margem_emprestimo:margemEmprestimo} : {}),
+      ...(margemCartao !== null ? {margem_cartao:margemCartao} : {}),
       ...(saqueElegivel !== null ? {saque_amigoz_elegivel:saqueElegivel} : {}),
       ...(saqueValor !== null ? {saque_amigoz_valor:saqueValor} : {}),
       ...(dataNascimento ? {data_nascimento:dataNascimento} : {}),
@@ -87,9 +95,47 @@ async function crmReadClientFile(file, uf, convenio, convenioNome = convenio) {
   });
 }
 
+function crmAgreementTemplate(agreement,example) {
+  const services = agreement.servicos;
+  const fields = ['cpf','nome','telefone','matricula','data_nascimento'];
+  const values = {cpf:'000.000.008-92',nome:'Cliente de exemplo',telefone:agreement.uf==='BA'?'75900000000':'11900000000',
+    matricula:'000123',data_nascimento:'1980-05-20',uf:agreement.uf,convenio:agreement.codigo,
+    margem_emprestimo:180.50,margem_cartao:65.20,saque_amigoz_elegivel:'Sim',saque_amigoz_valor:250};
+  if (services.some(service=>service.endsWith('_margem'))) fields.push('margem_emprestimo','margem_cartao');
+  if (services.includes('amigoz_saque')) fields.push('saque_amigoz_elegivel','saque_amigoz_valor');
+  fields.push('uf','convenio');
+  return example ? [fields,fields.map(field=>values[field])] : [fields];
+}
+
+function crmWriteAgreementTemplate(agreement,example) {
+  const book=crmAgreementWorkbook(agreement,crmAgreementTemplate(agreement,example),example);
+  XLSX.writeFile(book,(example?'exemplo-':'modelo-')+agreement.uf.toLowerCase()+'-'+agreement.codigo+'.xlsx',{compression:true});
+}
+
+function crmAgreementWorkbook(agreement,data,example=false) {
+  const book=XLSX.utils.book_new();
+  const sheet=XLSX.utils.aoa_to_sheet(data);
+  sheet['!cols']=data[0].map(field=>({wch:Math.max(18,field.length+3)}));
+  XLSX.utils.book_append_sheet(book,sheet,'Clientes');
+  const instructions=[
+    ['Convênio',agreement.nome],['UF',agreement.uf],['ID',agreement.codigo],
+    ['Serviços',agreement.servicos.map(service=>crmPlannedServices[service]||service).join(', ')],
+    ['Preenchimento','CPF é obrigatório. Preserve o cabeçalho e deixe valores desconhecidos em branco.'],
+    ['Digi+',agreement.servicos.includes('digimais_saldo')?'Nome e telefone com DDD são obrigatórios ao solicitar consulta Digi+.':'Consulta indisponível neste convênio.'],
+    ['Identificadores','CPF, telefone e matrícula em texto. Data de nascimento em AAAA-MM-DD ou DD/MM/AAAA.'],
+    ...(data[0].includes('margem_emprestimo')?[['Margens','Informe os valores em reais nas colunas de empréstimo e cartão. Use 0 para margem zerada.']]:[]),
+    ...(data[0].includes('saque_amigoz_elegivel')?[['Saque Amigoz','Informe Sim ou Não na elegibilidade e o valor disponível em reais.']]:[]),
+    ...(example?[['Exemplo','Os dados são fictícios. Remova a linha de exemplo antes de importar a sua base.']]:[])
+  ];
+  const guide=XLSX.utils.aoa_to_sheet(instructions);
+  guide['!cols']=[{wch:20},{wch:100}];
+  XLSX.utils.book_append_sheet(book,guide,'Como preencher');
+  return book;
+}
+
 const crmPlannedServices = {
-  consigx_margem:'Margem · ConsigX',
-  amigoz_margem:'Margem · Amigoz',
+  consigx_margem:'Margens de empréstimo e cartão · ConsigX',
+  amigoz_margem:'Margem de cartão · Amigoz',
   amigoz_saque:'Saque complementar · Amigoz',
   digimais_saldo:'Saldo e parcela · Digi+'
 };
@@ -102,7 +148,7 @@ async function crmOpenClientImport() {
   heading.id = 'crmImportTitle';
   dialog.setAttribute('aria-labelledby', heading.id);
   form.innerHTML = `
-    <p class="crm-import-intro">Escolha o convênio e marque as consultas para iniciar automaticamente após importar. Sem opções marcadas, apenas os clientes serão cadastrados.</p>
+    <p class="crm-import-intro">Escolha o convênio e marque as consultas para iniciar automaticamente após importar. Sem opções marcadas, a planilha atualiza o cadastro sem iniciar consultas.</p>
     <ol class="crm-import-steps" aria-label="Etapas da importação">
       <li>Estado</li><li>Convênio</li><li>Consultas e planilha</li>
     </ol>
@@ -116,9 +162,12 @@ async function crmOpenClientImport() {
       </fieldset>
       <div class="crm-import-file" hidden>
         <label>Planilha de clientes<input name="arquivo" type="file" accept=".csv,.tsv,.xlsx,.xls" required disabled></label>
-        <small>CPF obrigatório. Digi+ exige nome e telefone. Amigoz exige apenas CPF; matrícula, data de nascimento, margem livre e saque complementar Amigoz são opcionais. Até 2 MB e 10.000 clientes.</small>
-        <a href="modelo-clientes.xlsx" download>Baixar planilha padrão (.xlsx)</a>
-        <a href="modelo-clientes.csv" download>Modelo em CSV</a>
+        <small>CPF obrigatório. O modelo do convênio indica os campos disponíveis. Até 2 MB e 10.000 clientes.</small>
+        <p data-agreement-info></p>
+        <div class="crm-import-downloads">
+          <button type="button" data-model>Baixar modelo Excel</button>
+          <button type="button" data-example>Baixar exemplo preenchido</button>
+        </div>
       </div>
     </div>
     <p role="status" class="crm-import-status"></p>
@@ -127,7 +176,7 @@ async function crmOpenClientImport() {
   const serviceGroup = form.querySelector('fieldset');
   const serviceList = form.querySelector('[data-services]');
   const file = form.elements.arquivo, submit = form.querySelector('[type=submit]');
-  const status = form.querySelector('[role=status]'), steps = form.querySelectorAll('li');
+  const status = form.querySelector('[role=status]'), steps = form.querySelectorAll('.crm-import-steps li');
   let rows = [], generation = 0, saving = false, requestId = crypto.randomUUID();
   let submitted = null;
   const cancel = form.querySelector('[data-cancel]');
@@ -143,13 +192,37 @@ async function crmOpenClientImport() {
     states.sort((a,b) => (crmStates[a] || a).localeCompare(crmStates[b] || b,'pt-BR'));
     for (const code of states) uf.add(new Option((crmStates[code] || code) + ' (' + code + ')', code));
     uf.disabled = false;
+    const directory = document.createElement('details');
+    directory.className = 'crm-import-directory';
+    const summary = document.createElement('summary');
+    summary.textContent = 'Lista de convênios e IDs';directory.append(summary);
+    const list = document.createElement('ul');
+    for (const item of catalog) {
+      const line = document.createElement('li');
+      line.textContent = item.uf+' · '+item.nome+' · ID '+item.codigo+' · '+item.servicos.map(service=>crmPlannedServices[service]||service).join(', ');
+      list.append(line);
+    }
+    directory.append(list);form.querySelector('.crm-import-fields').after(directory);
     status.textContent = '';
   } catch {
     status.textContent = 'Não foi possível carregar os convênios. Feche e tente novamente.';
     return;
   }
   const selectedAgreement = () => catalog.find(row => row.uf === uf.value && row.codigo === convenio.value);
+  const agreementInfo = form.querySelector('[data-agreement-info]');
+  const downloadModel = example => {
+    const agreement = selectedAgreement();
+    if (!agreement) return;
+    try { crmWriteAgreementTemplate(agreement,example); }
+    catch { status.textContent = 'Não foi possível gerar a planilha. Tente novamente.'; }
+  };
+  form.querySelector('[data-model]').onclick = ()=>downloadModel(false);
+  form.querySelector('[data-example]').onclick = ()=>downloadModel(true);
   function refresh() {
+    const agreement = selectedAgreement();
+    agreementInfo.textContent = agreement
+      ? 'ID: '+agreement.codigo+' · CPF obrigatório.'+(agreement.servicos.includes('digimais_saldo')?' Para consultar Digi+, informe também nome e telefone com DDD.':'')
+      : '';
     convenio.disabled = saving || !uf.value;
     convenio.parentElement.hidden = !uf.value;
     serviceGroup.disabled = saving;
@@ -160,8 +233,8 @@ async function crmOpenClientImport() {
     submit.disabled = saving || file.disabled || !rows.length;
     submit.textContent = selected.length ? 'Importar e iniciar consultas' : 'Importar clientes';
     const step = !uf.value ? 0 : !convenio.value.trim() ? 1 : 2;
-    steps.forEach((item, index) => {
-      if (index === step) item.setAttribute('aria-current','step');
+    steps.forEach((item,index)=>{
+      if(index===step) item.setAttribute('aria-current','step');
       else item.removeAttribute('aria-current');
     });
   }
@@ -176,7 +249,9 @@ async function crmOpenClientImport() {
   uf.onchange = () => {
     convenio.replaceChildren(new Option('Selecione o convênio',''));
     for (const row of catalog.filter(row => row.uf === uf.value)) {
-      convenio.add(new Option(row.nome,row.codigo));
+      const option=new Option(row.nome+' · '+row.codigo,row.codigo);
+      option.title=row.servicos.map(service=>crmPlannedServices[service]||service).join(', ');
+      convenio.add(option);
     }
     serviceList.replaceChildren();
     resetFile();
@@ -205,7 +280,8 @@ async function crmOpenClientImport() {
     if (!file.files.length) { status.textContent = ''; return; }
     status.textContent = 'Validando a planilha…';
     try {
-      const parsed = await crmReadClientFile(file.files[0], uf.value, convenio.value, selectedAgreement().nome);
+      const agreement = selectedAgreement();
+      const parsed = await crmReadClientFile(file.files[0], agreement.uf, agreement.codigo, agreement.nome, agreement.servicos);
       if (request !== generation) return;
       rows = parsed;
       status.textContent = rows.length.toLocaleString('pt-BR') + ' clientes prontos para cadastrar.';
