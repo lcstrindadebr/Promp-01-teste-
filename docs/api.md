@@ -506,3 +506,12 @@ Neste exemplo, o catálogo retorna `amigoz_23` e oferece Digi+. Nome e telefone 
 Envie CPF, telefone e matrícula como texto para preservar zeros à esquerda. Use `AAAA-MM-DD` para data de nascimento e números em reais para `margem_emprestimo`, `margem_cartao` e `saque_amigoz_valor`. `margem_livre` é um alias legado da margem de empréstimo. O valor zero é um valor informado. Campos cadastrais e margens omitidos são preservados. Para atualizar um saque coletado por consulta, envie a elegibilidade e o valor juntos.
 
 A resposta `201` traz `data.clientes`, `data.consultas` e `data.campanhas`. O contador de consultas representa itens enfileirados. Uma lista de serviços vazia retorna zero consultas. Cada lote é atômico. Qualquer linha inválida, CPF duplicado ou serviço não permitido cancela o lote inteiro. Serviços incompatíveis e dados inválidos geram `422`. Uma chave repetida com outro conteúdo gera `409`. Consulte o [Swagger](../dist/openapi.json) para os campos e exemplos completos.
+
+### Prévia e histórico de importação
+
+- `POST /api/v1/clientes/importacoes/previa` recebe o mesmo lote da confirmação e retorna `data.valido`, as contagens de oportunidades e, se houver problemas, `data.erros` com `linha` e `mensagem`. A contagem considera o cabeçalho na linha 1. A linha 0 indica um erro geral do lote.
+- `POST /api/v1/clientes/importacoes` confirma o lote com `Idempotency-Key`. O campo opcional `arquivo` identifica a planilha no histórico. O resultado contém o ID do lote.
+- `GET /api/v1/clientes/importacoes?offset=0` lista até 50 lotes da própria conta.
+- `GET /api/v1/clientes/importacoes/{id}` consulta um lote da própria conta.
+
+Use uma linha por CPF, matrícula e instituição. Informe `margem_beneficio` e `margem_consignado` para identificar o tipo de cartão. O campo opcional `data_dados` recebe uma data ISO ou um horário RFC 3339 com fuso. Quando omitido, vale o horário da importação.

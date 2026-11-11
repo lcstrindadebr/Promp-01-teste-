@@ -507,7 +507,7 @@ async function crmExportClients(template,excel=false){
   const button=$(excel?'#crmExportTemplateExcel':template?'#crmExportTemplate':'#crmExport'),status=$('#crmStatus'),epoch=authEpoch;
   button.disabled=true;
   const filters={p_query:$('#crmQuery').value.trim(),p_uf:$('#crmUF').value,p_convenio:$('#crmAgreementFilter').value,p_servico:$('#crmServiceFilter').value};
-  let after='',total=0;
+  let after='',total=0,exportedRows=0;
   try{
     const agreement=template && (await crmGetImportCatalog()).find(item=>item.uf===filters.p_uf && item.codigo===filters.p_convenio);
     if(template && !agreement){
@@ -527,6 +527,7 @@ async function crmExportClients(template,excel=false){
       if(!authenticated||epoch!==authEpoch)throw Error('Sessão encerrada');
       if(excel) workbookRows.push(...cells);
       else chunks.push(cells.map(row=>row.map(crmCsvCell).join(';')).join('\r\n')+'\r\n');
+      exportedRows+=cells.length;
       total+=rows.length;status.textContent='Exportando '+total+' clientes…';
       const next=rows[rows.length-1].cpf;if(next<=after)throw Error('Paginação inválida');after=next;
     }
@@ -539,7 +540,7 @@ async function crmExportClients(template,excel=false){
     }else{
       file=new Blob(chunks,{type:'text/csv;charset=utf-8'});
     }
-    if(template && (total>10000 || file.size>2000000)){
+    if(template && (exportedRows>10000 || file.size>2000000)){
       status.textContent='O arquivo excede o limite de importação. Reduza o filtro para baixar um lote reimportável.';
       return;
     }
@@ -553,8 +554,23 @@ async function crmExportClients(template,excel=false){
 }
 async function crmClientTemplateRows(rows,filters,headers){
   const registrations=new Map();
+  const marginsByCpf=new Map();
   for(let start=0;start<rows.length;start+=100){
     const group=rows.slice(start,start+100);
+    const cpfFilter='in.('+group.map(row=>row.cpf).join(',')+')';
+    if(headers.includes('margem_emprestimo')){
+      for(let offset=0;;offset+=500){
+        const margins=await sbRequest(crmPath('crm_margens_vinculo',{
+          cpf:cpfFilter,convenio:'eq.'+filters.p_convenio,
+          order:'cpf,matricula,instituicao,produto',limit:500,offset
+        }));
+        for(const margin of margins){
+          if(!marginsByCpf.has(margin.cpf))marginsByCpf.set(margin.cpf,[]);
+          marginsByCpf.get(margin.cpf).push(margin);
+        }
+        if(margins.length<500)break;
+      }
+    }
     let offset=0;
     for(;;){
       const links=await sbRequest(crmPath('crm_vinculos',{
@@ -567,7 +583,7 @@ async function crmClientTemplateRows(rows,filters,headers){
     }
   }
   const agreement=filters.p_convenio;
-  return rows.map(row=>{
+  return rows.flatMap(row=>{
     const facts=row.resumo_consultas||{};
     const latest = entries=>entries.filter(([fact])=>fact)
       .sort(([a],[b])=>String(b.data).localeCompare(String(a.data)))
@@ -588,8 +604,28 @@ async function crmClientTemplateRows(rows,filters,headers){
       matricula:registrations.get(row.cpf),data_nascimento:row.data_nascimento,
       margem_emprestimo:loan,margem_cartao:card,saque_amigoz_elegivel:eligible.length?'Sim':declined?'Não':'',
       saque_amigoz_valor:values.length && (eligible.length || !declined)?Math.max(...values):null,
+      data_dados:[imported,consigx,facts['amigoz_margem_'+agreement],facts['amigoz_saque_'+agreement]].filter(f=>f?.data).map(f=>f.data).sort()[0],
       uf:filters.p_uf,convenio:agreement};
-    return headers.map(field=>cells[field]);
+    const margins=marginsByCpf.get(row.cpf);
+    if(!margins?.length)return [headers.map(field=>cells[field])];
+    const groups=new Map();
+    for(const margin of margins){
+      const key=JSON.stringify([margin.matricula,margin.instituicao]);
+      if(!groups.has(key))groups.set(key,{matricula:margin.matricula,instituicao:margin.instituicao,data_dados:margin.observado_em});
+      const values=groups.get(key);
+      values['margem_'+margin.produto]=margin.valor;
+      if(margin.observado_em<values.data_dados)values.data_dados=margin.observado_em;
+    }
+    const {margem_emprestimo,margem_cartao,saque_amigoz_elegivel,saque_amigoz_valor,data_dados,...identity}=cells;
+    const result=[...groups.values()].map(values=>({...identity,...values}));
+    if(saque_amigoz_elegivel || saque_amigoz_valor!=null){
+      const observed=facts['amigoz_saque_'+agreement]?.data;
+      const target=result.find(item=>item.matricula===identity.matricula && item.instituicao==='amigoz');
+      const offer={saque_amigoz_elegivel,saque_amigoz_valor,data_dados:observed};
+      if(target)Object.assign(target,offer,{data_dados:[target.data_dados,observed].filter(Boolean).sort()[0]});
+      else result.push({...identity,...offer,instituicao:'amigoz'});
+    }
+    return result.map(item=>headers.map(field=>item[field]));
   });
 }
 async function crmLoadSettings(){
@@ -724,12 +760,13 @@ async function crmOpenClientProfile(row,selectedId) {
   const scope={cpf:'eq.'+row.cpf,user_id:'eq.'+row.user_id};
   const money=value=>value==null?'Não informado':crmMoney.format(value);
   try {
-    const [clients,links,opportunities,history,profileData]=await Promise.all([
+    const [clients,links,opportunities,history,profileData,margins]=await Promise.all([
       sbRequest(crmPath('crm_cadastros',{...scope,limit:1})),
       sbRequest(crmPath('crm_vinculos',{...scope,order:'confirmado_em.desc'})),
       sbRequest(crmPath('crm_opportunity_cards',{...scope,order:'created_at.desc,id.desc'})),
       sbRequest(crmPath('crm_consultas',{...scope,order:'created_at.desc,id.desc',limit:25})),
-      sbRequest(crmPath('crm_dados_cliente',{...scope,order:'registrado_em.desc'}))
+      sbRequest(crmPath('crm_dados_cliente',{...scope,order:'registrado_em.desc'})),
+      sbRequest(crmPath('crm_margens_vinculo',{...scope,order:'observado_em.desc'}))
     ]);
     if (!dialog.open || epoch!==authEpoch) return;
     const client=clients[0]||row;
@@ -743,6 +780,12 @@ async function crmOpenClientProfile(row,selectedId) {
     form.append(registration);
     const dataSection=crmElement('section','crm-profile-section');
     dataSection.append(crmElement('h3','','Dados registrados no perfil'));
+    const marginLabels={emprestimo:'Empréstimo',cartao:'Cartão',beneficio:'Cartão benefício',consignado:'Cartão consignado'};
+    for(const margin of margins) dataSection.append(crmElement('p','',[
+      marginLabels[margin.produto],money(margin.valor),margin.convenio,
+      margin.matricula && 'Matrícula '+margin.matricula,margin.instituicao,
+      new Date(margin.observado_em).toLocaleDateString('pt-BR')
+    ].filter(Boolean).join(' · ')));
     for(const fact of profileData){
       const institution={amigoz:'Amigoz',consigx:'ConsigX',digimais:'Digi+'}[fact.instituicao] || 'Instituição não informada';
       const kind={margem:'Margem',saque_complementar:'Saque complementar',saldo_parcela:'Saldo e parcela'}[fact.tipo];

@@ -73,7 +73,7 @@ class ApiHTTPTests(unittest.TestCase):
   with patch.object(api,'rpc',side_effect=urllib.error.URLError('private-secret')):
    status,body,_=self.call('/api/v1/campanhas',headers={'Authorization':'Bearer '+TOKEN});self.assertEqual(status,503);self.assertNotIn('private-secret',json.dumps(body))
  def test_sql_only_execute_service_and_openapi_routes_match(self):
-  spec=json.loads((Path(__file__).resolve().parents[1]/'dist/openapi.json').read_text());self.assertEqual(sum(len(x) for x in spec['paths'].values()),20)
+  spec=json.loads((Path(__file__).resolve().parents[1]/'dist/openapi.json').read_text());self.assertEqual(sum(len(x) for x in spec['paths'].values()),23)
 
 class ApiNginxTests(unittest.TestCase):
  def test_ssl_preserved_and_config_idempotent(self):

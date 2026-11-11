@@ -13,6 +13,12 @@ begin
  if not (r->'body'->'data' @> '[{"id":"saeb","servicos":["consigx_margem"],"campos_opcionais":["margem_emprestimo","margem_cartao"]}]') then raise exception 'Catálogo BA: %',r; end if;
  r:=public.api_execute(h,'GET','/clientes/convenios','{"uf":"SP"}');
  if not (r->'body'->'data' @> '[{"id":"amigoz_23","requisitos_servicos":{"digimais_saldo":["cpf","nome","telefone"]}}]') then raise exception 'Catálogo SP: %',r; end if;
+ r:=public.api_execute(h,'POST','/clientes/importacoes/previa',ba,'preview-a');
+ if r#>>'{body,data,valido}' is distinct from 'true' or r#>>'{body,data,oportunidades,0,criadas}' is distinct from '1' then raise exception 'Preview BA: %',r;end if;
+ r:=public.api_execute(h,'GET','/clientes/importacoes','{}');
+ if r#>'{body,data}' is distinct from '[]'::jsonb then raise exception 'Preview gravou lote: %',r;end if;
+ r:=public.api_execute(h,'POST','/clientes/importacoes/previa',ba||'{"clientes":[{"cpf":"123"},{"cpf":"456"}]}','preview-invalid');
+ if jsonb_array_length(r#>'{body,data,erros}') is distinct from 2 then raise exception 'Erros por linha: %',r;end if;
  r:=public.api_execute(h,'POST','/clientes/importacoes',ba,'ba-test');
  if (r->>'status')::int<>201 or (r#>>'{body,data,consultas}')::int<>0 then raise exception 'Import BA: %',r; end if;
  r:=public.api_execute(h,'POST','/clientes/importacoes',ba,'ba-test');
@@ -21,8 +27,13 @@ begin
  if (r->>'status')::int<>422 then raise exception 'Incompatibilidade SAEB: %',r; end if;
  r:=public.api_execute(h,'POST','/clientes/importacoes','{"uf":"SP","convenio":"amigoz_23","servicos":["digimais_saldo"],"clientes":[{"cpf":"00000000892","nome":"Pessoa Exemplo","telefone":"11900000000"}]}','sp-test');
  if (r->>'status')::int<>201 or (r#>>'{body,data,consultas}')::int<>1 then raise exception 'Import SP: %',r; end if;
+ r:=public.api_execute(h,'POST','/clientes/importacoes',ba||'{"arquivo":"teste.xlsx","clientes":[{"cpf":"00000000892","numero_matricula":"000123","margem_emprestimo":1,"data_dados":"2020-01-01"},{"cpf":"00000000892","numero_matricula":"000124","margem_beneficio":42}]}','ba-vinculos');
+ if r#>>'{body,data,dados_antigos_ignorados}' is distinct from '1' or r#>>'{body,data,margens_atualizadas}' is distinct from '1' then raise exception 'Vínculos: %',r;end if;
+ r:=public.api_execute(h,'GET','/clientes/importacoes/'||(r#>>'{body,data,id}'),'{}');
+ if r#>>'{body,data,arquivo}' is distinct from 'teste.xlsx' then raise exception 'Histórico: %',r;end if;
  execute 'reset role';
- if not exists(select 1 from public.crm_dados_cliente where user_id=actor and convenio='saeb' and origem='importacao' and dados @> '{"margem_emprestimo":120.50,"margem_cartao":0}') then raise exception 'Margens não persistidas'; end if;
+ if not exists(select 1 from public.crm_dados_cliente where user_id=actor and convenio='saeb' and origem='importacao' and dados @> '{"margem_emprestimo":120.50,"margem_cartao":42}') then raise exception 'Margens não persistidas'; end if;
+ if not exists(select 1 from public.crm_margens_vinculo where user_id=actor and matricula='000123' and produto='cartao' and valor=0) then raise exception 'Margem zero não preservada';end if;
  if not exists(select 1 from public.crm_vinculos where user_id=actor and convenio='saeb' and matricula='000123') then raise exception 'Matrícula não persistida'; end if;
 end $$;
 rollback;

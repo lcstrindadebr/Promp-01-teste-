@@ -2658,7 +2658,7 @@
             "bearerAuth": []
           }
         ],
-        "description": "Escopo campanhas:write. Um único convênio por requisição. A lista servicos vazia cadastra os dados sem iniciar consultas. Quando selecionados, os serviços são enfileirados. Consulte /clientes/convenios antes de enviar. Se a requisição falhar, repita com o mesmo corpo e a mesma chave de idempotência. O lote é atômico. Uma linha inválida cancela o lote inteiro. O limite é de 10.000 clientes e 2 MB por requisição. CPFs duplicados no mesmo lote são rejeitados.",
+        "description": "Escopo campanhas:write. Um único convênio por requisição. A lista servicos vazia cadastra os dados sem iniciar consultas. Quando selecionados, os serviços são enfileirados. Consulte /clientes/convenios antes de enviar. Se a requisição falhar, repita com o mesmo corpo e a mesma chave de idempotência. O lote é atômico. Uma linha inválida cancela o lote inteiro. O limite é de 10.000 clientes e 2 MB por requisição. CPFs duplicados no mesmo lote são rejeitados. Use uma linha por CPF, matrícula e instituição. A resposta contém o ID do lote. Erros 422 podem trazer error.details com linha e mensagem.",
         "parameters": [
           {
             "in": "header",
@@ -2758,9 +2758,28 @@
                           "type": "number",
                           "minimum": 0,
                           "description": "Saque complementar Amigoz disponível, em reais."
+                        },
+                        "data_dados": {
+                          "type": "string",
+                          "description": "Data da observação, YYYY-MM-DD ou RFC 3339 com fuso"
+                        },
+                        "instituicao": {
+                          "type": "string",
+                          "maxLength": 80
+                        },
+                        "margem_beneficio": {
+                          "type": "number"
+                        },
+                        "margem_consignado": {
+                          "type": "number"
                         }
                       }
                     }
+                  },
+                  "arquivo": {
+                    "type": "string",
+                    "maxLength": 255,
+                    "description": "Nome do arquivo para o histórico"
                   }
                 }
               },
@@ -2881,6 +2900,255 @@
           },
           "503": {
             "description": "API temporariamente indisponível. Repita com o mesmo corpo e a mesma chave de idempotência."
+          }
+        }
+      },
+      "get": {
+        "summary": "Listar histórico de importações",
+        "operationId": "listImportacoesClientes",
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Até 50 lotes do titular do token"
+          }
+        }
+      }
+    },
+    "/clientes/importacoes/previa": {
+      "post": {
+        "summary": "Conferir importação",
+        "operationId": "previewImportacaoClientes",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "description": "Simula o lote. Retorna data.valido, contagem de oportunidades e erros por linha. Nenhuma consulta é enfileirada pela prévia.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "importacao-ba-001"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "uf",
+                  "convenio",
+                  "clientes"
+                ],
+                "properties": {
+                  "uf": {
+                    "type": "string",
+                    "description": "UF do convênio.",
+                    "pattern": "^[A-Za-z]{2}$"
+                  },
+                  "convenio": {
+                    "type": "string",
+                    "description": "ID retornado por GET /clientes/convenios."
+                  },
+                  "servicos": {
+                    "type": "array",
+                    "default": [],
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "consigx_margem",
+                        "digimais_saldo",
+                        "amigoz_margem",
+                        "amigoz_saque"
+                      ]
+                    }
+                  },
+                  "clientes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 10000,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "cpf"
+                      ],
+                      "properties": {
+                        "cpf": {
+                          "type": "string",
+                          "description": "CPF com 11 dígitos, com ou sem pontuação. Envie como texto para preservar zeros."
+                        },
+                        "nome": {
+                          "type": "string",
+                          "description": "Nome do cliente. Obrigatório ao solicitar Digi+."
+                        },
+                        "telefone": {
+                          "type": "string",
+                          "description": "DDD e número, somente dígitos. Obrigatório ao solicitar Digi+.",
+                          "pattern": "^[0-9]{10,13}$"
+                        },
+                        "numero_matricula": {
+                          "type": "string",
+                          "description": "Matrícula do vínculo no convênio. Preserve zeros à esquerda.",
+                          "maxLength": 256
+                        },
+                        "data_nascimento": {
+                          "type": "string",
+                          "description": "Data em formato ISO, AAAA-MM-DD.",
+                          "format": "date"
+                        },
+                        "margem_emprestimo": {
+                          "type": "number",
+                          "description": "Margem mensal para empréstimo, em reais."
+                        },
+                        "margem_cartao": {
+                          "type": "number",
+                          "description": "Margem mensal para cartão, em reais."
+                        },
+                        "margem_livre": {
+                          "type": "number",
+                          "deprecated": true,
+                          "description": "Campo legado aceito como margem de empréstimo quando margem_emprestimo estiver ausente."
+                        },
+                        "saque_amigoz_elegivel": {
+                          "type": "boolean",
+                          "description": "Elegibilidade conhecida para saque complementar Amigoz."
+                        },
+                        "saque_amigoz_valor": {
+                          "type": "number",
+                          "minimum": 0,
+                          "description": "Saque complementar Amigoz disponível, em reais."
+                        },
+                        "data_dados": {
+                          "type": "string",
+                          "description": "Data da observação, YYYY-MM-DD ou RFC 3339 com fuso"
+                        },
+                        "instituicao": {
+                          "type": "string",
+                          "maxLength": 80
+                        },
+                        "margem_beneficio": {
+                          "type": "number"
+                        },
+                        "margem_consignado": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  },
+                  "arquivo": {
+                    "type": "string",
+                    "maxLength": 255,
+                    "description": "Nome do arquivo para o histórico"
+                  }
+                }
+              },
+              "examples": {
+                "Bahia": {
+                  "summary": "SAEB com margens conhecidas",
+                  "value": {
+                    "uf": "BA",
+                    "convenio": "saeb",
+                    "servicos": [],
+                    "clientes": [
+                      {
+                        "cpf": "000.000.008-92",
+                        "nome": "Pessoa Exemplo",
+                        "numero_matricula": "000123",
+                        "data_nascimento": "1985-04-23",
+                        "margem_emprestimo": 120.5,
+                        "margem_cartao": 45.25
+                      }
+                    ]
+                  }
+                },
+                "SaoPaulo": {
+                  "summary": "Governo de São Paulo com Digi+",
+                  "value": {
+                    "uf": "SP",
+                    "convenio": "amigoz_23",
+                    "servicos": [
+                      "digimais_saldo"
+                    ],
+                    "clientes": [
+                      {
+                        "cpf": "000.000.008-92",
+                        "nome": "Pessoa Exemplo",
+                        "telefone": "11900000000"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "description": "Chave de idempotência ausente ou inválida"
+          },
+          "401": {
+            "description": "Token ausente ou inválido"
+          },
+          "403": {
+            "description": "Token sem permissão"
+          },
+          "409": {
+            "description": "Chave de idempotência reutilizada com outro conteúdo"
+          },
+          "422": {
+            "description": "Dados, convênio ou serviços inválidos"
+          },
+          "429": {
+            "description": "Cota ou taxa de requisições atingida"
+          },
+          "415": {
+            "description": "Envie Content-Type application/json."
+          },
+          "503": {
+            "description": "API temporariamente indisponível. Repita com o mesmo corpo e a mesma chave de idempotência."
+          },
+          "200": {
+            "description": "Resultado da prévia, incluindo erros se data.valido for falso"
+          }
+        }
+      }
+    },
+    "/clientes/importacoes/{id}": {
+      "get": {
+        "summary": "Consultar lote de importação",
+        "operationId": "getImportacaoClientes",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Identificador, data, arquivo e resultado do lote"
+          },
+          "404": {
+            "description": "Lote indisponível"
           }
         }
       }

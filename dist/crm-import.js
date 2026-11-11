@@ -29,7 +29,9 @@ async function crmReadClientFile(file, uf, convenio, convenioNome = convenio, se
   if (!headers.includes('cpf') || new Set(headers).size !== headers.length) throw Error('Inclua uma coluna CPF e use cabeçalhos únicos.');
   const normalize = value => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
   const seen = new Set();
-  return rows.map((row, index) => {
+  const errors=[];
+  const records=rows.map((row, index) => {
+    try {
     const entry = Object.fromEntries(headers.map((key, i) => [key, String(row[i] ?? '').trim()]));
     const invalid = message => { throw Error('Registro ' + (index + 1) + ': ' + message); };
     for (const state of [entry.uf, entry.estado].filter(Boolean)) {
@@ -43,7 +45,10 @@ async function crmReadClientFile(file, uf, convenio, convenioNome = convenio, se
       ? rawCpf.padStart(11,'0') : rawCpf.replace(/[.\-]/g,'');
     const telefone = (entry.telefone || '').replace(/[()\s+.-]/g,'');
     if (!/^\d{11}$/.test(cpf) || cpf === '00000000000') invalid('CPF inválido. Use 11 dígitos.');
-    if (seen.has(cpf)) invalid('CPF repetido na planilha.');
+    const matricula=entry.matricula || entry['numero matricula'] || '';
+    const instituicao=(entry.instituicao||'').toLowerCase();
+    const identity=JSON.stringify([cpf,matricula,instituicao||'informada']);
+    if (seen.has(identity)) invalid('CPF repetido na planilha.');
     if ((entry.nome || '').length > 160 || (telefone && !/^\d{10,13}$/.test(telefone))) invalid('nome ou telefone inválido.');
     const birth = entry['data nascimento'] || entry['data de nascimento'] || entry['data nasc'] || entry.nascimento;
     let dataNascimento;
@@ -67,9 +72,19 @@ async function crmReadClientFile(file, uf, convenio, convenioNome = convenio, se
       if (!/^-?\d{1,12}(?:\.\d{1,2})?$/.test(normalized)) invalid(label+' inválido.');
       return Number(normalized);
     };
+    let dataDados=entry['data dados'];
+    if(typeof row[headers.indexOf('data dados')]==='number' && /\.xlsx?$/i.test(file.name)){
+      const date=XLSX.SSF.parse_date_code(Number(dataDados),{date1904});
+      if(!date)invalid('Data dos dados inválida.');
+      dataDados=[date.y,String(date.m).padStart(2,'0'),String(date.d).padStart(2,'0')].join('-');
+    }
+    if(dataDados && Date.parse(dataDados)>Date.now())invalid('Data dos dados está no futuro.');
+    if(dataDados && (!/^\d{4}-\d{2}-\d{2}(T.*)?$/.test(dataDados) || !Number.isFinite(Date.parse(dataDados)))) invalid('Data dos dados inválida. Use AAAA-MM-DD.');
     const margemLivre = amount(entry['margem livre'],'Margem livre');
     const margemEmprestimo = amount(entry['margem emprestimo'],'Margem de empréstimo');
     const margemCartao = amount(entry['margem cartao'],'Margem de cartão');
+    const beneficio=amount(entry['margem beneficio'],'Margem de cartão benefício');
+    const consignado=amount(entry['margem consignado'],'Margem de cartão consignado');
     const saqueValor = amount(entry['saque amigoz valor'] || entry['valor saque complementar amigoz'],'Valor do saque Amigoz');
     const eligibility = normalize(entry['saque amigoz elegivel'] || entry['saque complementar amigoz']);
     let saqueElegivel = null;
@@ -79,20 +94,34 @@ async function crmReadClientFile(file, uf, convenio, convenioNome = convenio, se
       else invalid('Elegibilidade de saque Amigoz deve ser Sim ou Não.');
     }
     if (saqueValor < 0 || (saqueElegivel === false && saqueValor > 0)) invalid('Dados de saque Amigoz incompatíveis.');
-    if (services && [margemLivre,margemEmprestimo,margemCartao].some(value=>value !== null)
+    if (services && [margemLivre,margemEmprestimo,margemCartao,beneficio,consignado].some(value=>value !== null)
         && !services.some(service=>service.endsWith('_margem'))) invalid('Margem indisponível neste convênio.');
     if (services && (saqueElegivel !== null || saqueValor !== null)
         && !services.includes('amigoz_saque')) invalid('Saque Amigoz indisponível neste convênio.');
-    seen.add(cpf);
+    seen.add(identity);
     return {cpf, nome:entry.nome || null, telefone:telefone || null,
+      ...(beneficio !== null ? {margem_beneficio:beneficio} : {}),
+      ...(consignado !== null ? {margem_consignado:consignado} : {}),
+      ...(instituicao ? {instituicao} : {}),
+      ...(dataDados ? {data_dados:new Date(dataDados).toISOString()} : {}),
       ...(margemLivre !== null ? {margem_livre:margemLivre} : {}),
       ...(margemEmprestimo !== null ? {margem_emprestimo:margemEmprestimo} : {}),
       ...(margemCartao !== null ? {margem_cartao:margemCartao} : {}),
       ...(saqueElegivel !== null ? {saque_amigoz_elegivel:saqueElegivel} : {}),
       ...(saqueValor !== null ? {saque_amigoz_valor:saqueValor} : {}),
       ...(dataNascimento ? {data_nascimento:dataNascimento} : {}),
-      ...((entry.matricula || entry.numero_matricula || entry['numero matricula']) ? {numero_matricula:entry.matricula || entry.numero_matricula || entry['numero matricula']} : {})};
+      ...(matricula ? {numero_matricula:matricula} : {})};
+    } catch(error) {
+      errors.push({linha:index+2,mensagem:error.message.replace(/^Registro \d+: /,'')});
+      return null;
+    }
   });
+  if(errors.length){
+    const error=Error('Linha '+errors[0].linha+' · '+errors[0].mensagem);
+    error.rows=errors;
+    throw error;
+  }
+  return records;
 }
 
 function crmAgreementTemplate(agreement,example) {
@@ -101,9 +130,10 @@ function crmAgreementTemplate(agreement,example) {
   const values = {cpf:'000.000.008-92',nome:'Cliente de exemplo',telefone:agreement.uf==='BA'?'75900000000':'11900000000',
     matricula:'000123',data_nascimento:'1980-05-20',uf:agreement.uf,convenio:agreement.codigo,
     margem_emprestimo:180.50,margem_cartao:65.20,saque_amigoz_elegivel:'Sim',saque_amigoz_valor:250};
-  if (services.some(service=>service.endsWith('_margem'))) fields.push('margem_emprestimo','margem_cartao');
+  if (services.some(service=>service.endsWith('_margem'))) fields.push('margem_emprestimo','margem_cartao','margem_beneficio','margem_consignado','instituicao');
   if (services.includes('amigoz_saque')) fields.push('saque_amigoz_elegivel','saque_amigoz_valor');
-  fields.push('uf','convenio');
+  values.data_dados=new Date().toISOString().slice(0,10);
+  fields.push('data_dados','uf','convenio');
   return example ? [fields,fields.map(field=>values[field])] : [fields];
 }
 
@@ -122,6 +152,8 @@ function crmAgreementWorkbook(agreement,data,example=false) {
     ['Serviços',agreement.servicos.map(service=>crmPlannedServices[service]||service).join(', ')],
     ['Preenchimento','CPF é obrigatório. Preserve o cabeçalho e deixe valores desconhecidos em branco.'],
     ['Digi+',agreement.servicos.includes('digimais_saldo')?'Nome e telefone com DDD são obrigatórios ao solicitar consulta Digi+.':'Consulta indisponível neste convênio.'],
+    ['Data dos dados','Use AAAA-MM-DD para indicar quando os valores foram observados.'],
+    ['Vínculos','Use uma linha por CPF, matrícula e instituição.'],
     ['Identificadores','CPF, telefone e matrícula em texto. Data de nascimento em AAAA-MM-DD ou DD/MM/AAAA.'],
     ...(data[0].includes('margem_emprestimo')?[['Margens','Informe os valores em reais nas colunas de empréstimo e cartão. Use 0 para margem zerada.']]:[]),
     ...(data[0].includes('saque_amigoz_elegivel')?[['Saque Amigoz','Informe Sim ou Não na elegibilidade e o valor disponível em reais.']]:[]),
@@ -170,6 +202,9 @@ async function crmOpenClientImport() {
         </div>
       </div>
     </div>
+    <div data-preview></div>
+    <div data-errors></div>
+    <button type="button" data-history>Histórico de importações</button>
     <p role="status" class="crm-import-status"></p>
     <footer><button type="button" data-cancel>Cancelar</button><button type="submit" class="primary" disabled>Importar clientes</button></footer>`;
   const uf = form.elements.uf, convenio = form.elements.convenio;
@@ -178,7 +213,25 @@ async function crmOpenClientImport() {
   const file = form.elements.arquivo, submit = form.querySelector('[type=submit]');
   const status = form.querySelector('[role=status]'), steps = form.querySelectorAll('.crm-import-steps li');
   let rows = [], generation = 0, saving = false, requestId = crypto.randomUUID();
-  let submitted = null;
+  let submitted = null, previewFingerprint = null;
+  const previewPanel=form.querySelector('[data-preview]');
+  const errorPanel=form.querySelector('[data-errors]');
+  form.querySelector('[data-history]').onclick=crmOpenImportHistory;
+  function showErrors(errors){
+    errorPanel.replaceChildren();
+    if(!errors?.length)return;
+    const list=crmElement('ul');
+    for(const error of errors.slice(0,10))list.append(crmElement('li','',(error.linha?'Linha '+error.linha+' · ':'')+error.mensagem));
+    const download=crmElement('button','','Baixar relatório de erros ('+errors.length+')');
+    download.type='button';
+    download.onclick=()=>{
+      const csv='linha;mensagem\r\n'+errors.map(row=>[row.linha,row.mensagem].map(crmCsvCell).join(';')).join('\r\n');
+      const url=URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'}));
+      const link=document.createElement('a');link.href=url;link.download='erros-importacao.csv';link.click();
+      setTimeout(()=>URL.revokeObjectURL(url),1000);
+    };
+    errorPanel.append(list,download);
+  }
   const cancel = form.querySelector('[data-cancel]');
   const close = dialog.querySelector('header button');
   cancel.onclick = () => dialog.close();
@@ -231,7 +284,7 @@ async function crmOpenClientImport() {
     file.closest('.crm-import-file').hidden = !selectedAgreement();
     const selected = [...serviceList.querySelectorAll('input:checked')].map(input => input.value);
     submit.disabled = saving || file.disabled || !rows.length;
-    submit.textContent = selected.length ? 'Importar e iniciar consultas' : 'Importar clientes';
+    submit.textContent = previewFingerprint ? 'Confirmar importação' : 'Conferir importação';
     const step = !uf.value ? 0 : !convenio.value.trim() ? 1 : 2;
     steps.forEach((item,index)=>{
       if(index===step) item.setAttribute('aria-current','step');
@@ -240,7 +293,8 @@ async function crmOpenClientImport() {
   }
   function resetFile() {
     generation++;
-    requestId = crypto.randomUUID(); submitted = null;
+    requestId = crypto.randomUUID(); submitted = null; previewFingerprint=null;
+    previewPanel.replaceChildren();showErrors([]);
     file.value = '';
     rows = [];
     status.textContent = '';
@@ -267,7 +321,7 @@ async function crmOpenClientImport() {
       const allowed = currentAccess?.role === 'admin' || (service.startsWith('amigoz_') ? amigozCanConsult() : rule?.enabled && rule?.allow_campaign);
       checkbox.disabled = !allowed;
       if (checkbox.disabled) label.title = 'Sem permissão para consultar em lote.';
-      checkbox.onchange = refresh;
+      checkbox.onchange = ()=>{previewFingerprint=null;previewPanel.replaceChildren();showErrors([]);refresh();};
       label.append(checkbox, crmPlannedServices[service] || service);
       serviceList.append(label);
     }
@@ -275,6 +329,7 @@ async function crmOpenClientImport() {
   };
   file.onchange = async () => {
     const request = ++generation;
+    previewFingerprint=null;previewPanel.replaceChildren();showErrors([]);
     rows = [];
     refresh();
     if (!file.files.length) { status.textContent = ''; return; }
@@ -286,7 +341,7 @@ async function crmOpenClientImport() {
       rows = parsed;
       status.textContent = rows.length.toLocaleString('pt-BR') + ' clientes prontos para cadastrar.';
     } catch (error) {
-      if (request === generation) status.textContent = error.message;
+      if (request === generation) {status.textContent=error.message;showErrors(error.rows);}
     } finally {
       if (request === generation) refresh();
     }
@@ -300,12 +355,30 @@ async function crmOpenClientImport() {
     status.textContent = 'Salvando clientes e agendando consultas…';
     try {
       const selected = [...serviceList.querySelectorAll('input:checked')].map(input => input.value);
-      if (selected.includes('digimais_saldo') && rows.some(row => !row.nome || !row.telefone)) throw Error('Digi+ exige nome e telefone com DDD em todas as linhas.');
       const payload = {p_uf:uf.value,p_convenio:convenio.value,p_rows:rows,p_servicos:selected};
       const fingerprint = JSON.stringify(payload);
+      if(previewFingerprint!==fingerprint){
+        const preview=await crmRpc('crm_preview_import',payload);
+        if(authEpoch!==epoch || !dialog.open)return;
+        if(!preview.valido){
+          status.textContent='Corrija os registros indicados antes de importar.';
+          showErrors(preview.erros);
+          return;
+        }
+        showErrors([]);
+        previewPanel.replaceChildren(crmElement('h3','','Confira a importação'),
+          crmElement('p','',selectedAgreement().nome+' · '+rows.length+' registros · '+preview.consultas+' consultas após confirmar.'));
+        const fields=[...new Set(rows.flatMap(row=>Object.keys(row)))];
+        previewPanel.append(crmElement('p','','Campos reconhecidos: '+fields.join(', ')));
+        for(const item of preview.oportunidades||[])previewPanel.append(crmElement('p','',
+          (crmProducts[item.produto]||item.produto)+' · '+item.criadas+' novas · '+item.atualizadas+' atualizadas'));
+        previewFingerprint=fingerprint;
+        status.textContent='Revise os dados e confirme a importação.';
+        return;
+      }
       if (submitted && submitted !== fingerprint) requestId = crypto.randomUUID();
       submitted = fingerprint;
-      const result = await crmRpc('crm_import_and_start', {...payload,p_request_id:requestId});
+      const result = await crmRpc('crm_confirm_import', {...payload,p_request_id:requestId,p_arquivo:file.files[0]?.name});
       if (authEpoch !== epoch) return;
       dialog.close();
       closeCrmHistory();
@@ -380,4 +453,35 @@ function crmAddPlannedActions(item, client, agreement, planned) {
   if (planned.includes('consigx_margem')) prepareStandard('tjba_margem','Preparar margem ConsigX');
   if (planned.includes('digimais_saldo')) prepareStandard('digimais_saldo_parcela','Preparar saldo Digi+');
   if (buttons.children.length) item.append(buttons);
+}
+
+
+async function crmOpenImportHistory(){
+  const {dialog,form}=crmDialog('Histórico de importações');
+  const status=crmElement('p','','Carregando…');
+  const more=crmElement('button','','Carregar mais');
+  more.type='button';
+  form.append(status,more);
+  let offset=0;
+  more.onclick=async()=>{
+    more.disabled=true;
+    try{
+      const rows=await crmRpc('crm_import_history',{p_offset:offset});
+      if(!dialog.open)return;
+      for(const row of rows){
+        const result=row.response;
+        const item=crmElement('section','crm-profile-section');
+        item.append(crmElement('strong','',row.arquivo||'Importação'),
+          crmElement('p','',[new Date(row.created_at).toLocaleString('pt-BR'),result.uf,result.convenio].filter(Boolean).join(' · ')),
+          crmElement('p','',result.clientes+' clientes · '+result.consultas+' consultas'),
+          crmElement('small','','Lote '+row.id));
+        more.before(item);
+      }
+      offset+=rows.length;
+      more.hidden=rows.length<50;
+      status.textContent=offset?'':'Nenhuma importação registrada.';
+    }catch{status.textContent='Não foi possível carregar o histórico.';}
+    finally{more.disabled=false;}
+  };
+  more.click();
 }
