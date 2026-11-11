@@ -22,7 +22,9 @@ amigozControls.innerHTML = `
  <label class="field" for="amigozQueryRegistration">Matrícula (opcional)</label><input id="amigozQueryRegistration" maxlength="256">
  <label class="field" for="amigozQueryPassword">Senha do servidor (se exigida pelo convênio)</label><input id="amigozQueryPassword" type="password" autocomplete="off" maxlength="256">
  <button id="amigozQueryMargin" type="button">Consultar margem do cliente</button>
- <p id="amigozQueryMarginStatus" role="status"></p></details>`;
+ <p id="amigozQueryMarginStatus" role="status"></p>
+ <details id="amigozMarginDiagnostic" hidden><summary>Log da consulta · administrador</summary>
+ <pre class="log-code" tabindex="0"><code id="amigozMarginDiagnosticText"></code></pre></details></details>`;
 document.querySelector('.amigoz-disclaimer').textContent = 'Simulação preliminar com coeficientes observados e IOF estimado. Valores sujeitos à confirmação no banco.';
 
 function coefficientRequest(name, body) {
@@ -67,13 +69,14 @@ async function loadCoefficientContext() {
     });
     if (generation !== amigozGeneration || !authenticated) return;
     amigozContext = context;
-    const agreements = context.config.eligibilidade;
-    $('#amigozAgreement').replaceChildren(new Option('Selecione o convênio', ''));
+    const agreements = context.convenios || context.config.eligibilidade;
+    const select = $('#amigozAgreement');
+    select.replaceChildren(new Option('Selecione o convênio', ''));
     for (const agreement of agreements) {
-      const label = agreement.nome || (agreement.convenio==='amigoz_23' ? 'Governo de São Paulo' : agreement.convenio);
-      $('#amigozAgreement').add(new Option(label, agreement.convenio));
+      select.add(new Option(agreement.nome || agreement.convenio, agreement.convenio));
     }
-    $('#amigozAgreement').value = context.convenio || '';
+    select.value = context.convenio_assumido ? '' : (context.convenio || '');
+    if (select.selectedIndex < 0) select.value='';
     $('#amigozMarginSelect').replaceChildren(new Option('Selecione a margem e o vínculo', ''));
     const products = {beneficio:'Cartão benefício', consignado:'Cartão consignado', cartao:'Cartão', emprestimo:'Empréstimo'};
     for (const margin of context.margens.filter(margin => margin.elegivel)) {
@@ -88,16 +91,22 @@ async function loadCoefficientContext() {
     $('#amigozBaseMode').value = amigozSource.margin ? 'margin' : original > 0 ? 'original' : 'margin';
     $('#amigozManualTotal').value = original || '';
     coefficientMarginFields();
-    $('#amigozMarginInfo').textContent = 'Parcela atual '+(original == null ? 'não informada' : brl(original))+
-      (context.convenio_assumido ? ' · Convênio padrão Governo de São Paulo. Confirme antes de simular.' : '');
-    $('#amigozStatus').textContent = context.elegivel ? 'Selecione a base para simular.' : 'Escolha um convênio com produto Amigoz habilitado.';
+    $('#amigozMarginInfo').textContent = 'Parcela atual '+(original == null ? 'não informada' : brl(original));
+    $('#amigozStatus').textContent = !select.value ? 'Selecione o convênio do cliente.' : context.elegivel ? 'Selecione a base para simular.' : 'Este convênio ainda não tem tabela de simulação configurada.';
   } catch (error) {
     if (generation === amigozGeneration) $('#amigozStatus').textContent = error.message;
   } finally {
     if (generation === amigozGeneration) setCoefficientBusy(false);
   }
 }
+function clearAmigozMarginDiagnostic() {
+ const panel=$('#amigozMarginDiagnostic');
+ panel.open=false;
+ panel.hidden=true;
+ $('#amigozMarginDiagnosticText').textContent='';
+}
 async function openAmigozClient(cpf, convenio='', jobId=null, name='', margin=false) {
+  clearAmigozMarginDiagnostic();
   $('#amigozQueryMarginStatus').textContent='';
   $('#amigozQueryRegistration').value='';$('#amigozQueryPassword').value='';
   amigozSource = {cpf:String(cpf).replace(/\D/g,''), convenio, job_id:jobId, margin};
@@ -120,6 +129,7 @@ amigozAction = function(row) {
   return `<button data-simulate="${escapeHTML(row.id)}">Simular Amigoz</button>`;
 };
 resetAmigoz = function() {
+  clearAmigozMarginDiagnostic();
   amigozGeneration++;
   amigozCurrent = null;
   amigozContext = null;
@@ -136,6 +146,7 @@ resetAmigoz = function() {
 };
 const coefficientPreviousClose=closeAmigoz;
 closeAmigoz=function(){
+ clearAmigozMarginDiagnostic();
  amigozGeneration++;amigozSource=null;amigozBusy=false;
  $('#amigozQueryPassword').value='';
  coefficientPreviousClose();
@@ -145,6 +156,8 @@ $('#amigozQueryMargin').onclick=async()=>{
  if(!amigozSource||amigozBusy)return;
  const source=amigozSource,generation=amigozGeneration,epoch=authEpoch;
  const convenio=$('#amigozAgreement').value;
+ clearAmigozMarginDiagnostic();
+ if(!convenio){$('#amigozQueryMarginStatus').textContent='Selecione o convênio do cliente.';return;}
  const payload={cpf:source.cpf,convenio,matricula:$('#amigozQueryRegistration').value.trim(),senha:$('#amigozQueryPassword').value};
  $('#amigozQueryPassword').value='';
  amigozBusy=true;setCoefficientBusy(true);
@@ -154,18 +167,26 @@ $('#amigozQueryMargin').onclick=async()=>{
   if(typeof window.consultarMargemAmigozSimulador!=='function')throw Error('Integração Amigoz indisponível. Recarregue o painel.');
   const result=await window.consultarMargemAmigozSimulador(payload);
   if(epoch!==authEpoch||generation!==amigozGeneration||source!==amigozSource||!authenticated)return;
+  const diagnostic=result.diagnostico_admin?.margem;
+  if(diagnostic&&amigozIsAdmin()){
+   $('#amigozMarginDiagnosticText').textContent=[`HTTP ${diagnostic.http_status} · ${diagnostic.rota}`,
+    `Convênio ${convenio}`,result.consulta_id&&`Consulta ${result.consulta_id}`,'',diagnostic.resposta].filter(x=>x!==false&&x!=null).join('\n');
+   $('#amigozMarginDiagnostic').hidden=false;
+  }
   if(result.salvo_no_historico===false){$('#amigozQueryMarginStatus').textContent='Consulta realizada, mas não foi salva no banco. Não repita; confira o histórico e o diagnóstico.';return;}
-  if(result.margem?.status!=='respondido')throw Error(result.margem?.mensagem||'A API não retornou a margem.');
+  if(result.margem?.status!=='respondido')throw Error('Não foi possível consultar a margem. Confira o convênio e os dados informados.');
   await loadCoefficientContext();
   if(epoch!==authEpoch||source!==amigozSource||!authenticated)return;
   $('#amigozQueryMarginStatus').textContent=amigozContext?.margens.some(m=>m.elegivel)
    ?'Margem atualizada. Selecione a base e o vínculo para recalcular a comparação.'
    :'Consulta finalizada, mas nenhuma margem elegível foi registrada para este convênio. Confira o cadastro e o retorno da API.';
- }catch(error){if(epoch===authEpoch&&generation===amigozGeneration)$('#amigozQueryMarginStatus').textContent=error.message;}
+ }catch(error){if(epoch===authEpoch&&generation===amigozGeneration)$('#amigozQueryMarginStatus').textContent='Não foi possível consultar a margem. Confira o convênio e os dados informados.';}
  finally{payload.senha='';if(epoch===authEpoch&&source===amigozSource){amigozBusy=false;setCoefficientBusy(false);}}
 };
 $('#amigozAgreement').onchange = async () => {
   if (!amigozSource) return;
+  clearAmigozMarginDiagnostic();
+  $('#amigozQueryMarginStatus').textContent='';
   amigozSource.convenio = $('#amigozAgreement').value;
   await loadCoefficientContext();
 };
@@ -175,6 +196,7 @@ $('#amigozCoefficientCalculate').onclick = async () => {
   const generation = amigozGeneration;
   const agreement = $('#amigozAgreement').value;
   if (!agreement) {$('#amigozStatus').textContent = 'Selecione o convênio.';return;}
+  if(!amigozContext?.elegivel){$('#amigozStatus').textContent='Este convênio ainda não tem tabela de simulação configurada.';return;}
   amigozBusy = true;
   setCoefficientBusy(true);
   $('#amigozStatus').textContent = 'Calculando as tabelas…';

@@ -14,11 +14,12 @@ from urllib.parse import urlsplit
 
 
 class AmigozError(Exception):
- def __init__(self,status,code,message):
+ def __init__(self,status,code,message,diagnostic=None):
   super().__init__(message)
   self.status=status
   self.code=code
   self.message=message
+  self.diagnostic=diagnostic
 
 
 def load_catalog():
@@ -120,6 +121,27 @@ class PublicHTTPS(http.client.HTTPSConnection):
    raise
 
 
+def margin_error_diagnostic(response,path,secrets):
+ # Read a bounded body. Keep diagnostics out of persisted customer results.
+ try:
+  raw=response.read(8193)
+  text=raw[:8192].decode('utf-8',errors='replace')
+  try:
+   text=json.dumps(margin_result(json.loads(text)),ensure_ascii=False,indent=2)
+  except (ValueError,RecursionError):
+   pass
+  for secret in sorted({v for v in secrets if isinstance(v,str) and v},key=len,reverse=True):
+   for form in {secret,json.dumps(secret,ensure_ascii=True)[1:-1],json.dumps(secret,ensure_ascii=False)[1:-1]}:
+    text=text.replace(form,'[oculto]')
+  text=re.sub(r'(?i)\bBearer\s+[^\s",;]+','Bearer [oculto]',text)
+  text=re.sub(r'\beyJ[\w-]+\.[\w-]+\.[\w-]+\b','[oculto]',text)
+  text=re.sub(r'(?i)(["\x27]?(?:senha[_ ]?servidor|senha|password|access[_ ]?token|refresh[_ ]?token|authorization|cookie|secret|api[_ ]?key)["\x27]?\s*[:=]\s*)(?:"[^"]*"|\x27[^\x27]*\x27|[^\s,;]+)',r'\1[oculto]',text)
+  if len(raw)>8192:text+='\n[resposta truncada]'
+ except (OSError,http.client.HTTPException):
+  text='Não foi possível ler o corpo da resposta.'
+ return {'rota':path,'http_status':response.status,'resposta':text or 'Resposta sem corpo.'}
+
+
 def request(config,path,payload,token=None):
  timeout = 60 if path == '/api/consulta-margem' else 30
  conn=PublicHTTPS(endpoint(config['url']),timeout=timeout,context=ssl.create_default_context())
@@ -129,10 +151,14 @@ def request(config,path,payload,token=None):
  try:
   conn.request('POST',path,json.dumps(payload),headers)
   response=conn.getresponse()
-  if response.status in (401,403):
-   raise AmigozError(response.status,'amigoz_denied','A Amigoz recusou a autenticação ou a permissão para esta operação.')
   if not 200<=response.status<300:
-   raise AmigozError(response.status,'amigoz_upstream',f'A Amigoz respondeu HTTP {response.status} em {path}.')
+   diagnostic=None
+   if path=='/api/consulta-margem':
+    diagnostic=margin_error_diagnostic(response,path,(
+     token,config.get('usuario'),config.get('senha'),payload.get('senha_servidor')))
+   if response.status in (401,403):
+    raise AmigozError(response.status,'amigoz_denied','A Amigoz recusou a autenticação ou a permissão para esta operação.',diagnostic)
+   raise AmigozError(response.status,'amigoz_upstream','Não foi possível concluir a consulta na Amigoz. Confira o convênio e os dados informados.',diagnostic)
   raw=response.read(MAX_RESPONSE+1)
   if len(raw)>MAX_RESPONSE:
    raise AmigozError(502,'amigoz_response','A resposta da Amigoz excedeu o tamanho permitido.')
@@ -230,7 +256,7 @@ def margin_result(value):
  return value
 
 
-def consultation(config,payload,before_request=None):
+def consultation(config,payload,before_request=None,diagnostics=None):
  mode=payload.get('modo')
  convenio_id=payload.get('convenio_id')
  convenio=CATALOG.get(convenio_id) if type(convenio_id) is int else None
@@ -262,5 +288,8 @@ def consultation(config,payload,before_request=None):
    data=saque_result(value,convenio) if operation=='saque' else margin_result(value)
    result[operation]={'status':'respondido','dados':data}
   except AmigozError as error:
-   result[operation]={'status':'erro','mensagem':error.message,'http_status':error.status,'codigo':error.code,'operacao':operation}
+   if diagnostics is not None and error.diagnostic is not None:
+    diagnostics[operation]=error.diagnostic
+   message='Não foi possível consultar a margem. Confira o convênio e os dados informados.' if operation=='margem' else error.message
+   result[operation]={'status':'erro','mensagem':message,'http_status':error.status,'codigo':error.code,'operacao':operation}
  return result
