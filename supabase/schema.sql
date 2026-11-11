@@ -4607,6 +4607,7 @@ revoke all on apoiarcred_private.digimais_api_config from public,anon,authentica
 grant all on apoiarcred_private.digimais_api_config to service_role;
 alter table public.consulta_jobs add column execution_mode text not null default 'robot' check(execution_mode in ('robot','api'));
 alter table public.consulta_jobs add column api_slot integer check(api_slot between 1 and 12);
+alter table public.consulta_jobs add column if not exists api_handoff jsonb;
 create index consulta_jobs_api_queue on public.consulta_jobs(execution_mode,queue_order) where status='aguardando';
 create unique index consulta_jobs_api_running_slot on public.consulta_jobs(api_slot) where status='processando' and execution_mode='api';
 create function apoiarcred_private.manage_digimais_pilot(p_mode text,p_paused boolean,p_max integer) returns jsonb language plpgsql security definer set search_path='' as $$
@@ -4624,7 +4625,7 @@ begin
   from public.consulta_lotes l
   where j.lote_id=l.id and l.tipo='campanha'
     and j.user_id=uid and l.user_id=uid
-    and j.status='aguardando' and j.execution_mode<>p_mode;
+    and j.status='aguardando' and j.execution_mode<>p_mode and j.api_handoff is null;
  end if;
  select jsonb_build_object('mode',mode,'paused',paused,'max_concurrency',max_concurrency) into result from apoiarcred_private.digimais_preferences where user_id=uid;
  return coalesce(result,'{"mode":"robot","paused":false,"max_concurrency":12}'::jsonb);

@@ -240,6 +240,24 @@ class ApiCapacity(RobotCapacity):
   super().__init__(maximum)
   self.target=maximum
 
+def digimais_api_handoff(job, result, finished_at):
+ balance = result.get('resultado_saldo') or {}
+ installment = result.get('resultado_parcela') or {}
+ if not any(part.get('codigo') == 'FORA_HORARIO_ATENDIMENTO' for part in (balance, installment)):
+  return None
+ message = 'Fora do horário de atendimento · encaminhada ao robô'
+ return {
+  'execution_mode': 'robot', 'status': 'aguardando', 'progress': 0,
+  'stage': 'Aguardando robô · API fora do horário', 'message': message,
+  'locked_at': None, 'consultado_em': None, 'robot_slot': None, 'api_slot': None,
+  'saldo_liquidacao': None, 'total_parcelas': None, 'valor_parcela': None,
+  'resultado_saldo': None, 'resultado_parcela': None,
+  'api_handoff': {
+   'date': finished_at, 'api_slot': job['api_slot'], 'message': message,
+   'resultado_saldo': balance or None, 'resultado_parcela': installment or None,
+  },
+ }
+
 async def api_loop(index,capacity,slot,config):
  from digimais_api import ApiSession
  adapter=ApiSession(config);adapter.telemetry=slot
@@ -256,13 +274,21 @@ async def api_loop(index,capacity,slot,config):
     diagnostic=diagnose(error,'digimais_api')
     log_failure('API DigiMais · execução ou checkpoint',diagnostic)
     result={'status':'revisao','stage':'API interrompida durante execução ou gravação parcial','message':'Motivo da interrupção: '+diagnostic['codigo']+'. Confira o resultado parcial antes de tentar novamente.'}
+   finished_at = datetime.now(timezone.utc).isoformat()
+   handoff = digimais_api_handoff(job, result, finished_at)
+   if handoff is not None:
+    result = handoff
+   else:
+    result['consultado_em'] = finished_at
    slot.saving(result)
-   result['consultado_em']=datetime.now(timezone.utc).isoformat()
+   route = (f"consulta_jobs?id=eq.{job['id']}&execution_mode=eq.api&status=eq.processando"
+            f"&api_slot=eq.{index+1}&attempts=eq.{job['attempts']}")
    while True:
     try:
-     await asyncio.to_thread(request,'consulta_jobs?id=eq.'+job['id'],result,'PATCH');break
-    except Exception:
-     await asyncio.sleep(10) # Retry persistence only, never replay the external consultation.
+     await asyncio.to_thread(request,route,result,'PATCH');break
+    except Exception as error:
+     log_failure('API DigiMais · gravar resultado',diagnose(error,'supabase'),'Repetindo apenas a gravação em 10 s.')
+     await asyncio.sleep(10)
    slot.saved()
   except Exception:
    slot.state='queue_error';await asyncio.sleep(10)
