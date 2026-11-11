@@ -1,0 +1,30 @@
+begin;
+create temporary table ux_fixture as select gen_random_uuid() uid,gen_random_uuid() other_uid,null::uuid first_lot,null::uuid second_lot;
+insert into auth.users(id,aud,role,email) select uid,'authenticated','authenticated',uid::text||'@ux-test.invalid' from ux_fixture union all select other_uid,'authenticated','authenticated',other_uid::text||'@ux-test.invalid' from ux_fixture;
+insert into apoiarcred_private.user_profiles(user_id,role,name,email) select id,'admin','Test fixture',email from auth.users where (email like '%@ux-test.invalid') and not exists(select 1 from apoiarcred_private.user_profiles p where p.user_id=auth.users.id);
+
+do $$ declare f record; a uuid; b uuid; picked public.consulta_jobs; denied boolean=false;
+begin
+ select * into f from ux_fixture;
+ perform set_config('request.jwt.claim.sub',f.uid::text,true);
+ a=public.create_consulta_campaign('UX TEST FIRST','[{"nome":"SECOND CPF FIRST ROW","cpf":"00000000272","telefone":"11999999999"},{"nome":"FIRST CPF SECOND ROW","cpf":"00000000191","telefone":"11999999999"}]');
+ b=public.create_consulta_campaign('UX TEST NEXT','[{"nome":"NEXT CAMPAIGN","cpf":"00000000353","telefone":"11999999999"}]');
+ update public.consulta_lotes set created_at='0001-01-01' where id=a;
+ update public.consulta_lotes set created_at='0001-01-02' where id=b;
+ select * into picked from public.claim_consulta_job();
+ if picked.lote_id<>a or picked.cpf<>'00000000272' then raise exception 'First imported row not first claim';end if;
+ select * into picked from public.claim_consulta_job();
+ if picked.lote_id<>a or picked.cpf<>'00000000191' then raise exception 'Second imported row not second claim';end if;
+ if exists(select 1 from public.claim_consulta_job()) then raise exception 'Skipped unfinished first campaign';end if;
+ perform public.set_campaign_paused(a,'digimais_saldo_parcela',true);
+ select * into picked from public.claim_consulta_job();
+ if picked.lote_id<>b then raise exception 'Paused campaign blocked next campaign';end if;
+ if (select count(*) from public.consulta_jobs where lote_id=a and status='processando')<>2 then raise exception 'Pause interrupted running queries';end if;
+ perform set_config('request.jwt.claim.sub',f.other_uid::text,true);
+ begin perform public.set_campaign_paused(a,'digimais_saldo_parcela',false);exception when insufficient_privilege then denied=true;end;
+ if not denied then raise exception 'Other owner can resume campaign';end if;
+ perform set_config('request.jwt.claim.sub',f.uid::text,true);
+ perform public.set_campaign_paused(a,'digimais_saldo_parcela',false);
+ if (select paused from public.consulta_lotes where id=a) then raise exception 'Resume failed';end if;
+end $$;
+rollback;

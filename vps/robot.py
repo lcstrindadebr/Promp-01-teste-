@@ -1,61 +1,330 @@
-"""Digi+ saldo de liquidação. UI flow based on observed chat; requires live homologation."""
-import re
+"""Digi+ UI workflow with real step progress and explicit result classification."""
+import asyncio, inspect, re, time
 from decimal import Decimal
-URL='https://widget.voltdigital.com.br/br/14603de1a63fa6c1331d69c278d6d32f2bbd825b28c5e4053e6418b24c7e761f/chat'
-class RobotError(Exception): pass
+from chat_browser import CHROMIUM_ARGS, CHAT_URL, NavigationIssue, open_direct_chat, check_access
+from robot_failures import diagnose, failure, label
+class RobotError(Exception):pass
 
-def parse_response(text):
- lower=text.casefold()
+def format_cpf(value):
+ digits=re.sub(r'\D','',str(value))
+ if len(digits)!=11:raise RobotError('CPF precisa conter 11 dígitos.')
+ return f'{digits[:3]}.{digits[3:6]}.{digits[6:9]}-{digits[9:]}'
+
+def normalize(text):return re.sub(r'\s+',' ',text).strip()
+
+def parse_response(text, *, ended=False, cpf_sent=False, kind="saldo"):
+ text=normalize(text);lower=text.casefold()
+ inactive='encerrado por falta de interação' in lower
+ technical_error=re.search(r'\b(?:erro|falha|indisponível)\b|tente novamente|não foi possível',lower)
+ if kind=='parcela':
+  match=re.search(r'valor\s+(?:da?\s+)?parcela\s*[:\-]?\s*R\$\s*((?:\d{1,3}(?:\.\d{3})+|\d+),\d{1,2}|\d+(?:\.\d{1,2})?)(?!\d|[.,]\d)',text,re.I)
+  if match:
+   amount=match.group(1)
+   value=Decimal(amount.replace('.','').replace(',','.') if ',' in amount else amount)
+   return {'status':'concluida','valor_parcela':float(value),'message':'Valor da parcela informado pelo chat.'}
+ else:
+  saldo=re.search(r'(?:valor\s+(?:do\s+)?saldo|saldo\s*(?:para\s*)?(?:de\s*)?(?:quitação|liquidação)(?:\s*(?:hoje|atual))?)\s*[:\-]?\s*R\$\s*((?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}|\d+\.\d{2})(?!\d|[.,]\d)',text,re.I)
+  parcelas=re.search(r'(?:total|quantidade|número)\s*(?:de\s*)?parcelas\s*[:\-]?\s*(\d+)',text,re.I)
+  if saldo:
+   amount=saldo.group(1)
+   value=Decimal(amount.replace('.','').replace(',','.') if ',' in amount else amount)
+   if parcelas:
+    n=int(parcelas.group(1))
+    if not 0<=n<=1000:raise RobotError('Resposta fora dos limites esperados; revisar manualmente.')
+    return {'status':'concluida','saldo_liquidacao':float(value),'total_parcelas':n,'message':'Saldo informado pelo chat na data desta consulta.'}
+  if cpf_sent and (saldo or parcelas) and (ended or inactive or technical_error):
+   result={'status':'revisao','message':'Resposta parcial de saldo e parcelas.','diagnostico':failure('retorno_portal','SALDO_PARCIAL')}
+   if saldo:result.update(saldo_liquidacao=float(value),message='Saldo informado. Total de parcelas não confirmado.')
+   return result
+ # Technical failures must never be classified as absence of a client.
+ if inactive:
+  return {'status':'interrompida' if cpf_sent else 'erro','message':'Sessão encerrada por falta de interação.'}
+ if technical_error:
+  return {'status':'revisao','message':'O chat informou uma falha; revisar a consulta.'}
+ if re.search(r'não foi informado um cpf válido|cpf inválido',lower):
+  return {'status':'revisao','message':'O banco recusou o CPF como inválido. Confira os dados antes de nova consulta.'}
  if 'documento não foi localizado para esse produto' in lower:
-  return {'status':'nao_localizado','message':'Documento não localizado para esse produto. Não equivale a saldo zero.'}
- saldo=re.search(r'saldo\s*(?:para\s*)?(?:de\s*)?(?:quitação|liquidação)(?:\s*(?:hoje|atual))?\s*[:\-]?\s*R\$\s*([\d.]+,\d{2})',text,re.I)
- parcelas=re.search(r'(?:total|quantidade|número)\s*(?:de\s*)?parcelas\s*[:\-]?\s*(\d+)',text,re.I)
- if saldo and parcelas:
-  value=Decimal(saldo.group(1).replace('.','').replace(',','.'));n=int(parcelas.group(1))
-  if value<0 or not 0<=n<=1000:raise RobotError('Resposta fora dos limites esperados; revisar manualmente.')
-  return {'status':'concluida','saldo_liquidacao':float(value),'total_parcelas':n,'message':'Saldo informado pelo chat; verificar a data da consulta.'}
- if 'encerrado por falta de interação' in lower:return {'status':'erro','message':'Sessão encerrada por falta de interação.'}
+  return {'status':'nao_cliente','message':'Documento não localizado para esse produto no chat.'}
+ if ended and cpf_sent:return {'status':'interrompida','message':'Consulta interrompida.'}
  return None
 
-async def run(client,timeout=45000):
- from playwright.async_api import async_playwright,TimeoutError as PlaywrightTimeout
- async with async_playwright() as pw:
-  browser=await pw.chromium.launch(headless=True,args=['--disable-dev-shm-usage'])
-  context=await browser.new_context(locale='pt-BR') # isolated cookies/localStorage per client
-  page=await context.new_page();page.set_default_timeout(timeout)
+INPUTS='input:not([type="hidden"]):not([type="file"]):not([type="checkbox"])'
+COBRANCA=re.compile(r'^Central\s+de\s+cobran[çc]a$',re.I)
+CONSIGNADO=re.compile(r'^Empr[ée]stimo\s+consignado$',re.I)
+
+ROUTES={'central_cobranca':'Central de cobrança','emprestimo_consignado':'Empréstimo consignado → Boleto'}
+
+MENU_INICIAL=re.compile(f'(?:{COBRANCA.pattern})|(?:{CONSIGNADO.pattern})',re.I)
+
+async def wait_menu(chat, name, timeout, *, registration=False):
+ """Observe the actual state instead of waiting blindly on an absent button."""
+ deadline=time.monotonic()+timeout/1000
+ button=chat.get_by_role('button',name=name).first
+ while time.monotonic()<deadline:
+  text=normalize(await chat.locator('body').inner_text(timeout=3000))
+  check_access(text)
+  if re.search(r'campo obrigatório|telefone inválido|nome obrigatório',text,re.I):
+   raise RobotError('O formulário recusou nome/telefone; a consulta ainda não começou.')
+  if re.search(r'encerrado|sessão de chat acabou',text,re.I):
+   raise RobotError('O chat encerrou a sessão antes da consulta. Nenhum CPF foi reenviado.')
+  if re.search(r'indisponível|tente novamente|não foi possível',text,re.I):
+   raise RobotError('O chat informou indisponibilidade antes da consulta.')
+  if await button.is_visible():return button
+  await asyncio.sleep(.2)
+ if registration:
+  raise RobotError('Nome/telefone enviados, mas o banco não disponibilizou o menu no prazo. Nenhum CPF foi enviado.')
+ raise RobotError('O banco não disponibilizou a próxima opção do atendimento no prazo.')
+
+async def start_chat(chat, client, timeout):
+ if await chat.get_by_role('button',name=MENU_INICIAL).first.is_visible():return
+ fields=chat.locator(INPUTS)
+ # The live widget validates on keyboard events; fill alone leaves phone "required".
+ for index,value in enumerate((client['nome'],re.sub(r'\D','',client['telefone']))):
+  field=fields.nth(index)
+  await field.fill('')
+  await field.press_sequentially(value,delay=20,timeout=10000)
+  await field.press('Tab')
+ await chat.get_by_role('button',name='Enviar',exact=True).click(timeout=5000)
+ await wait_menu(chat,MENU_INICIAL,timeout,registration=True)
+
+class DigiSession:
+ """One browser per CPF by default; each chat gets a clean context.
+
+ Playwright stays on its owning asyncio loop. No cookies, chat history or client
+ fields are carried into another request. Recycle only BETWEEN jobs, never retry
+ an external query automatically after a transport/browser failure.
+ """
+ def __init__(self,*,idle_seconds=90,max_age=600,max_jobs=1):
+  self.manager=None;self.pw=None;self.browser=None;self.owner=None
+  self.started=0;self.last_used=0;self.jobs=0;self.busy=False
+  self.idle_seconds=idle_seconds;self.max_age=max_age;self.max_jobs=max_jobs
+
+ async def close(self):
+  browser,manager=self.browser,self.manager
+  self.browser=None;self.manager=None;self.pw=None;self.owner=None;self.jobs=0
   try:
-   await page.goto(URL,wait_until='domcontentloaded')
-   # Initial form observed: two text fields (name and phone) followed by Enviar.
-   fields=page.get_by_role('textbox')
-   await fields.nth(0).fill(client['nome'])
-   await fields.nth(1).fill(client['telefone'])
-   await page.get_by_role('button',name='Enviar',exact=True).click()
-   await page.get_by_role('button',name='Empréstimo consignado',exact=True).click()
-   await page.get_by_role('button',name='Boleto',exact=True).click()
-   await page.get_by_text('Para te localizar aqui no sistema',exact=False).wait_for()
-   field=page.get_by_placeholder('Digitar...',exact=True)
-   await field.fill(client['cpf']);await field.press('Enter')
-   # Wait for a known result or the next menu. Never click Atendente automatically.
-   import time,asyncio
-   deadline=time.monotonic()+timeout/1000
-   while time.monotonic()<deadline:
-    text=await page.locator('body').inner_text()
-    if re.search(r'verifique.{0,30}human|captcha|checking your browser|access denied',text,re.I):
-     return {'status':'revisao','message':'Verificação adicional no site; intervenção humana necessária.'}
-    result=parse_response(text)
-    if result and result['status']!='concluida':return result
-    button=page.get_by_role('button',name='Saldo Liquidação',exact=True)
-    if await button.is_visible():
-     await button.click();break
-    await asyncio.sleep(.5)
-   else:raise RobotError('CPF enviado, mas menu ou resposta não reconhecida.')
-   deadline=time.monotonic()+timeout/1000
-   while time.monotonic()<deadline:
-    result=parse_response(await page.locator('body').inner_text())
-    if result:return result
-    await asyncio.sleep(.5)
-   raise RobotError('Saldo e total de parcelas não reconhecidos na resposta.')
-  except PlaywrightTimeout:
-   return {'status':'erro','message':'Tempo excedido em uma etapa do chat. Revisar antes de tentar novamente.'}
-  except RobotError as e:return {'status':'revisao','message':str(e)}
-  finally:await context.close();await browser.close()
+   if browser:await browser.close()
+  except Exception:pass
+  finally:
+   if manager:
+    try:await manager.__aexit__(None,None,None)
+    except Exception:pass
+
+ async def close_idle(self):
+  if not self.busy and self.browser and time.monotonic()-self.last_used>=self.idle_seconds:
+   await self.close()
+
+ async def prepare(self,owner):
+  now=time.monotonic()
+  if self.browser and (self.owner!=owner or not self.browser.is_connected() or
+      now-self.started>=self.max_age or now-self.last_used>=self.idle_seconds or self.jobs>=self.max_jobs):
+   await self.close()
+  if self.browser is None:
+   from playwright.async_api import async_playwright
+   try:
+    self.manager=async_playwright();self.pw=await self.manager.__aenter__()
+    self.browser=await self.pw.chromium.launch(headless=True,args=list(CHROMIUM_ARGS))
+    self.started=time.monotonic();self.owner=owner
+   except BaseException:
+    await self.close();raise
+  self.last_used=time.monotonic()
+
+ async def run(self,client,timeout=60000,on_progress=None,on_checkpoint=None):
+  if self.busy:raise RuntimeError('Executor Digi+ já está ocupado.')
+  self.busy=True
+  try:
+   # prepare is also checked at each run_once to handle a disconnected browser.
+   # Ownership/age recycling happens once here, outside a customer's two chats.
+   await self.prepare(client.get('user_id'))
+   self.jobs+=1
+   result=await run(client,timeout,on_progress,on_checkpoint,session=self)
+   if result.get('status') in ('erro','revisao','interrompida'):await self.close()
+   return result
+  except BaseException:
+   await self.close();raise
+  finally:
+   if self.jobs>=self.max_jobs:await self.close()
+   self.busy=False;self.last_used=time.monotonic()
+
+async def run_once(client,timeout=60000,on_progress=None,kind="saldo",session=None,route=None):
+ progress=0;stage='Iniciar navegador';context=None;cpf_submitted=False;active_route=None
+ owned=session is None
+ if owned:session=DigiSession()
+ async def emit(percent,label):
+  nonlocal progress,stage
+  progress=percent;stage=label
+  if on_progress:
+   result=on_progress(percent,label)
+   if inspect.isawaitable(result):await result
+ async def finish(result):
+  if result['status'] in ('concluida','nao_cliente'):await emit(100,'Concluída' if result['status']=='concluida' else 'Não é cliente')
+  if result['status'] in ('erro','revisao','interrompida') and not result.get('diagnostico'):
+   message=result.get('message','')
+   code='CPF_RECUSADO' if 'CPF como inválido' in message else 'CHAT_SEM_RESULTADO'
+   if result['status']=='interrompida':code='CONSULTA_INTERROMPIDA'
+   if 'falta de interação' in message:code='CHAT_ENCERRADO_INATIVIDADE'
+   if 'chat informou uma falha' in message:code='FALHA_INFORMADA_PELO_CHAT'
+   result['diagnostico']=failure('retorno_portal',code)
+   if result['status']!='interrompida':result['message']=f'{label(result["diagnostico"])} {message}'
+  result.update(progress=progress,stage=stage,rota=active_route)
+  if result.get('diagnostico'):result['diagnostico']['etapa']=stage
+  return result
+ try:
+  await emit(5,'Iniciar navegador')
+  if session.browser is None:await session.prepare(client.get('user_id'))
+  elif not session.browser.is_connected():
+   await session.close();await session.prepare(client.get('user_id'))
+  context=await session.browser.new_context(locale='pt-BR')
+  chat=await open_direct_chat(context,timeout=timeout,report=emit)
+  await emit(30,'Preencher nome e telefone')
+  await start_chat(chat,client,timeout)
+  cobranca=chat.get_by_role('button',name=COBRANCA)
+  active_route=route or ('central_cobranca' if await cobranca.is_visible() else 'emprestimo_consignado')
+  if active_route=='central_cobranca':
+   await emit(40,'Selecionar Central de cobrança')
+   await cobranca.click(timeout=5000)
+  else:
+   await emit(40,'Selecionar empréstimo consignado')
+   await chat.get_by_role('button',name=CONSIGNADO).click(timeout=5000)
+   await emit(50,'Selecionar boleto')
+   boleto=await wait_menu(chat,re.compile(r'^Boleto$',re.I),timeout)
+   await boleto.click(timeout=5000)
+  await emit(60,'Aguardar solicitação do CPF')
+  # Match normalized text across nested elements/nonbreaking spaces.
+  await chat.wait_for_function("() => /para te localizar.*cpf/i.test(document.body.innerText.replace(/\\s+/g,' '))",timeout=timeout)
+  field=chat.get_by_placeholder('Digitar...',exact=True)
+  await field.fill(format_cpf(client['cpf']))
+  # Observed actual send button; Enter is no longer assumed to submit.
+  cpf_submitted=True  # A click can submit even if Playwright subsequently times out.
+  await chat.locator('button.send[type="submit"]').click()
+  await emit(70,'CPF enviado; aguardando resposta')
+  selected_saldo=False;end_seen=None;history_opened=False;deadline=time.monotonic()+timeout/1000
+  while time.monotonic()<deadline:
+   text=await chat.locator('body').inner_text()
+   if re.search(r'verifique.{0,30}human|captcha|checking your browser|access denied',text,re.I):
+    return await finish({'status':'revisao','message':'[acesso_portal / VERIFICACAO_HUMANA] Verificação adicional no site; intervenção humana necessária.','diagnostico':failure('acesso_portal','VERIFICACAO_HUMANA')})
+   ended=bool(re.search(r'a sessão de chat acabou|esse atendimento foi encerrado',normalize(text),re.I)) or await chat.get_by_role('button',name='Novo Chat',exact=True).count()>0
+   # Let any last message settle after the close event, without resending CPF.
+   if ended:
+    end_seen=end_seen or time.monotonic()
+    history=chat.get_by_role('button',name='Visualizar Chat',exact=True)
+    if not history_opened and await history.is_visible():
+     await history.click(timeout=5000);history_opened=True
+     continue # Read the newly visible final message before deciding.
+   result=parse_response(text,ended=ended and time.monotonic()-(end_seen or 0)>=5,cpf_sent=True,kind=kind)
+   if result:return await finish(result)
+   button=chat.get_by_role('button',name=re.compile(r'^Valor\s+de\s+Parcela$' if kind=='parcela' else r'^Saldo\s+Liquidação$',re.I))
+   if not selected_saldo and await button.is_visible():
+    await button.click();selected_saldo=True;deadline=time.monotonic()+timeout/1000
+    await emit(85,'Valor de parcela solicitado; aguardando resposta' if kind=='parcela' else 'Saldo de liquidação solicitado; aguardando valores')
+   await asyncio.sleep(.5)
+  raise RobotError('Não houve resposta final reconhecida após o envio. Não é possível classificar como não cliente.')
+ except Exception as error:
+  diagnostic=diagnose(error)
+  if isinstance(error,RobotError):
+   if cpf_submitted:diagnostic=failure('portal','RESPOSTA_NAO_RECONHECIDA')
+   elif active_route and stage!='Aguardar solicitação do CPF':diagnostic=failure('portal','MENU_ROTA_INDISPONIVEL')
+   else:diagnostic=failure('dados','ENTRADA_INVALIDA')
+  diagnostic['etapa']=stage
+  diagnostic['repetir']=diagnostic['transitorio'] and not cpf_submitted
+  message=str(error) if isinstance(error,(RobotError,NavigationIssue)) else 'Falha na etapa '+stage+'.'
+  return {'status':'revisao' if isinstance(error,(RobotError,NavigationIssue)) else 'erro',
+          'message':f'{label(diagnostic)} {message}','diagnostico':diagnostic,'progress':progress,'stage':stage,'rota':active_route}
+ finally:
+  if context:
+   try:await context.close()
+   except Exception:await session.close()
+  if owned:await session.close()
+
+
+
+def route_can_retry(result):
+ diagnostic=result.get('diagnostico') or {}
+ if diagnostic.get('categoria') in ('acesso_portal','dados','tls','proxy_autenticacao','proxy_configuracao','autenticacao_http'):
+  return False
+ if diagnostic.get('codigo') in ('CPF_RECUSADO','HTTP_429','VERIFICACAO_HUMANA'):
+  return False
+ return result['status'] in ('erro','interrompida') or (
+  result['status']=='revisao' and diagnostic.get('codigo') in (
+   'CHAT_SEM_RESULTADO','CHAT_ENCERRADO_INATIVIDADE','FALHA_INFORMADA_PELO_CHAT',
+   'RESPOSTA_NAO_RECONHECIDA','MENU_ROTA_INDISPONIVEL','SALDO_PARCIAL'
+  )
+ )
+
+async def run_with_alternate_route(client,timeout,report,kind,**options):
+ first=await run_once(client,timeout,report,kind=kind,**options)
+ route=first.get('rota')
+ if route not in ROUTES or not route_can_retry(first):return first
+ alternate='emprestimo_consignado' if route=='central_cobranca' else 'central_cobranca'
+ executor=getattr(getattr(options.get('session'),'telemetry',None),'name','executor')
+ diagnostic=first.get('diagnostico')
+ reason=label(diagnostic) if diagnostic else first['status']
+ print(f'ROTA ALTERNATIVA | {executor} · Digi+ · {kind} | {reason} | {ROUTES[route]} → {ROUTES[alternate]}',flush=True)
+
+ async def alternate_progress(percent,stage):
+  await report(max(percent,first.get('progress',0)),f'Rota alternativa: {stage}')
+
+ second=await run_once(client,timeout,alternate_progress,kind=kind,route=alternate,**options)
+ final=dict(second)
+ if first['status']=='interrompida' and (second.get('diagnostico') or {}).get('codigo')!='SALDO_PARCIAL' and route_can_retry(second):
+  final.update(status='interrompida',message='Consulta interrompida.')
+ if 'saldo_liquidacao' in first and second['status']!='concluida' and 'saldo_liquidacao' not in second:
+  final.update(status='revisao',saldo_liquidacao=first['saldo_liquidacao'],
+               message='Saldo informado na primeira rota. Total de parcelas não confirmado.')
+ final['tentativa_anterior']=first
+ final['rota_alternativa']=alternate
+ diagnostic=second.get('diagnostico') or (first.get('diagnostico') if final['status']=='revisao' else None)
+ if diagnostic:final['diagnostico']=dict(diagnostic,repetir=False)
+ final['progress']=max(first.get('progress',0),second.get('progress',0))
+ final['recuperacao']=f'Rota alternativa tentada: {ROUTES[alternate]}.'
+ return final
+
+
+async def run(client,timeout=60000,on_progress=None,on_checkpoint=None,session=None):
+ """Persist balance before querying installment, with one alternate route per stage."""
+ options={"session":session} if session is not None else {}
+ async def progress(percent,label):
+  if on_progress:
+   result=on_progress(percent,label)
+   if inspect.isawaitable(result):await result
+ async def first_progress(percent,label):await progress(percent//2,'1/2 Saldo: '+label)
+ async def second_progress(percent,label):await progress(50+percent//2,'2/2 Parcela: '+label)
+ first=await run_with_alternate_route(client,timeout,first_progress,kind='saldo',**options)
+ combined={k:v for k,v in first.items() if k not in ('progress','stage','diagnostico','rota','rota_alternativa','tentativa_anterior','recuperacao')}
+ combined.update(resultado_saldo=first,progress=first.get('progress',0)//2,stage='1/2 Saldo: '+first.get('stage',''))
+ if first['status']!='concluida':
+  if first['status']=='nao_cliente':combined.update(progress=100,stage='Não é cliente')
+  return combined
+ combined.update(status='processando',progress=50,stage='Saldo salvo; iniciando consulta da parcela')
+ if on_checkpoint:
+  try:
+   result=on_checkpoint(combined.copy())
+   if inspect.isawaitable(result):await result
+  except Exception as error:
+   diagnostic=diagnose(error,'supabase')
+   first['diagnostico']=diagnostic
+   combined.update(status='revisao',message=f'{label(diagnostic)} Saldo obtido; gravação parcial não confirmada. A parcela não foi consultada.')
+   return combined
+ try:
+  second=await run_with_alternate_route(client,timeout,second_progress,kind='parcela',**options)
+  diagnostic=second.get('diagnostico')
+  if diagnostic and diagnostic.get('repetir') and not second.get('rota') and not second.get('tentativa_anterior'):
+   executor=getattr(getattr(session,'telemetry',None),'name','Digi+')
+   print(f'FALHA | {executor} · Digi+ · parcela | {label(diagnostic)} | Recriando sessão e repetindo somente a parcela.',flush=True)
+   if session is not None:await session.close()
+   await asyncio.sleep(3)
+   second=await run_once(client,timeout,second_progress,kind='parcela',**options)
+   second['recuperacao']=f'Recuperação automática da parcela após {label(diagnostic)}.'
+ except Exception as error:
+  diagnostic=diagnose(error)
+  second={'status':'erro','progress':0,'stage':'Iniciar consulta da parcela','diagnostico':diagnostic,
+          'message':f'{label(diagnostic)} Falha interna na consulta da parcela.'}
+ combined.update(resultado_parcela=second,progress=50+second.get('progress',0)//2,stage='2/2 Parcela: '+second.get('stage',''))
+ if second['status']=='concluida':
+  combined.update(valor_parcela=second['valor_parcela'],status='concluida',progress=100,stage='Saldo e parcela consultados',message='Saldo, total de parcelas e valor da parcela informados pelo chat.')
+ elif second['status']=='interrompida':
+  combined.update(status='interrompida',message='Saldo obtido. Consulta da parcela interrompida.')
+ else:
+  combined.update(status='revisao',message='Saldo preservado. Consulta da parcela: '+second.get('message','sem resultado conclusivo.'))
+ if second.get('recuperacao') and combined['status']!='interrompida':combined['message']+=' '+second['recuperacao']
+ return combined

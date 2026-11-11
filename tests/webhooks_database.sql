@@ -1,0 +1,122 @@
+-- Synthetic fixtures only; no HTTP is sent and every write is rolled back.
+begin;
+create temporary table wh_fixture as select gen_random_uuid() uid,gen_random_uuid() other_uid,null::uuid cid,null::uuid jid,null::uuid hid,null::uuid filtered_hid;
+insert into auth.users(id,aud,role,email) select uid,'authenticated','authenticated',uid||'@wh-test.invalid' from wh_fixture union all select other_uid,'authenticated','authenticated',other_uid||'@wh-test.invalid' from wh_fixture;
+insert into apoiarcred_private.user_profiles(user_id,role,name,email) select id,'admin','Webhook fixture',email from auth.users where id in(select uid from wh_fixture union all select other_uid from wh_fixture);
+grant select,update on wh_fixture to authenticated,service_role;
+select set_config('request.jwt.claim.sub',(select uid::text from wh_fixture),true);
+set local role authenticated;
+do $$declare r jsonb;begin
+ update wh_fixture set cid=public.create_consulta_campaign('Webhook fixture','[{"nome":"TEST","cpf":"00000000191","telefone":"11999999999"}]');
+ r=public.manage_webhooks('create',jsonb_build_object('name','Fixture','url','https://example.com/hook','scope','campaign','campaign_id',(select cid from wh_fixture),'events','["consulta.finalizada","campanha.finalizada"]'::jsonb,'statuses','["concluida","erro","revisao","nao_cliente"]'::jsonb,'client_filter','all','include_partial',true));
+ if r->>'secret'!~'^whsec_[a-f0-9]{64}$' then raise exception 'Invalid secret';end if;update wh_fixture set hid=(r->>'id')::uuid;
+ r=public.manage_webhooks('create','{"name":"Filtered","url":"https://example.com/filtered","scope":"all","service":"digimais_saldo_parcela","events":["consulta.finalizada"],"statuses":["revisao"],"client_filter":"client","include_partial":true}');update wh_fixture set filtered_hid=(r->>'id')::uuid;
+ r=public.manage_webhooks('list');if jsonb_array_length(r)<>2 or r::text like '%whsec_%' or r::text like '%secret_id%' then raise exception 'Listing leaked secret';end if;
+ begin perform public.claim_webhook_deliveries();raise exception 'Auth claimed delivery';exception when insufficient_privilege then null;end;
+ begin perform 1 from apoiarcred_private.webhooks;raise exception 'Private table readable';exception when insufficient_privilege then null;end;
+end $$;
+reset role;
+do $$declare f record;n int;begin
+ select * into f from wh_fixture;update wh_fixture set jid=(select id from public.consulta_jobs where lote_id=f.cid);
+ select * into f from wh_fixture;
+ update public.consulta_jobs set status='processando',attempts=1 where id=f.jid;
+ update public.consulta_jobs set saldo_liquidacao=1000,progress=70 where id=f.jid;
+ if exists(select 1 from apoiarcred_private.webhook_events where user_id=f.uid) then raise exception 'Partial checkpoint emitted';end if;
+ update public.consulta_jobs set status='revisao',progress=100,consultado_em=clock_timestamp(),message='Partial fixture' where id=f.jid;
+ select count(*) into n from apoiarcred_private.webhook_deliveries where hook_id in(f.hid,f.filtered_hid);if n<>2 then raise exception 'Partial/client/status filtering failed: %',n;end if;
+ update public.consulta_jobs set status='revisao' where id=f.jid;
+ if (select count(*) from apoiarcred_private.webhook_events where user_id=f.uid)<>1 then raise exception 'Duplicate terminal patch emitted';end if;
+ perform apoiarcred_private.wh_campaigns();perform apoiarcred_private.wh_campaigns();
+ if (select count(*) from apoiarcred_private.webhook_events where user_id=f.uid and event='campanha.finalizada')<>1 then raise exception 'Campaign completion dedup failed';end if;
+ if (select payload->'consulta'->>'cliente_identificado' from apoiarcred_private.webhook_events where user_id=f.uid and event='consulta.finalizada')<>'true' then raise exception 'Client identity failed';end if;
+ if apoiarcred_private.wh_client('digimais_saldo_parcela','erro','{}') is not null or apoiarcred_private.wh_client('digimais_saldo_parcela','nao_cliente','{}') is not false then raise exception 'Identity tri-state failed';end if;
+ update public.consulta_jobs set status='processando',attempts=2 where id=f.jid;
+ perform apoiarcred_private.wh_campaigns();
+ update public.consulta_jobs set status='concluida',valor_parcela=100,consultado_em=clock_timestamp() where id=f.jid;
+ perform apoiarcred_private.wh_campaigns();
+ if (select count(*) from apoiarcred_private.webhook_events where user_id=f.uid and event='campanha.finalizada')<>2 then raise exception 'New completed round missing';end if;
+end $$;
+set local role service_role;
+do $$declare r jsonb;j jsonb;id uuid;token uuid;begin
+ r=public.claim_webhook_deliveries();if jsonb_array_length(r)<>2 then raise exception 'Claim batch failed';end if;
+ j=r->0;id=(j->>'id')::uuid;token=(j->>'claim_token')::uuid;
+ if j->>'secret'!~'^whsec_[a-f0-9]{64}$' then raise exception 'Dispatcher secret unavailable';end if;
+ if public.ack_webhook_delivery(id,gen_random_uuid(),true,200,null,false) then raise exception 'Stale ACK accepted';end if;
+ if not public.ack_webhook_delivery(id,token,false,429,'HTTP 429',true) then raise exception 'ACK rejected';end if;
+ j=r->1;perform public.ack_webhook_delivery((j->>'id')::uuid,(j->>'claim_token')::uuid,true,204,null,false);
+end $$;
+reset role;
+do $$declare f record;d record;begin
+ select * into f from wh_fixture;
+ select * into d from apoiarcred_private.webhook_deliveries where hook_id in(f.hid,f.filtered_hid) and state='retry';
+ if d.attempts<>1 or d.next_at<now()+interval '29 seconds' then raise exception 'Retry schedule wrong';end if;
+ update apoiarcred_private.webhook_deliveries set next_at=now()-interval '1 second' where id=d.id;
+end $$;
+select set_config('request.jwt.claim.sub',(select other_uid::text from wh_fixture),true);
+set local role authenticated;
+do $$begin
+ if public.manage_webhooks('list')<>'[]'::jsonb or public.manage_webhooks('history')<>'[]'::jsonb then raise exception 'Cross-owner history';end if;
+ begin perform public.manage_webhooks('test',jsonb_build_object('id',(select hid from wh_fixture)));raise exception 'Cross-owner test';exception when insufficient_privilege then null;end;
+ begin perform public.manage_webhooks('create',jsonb_build_object('name','Bad','url','https://example.com','scope','campaign','campaign_id',(select cid from wh_fixture),'events','["consulta.finalizada"]'::jsonb,'statuses','["concluida"]'::jsonb,'client_filter','all'));raise exception 'Cross-owner campaign';exception when insufficient_privilege then null;end;
+end $$;
+reset role;
+select set_config('request.jwt.claim.sub',(select uid::text from wh_fixture),true);
+set local role authenticated;
+do $$declare r jsonb;i int;begin
+ r=public.manage_webhooks('history');if jsonb_array_length(r)<3 or r::text like '%whsec_%' or r::text like '%claim_token%' then raise exception 'History or secret guard failed';end if;
+ for i in 1..10 loop perform public.manage_webhooks('test',jsonb_build_object('id',(select hid from wh_fixture)));end loop;
+ begin perform public.manage_webhooks('test',jsonb_build_object('id',(select hid from wh_fixture)));raise exception 'Rate limit bypassed';exception when raise_exception then if sqlerrm='Rate limit bypassed' then raise;end if;end;
+ perform public.manage_webhooks('toggle',jsonb_build_object('id',(select hid from wh_fixture),'active',false));
+end $$;
+reset role;
+do $$begin
+ if (select count(*) from apoiarcred_private.webhook_events where user_id=(select uid from wh_fixture) and event='webhook.teste')<>10 then raise exception 'Test count wrong';end if;
+ if exists(select 1 from apoiarcred_private.webhook_events where user_id=(select uid from wh_fixture) and event='webhook.teste' and payload->'consulta'->>'cpf'<>'00000000000') then raise exception 'Test includes real data';end if;
+end $$;
+do $$declare f record;n int;eid uuid;j jsonb;r jsonb;old_token uuid=gen_random_uuid();begin
+ select * into f from wh_fixture;
+ select count(*) into n from apoiarcred_private.webhook_deliveries where hook_id=f.filtered_hid;
+ update apoiarcred_private.webhooks set include_partial=false where id=f.filtered_hid;
+ perform apoiarcred_private.wh_enqueue(f.uid,'test-filter-partial','consulta.finalizada','{}','digimais_saldo_parcela',f.cid,'campanha','revisao',true,true);
+ perform apoiarcred_private.wh_enqueue(f.uid,'test-filter-status','consulta.finalizada','{}','digimais_saldo_parcela',f.cid,'campanha','erro',true,false);
+ perform apoiarcred_private.wh_enqueue(f.uid,'test-filter-client','consulta.finalizada','{}','digimais_saldo_parcela',f.cid,'campanha','revisao',false,false);
+ perform apoiarcred_private.wh_enqueue(f.uid,'test-filter-unknown','consulta.finalizada','{}','digimais_saldo_parcela',f.cid,'campanha','revisao',null,false);
+ if (select count(*) from apoiarcred_private.webhook_deliveries where hook_id=f.filtered_hid)<>n then raise exception 'AND filters failed';end if;
+ update apoiarcred_private.webhooks set scope='individual' where id=f.filtered_hid;
+ perform apoiarcred_private.wh_enqueue(f.uid,'test-filter-origin','consulta.finalizada','{}','digimais_saldo_parcela',f.cid,'campanha','revisao',true,false);
+ perform apoiarcred_private.wh_enqueue(f.uid,'test-filter-service','consulta.finalizada','{}','tjba_margem',f.cid,'individual','revisao',true,false);
+ if (select count(*) from apoiarcred_private.webhook_deliveries where hook_id=f.filtered_hid)<>n then raise exception 'Origin/service filters failed';end if;
+ eid=apoiarcred_private.wh_enqueue(f.uid,'test-lease','consulta.finalizada','{}','digimais_saldo_parcela',f.cid,'individual','revisao',true,false);
+ update apoiarcred_private.webhook_deliveries set state='delivered' where hook_id=f.filtered_hid and event_id<>eid;
+ update apoiarcred_private.webhook_deliveries set state='delivering',attempts=7,total_attempts=7,locked_until=now()-interval '1 second',claim_token=old_token where event_id=eid;
+ r=public.claim_webhook_deliveries();if jsonb_array_length(r)<>1 then raise exception 'Paused webhook or lease reclaim failed';end if;j=r->0;
+ if public.ack_webhook_delivery((j->>'id')::uuid,old_token,true,200,null,false) then raise exception 'Expired lease acknowledged';end if;
+ perform public.ack_webhook_delivery((j->>'id')::uuid,(j->>'claim_token')::uuid,false,500,'HTTP 500',true);
+ if (select state from apoiarcred_private.webhook_deliveries where event_id=eid)<>'failed' then raise exception 'Eight attempt cap failed';end if;
+ r=public.manage_webhooks('retry',jsonb_build_object('delivery_id',j->>'id'));
+ if (select attempts from apoiarcred_private.webhook_deliveries where event_id=eid)<>0 then raise exception 'Manual retry did not reset cycle';end if;
+ if (select event_id from apoiarcred_private.webhook_deliveries where id=(r->>'delivery_id')::uuid)<>eid then raise exception 'Manual retry changed event id';end if;
+ update apoiarcred_private.webhook_deliveries set next_at=now() where event_id=eid;
+ r=public.claim_webhook_deliveries();if jsonb_array_length(r)<>1 or r->0->>'event_id'<>eid::text then raise exception 'Manual retry missing';end if;
+ if jsonb_array_length(public.claim_webhook_deliveries())<>0 then raise exception 'Live lease claimed twice';end if;
+ perform public.manage_webhooks('rotate',jsonb_build_object('id',f.filtered_hid));
+ if public.manage_webhooks('list')::text like '%whsec_%' then raise exception 'Rotation secret leaked';end if;
+end $$;
+set local role authenticated;
+do $$declare cid uuid;hid uuid;r jsonb;begin
+ cid=public.create_consigx_campaign('ConsigX webhook fixture','[{"cpf":"00000000272"}]','tjba');
+ r=public.manage_webhooks('create',jsonb_build_object('name','ConsigX fixture','url','https://example.com/consigx','scope','campaign','campaign_id',cid,'events','["consulta.finalizada"]'::jsonb,'statuses','["concluida"]'::jsonb,'client_filter','client'));hid=(r->>'id')::uuid;
+end $$;
+reset role;
+do $$declare f record;cid uuid;r jsonb;sid uuid;begin
+ select * into f from wh_fixture;select id into cid from public.tjba_lotes where user_id=f.uid;
+ update public.tjba_jobs set status='processando',attempts=1 where lote_id=cid;
+ update public.tjba_jobs set status='concluida',emprestimo_disponivel=123.45,cartao_disponivel=50,matricula='SYNTHETIC',consultado_em=clock_timestamp() where lote_id=cid;
+ select payload into r from apoiarcred_private.webhook_events where user_id=f.uid and payload->'consulta'->>'servico'='tjba_margem';
+ if r is null or r->'consulta'->>'convenio'<>'tjba' or (r->'consulta'->'resultado'->>'emprestimo_disponivel')::numeric<>123.45 then raise exception 'ConsigX payload failed';end if;
+ if r::text like '%secret%' or r::text like '%password%' then raise exception 'Credential field included';end if;
+ select secret_id into sid from apoiarcred_private.webhooks where user_id=f.uid limit 1;
+ delete from apoiarcred_private.webhooks where secret_id=sid;
+ if exists(select 1 from vault.secrets where id=sid) then raise exception 'Signing secret cleanup failed';end if;
+end $$;
+rollback;

@@ -1,0 +1,446 @@
+[
+  {
+    "method": "GET",
+    "path": "/servicos",
+    "summary": "Serviços disponíveis",
+    "scope": "read",
+    "body": null,
+    "status": 200,
+    "response": {
+      "data": [
+        {
+          "id": "digimais_saldo_parcela",
+          "campos_obrigatorios": [
+            "nome",
+            "cpf",
+            "telefone"
+          ]
+        },
+        {
+          "id": "tjba_margem",
+          "campos_obrigatorios": [
+            "cpf"
+          ],
+          "convenios": [
+            "tjba",
+            "dpeba",
+            "embasa",
+            "saeb",
+            "suprev"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/campanhas",
+    "summary": "Listar campanhas",
+    "scope": "read",
+    "body": null,
+    "status": 200,
+    "response": {
+      "data": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "nome": "Campanha de exemplo",
+          "servico": "digimais_saldo_parcela",
+          "convenio": null,
+          "paused": true
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "page_size": 50,
+        "total": 1
+      }
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/campanhas",
+    "summary": "Criar campanha pausada",
+    "scope": "campanhas:write",
+    "body": {
+      "nome": "Campanha de exemplo",
+      "servico": "digimais_saldo_parcela"
+    },
+    "status": 201,
+    "response": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "nome": "Campanha de exemplo",
+      "servico": "digimais_saldo_parcela",
+      "convenio": null,
+      "paused": true
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/campanhas/{id}",
+    "summary": "Andamento e relatório",
+    "scope": "read",
+    "body": null,
+    "status": 200,
+    "response": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "nome": "Campanha de exemplo",
+      "servico": "digimais_saldo_parcela",
+      "convenio": null,
+      "paused": true,
+      "relatorio": {
+        "total": 1,
+        "clientes": 0,
+        "nao_clientes": 0,
+        "erros": 0,
+        "revisao": 0,
+        "aguardando": 1,
+        "processando": 0
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/campanhas/{id}/leads",
+    "summary": "Leads da campanha (use ?all=true para todos)",
+    "scope": "read",
+    "body": null,
+    "status": 200,
+    "response": {
+      "data": [
+        {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "campanha_id": "00000000-0000-4000-8000-000000000001",
+          "cpf": "000.000.000-00",
+          "status": "aguardando",
+          "progress": 0,
+          "resultado": {
+            "saldo_liquidacao": null,
+            "total_parcelas": null,
+            "valor_parcela": null
+          }
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "page_size": 50,
+        "total": 1
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/campanhas/{id}/leads/status/{status}",
+    "summary": "Listar todos os leads com um status (ex.: concluida)",
+    "scope": "read",
+    "body": null,
+    "status": 200,
+    "response": {
+      "data": [
+        {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "campanha_id": "00000000-0000-4000-8000-000000000001",
+          "cpf": "000.000.000-00",
+          "status": "concluida",
+          "progress": 100,
+          "resultado": {
+            "saldo_liquidacao": 1000,
+            "total_parcelas": 24,
+            "valor_parcela": 100
+          }
+        }
+      ],
+      "total": 1
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/campanhas/{id}/leads",
+    "summary": "Adicionar leads à campanha pausada",
+    "scope": "campanhas:write",
+    "body": {
+      "leads": [
+        {
+          "nome": "Cliente de exemplo",
+          "cpf": "000.000.000-00",
+          "telefone": "11999999999",
+          "referencia_externa": "contato-123"
+        }
+      ]
+    },
+    "status": 200,
+    "response": {
+      "accepted": [
+        {
+          "linha": 1,
+          "id": "00000000-0000-4000-8000-000000000002",
+          "cpf": "000.000.000-00"
+        }
+      ],
+      "duplicates": [],
+      "rejected": []
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/campanhas/{id}/iniciar",
+    "summary": "Iniciar ou retomar campanha",
+    "scope": "campanhas:write",
+    "body": {},
+    "status": 200,
+    "response": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "paused": false
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/campanhas/{id}/pausar",
+    "summary": "Pausar novas consultas",
+    "scope": "campanhas:write",
+    "body": {},
+    "status": 200,
+    "response": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "paused": true
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/campanhas/{id}/repetir-revisoes",
+    "summary": "Reenfileirar erros e revisões",
+    "scope": "campanhas:write",
+    "body": {},
+    "status": 202,
+    "response": {
+      "reenfileirados": 1,
+      "paused": true
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/leads/{id}",
+    "summary": "Registro individual e resultado",
+    "scope": "read",
+    "body": null,
+    "status": 200,
+    "response": {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "campanha_id": "00000000-0000-4000-8000-000000000001",
+      "cpf": "000.000.000-00",
+      "status": "aguardando",
+      "progress": 0,
+      "resultado": {
+        "saldo_liquidacao": null,
+        "total_parcelas": null,
+        "valor_parcela": null
+      }
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/leads/buscar",
+    "summary": "Buscar registros por CPF",
+    "scope": "read",
+    "body": {
+      "cpf": "000.000.000-00"
+    },
+    "status": 200,
+    "response": {
+      "data": [
+        {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "campanha_id": "00000000-0000-4000-8000-000000000001",
+          "cpf": "000.000.000-00",
+          "status": "aguardando",
+          "progress": 0,
+          "resultado": {
+            "saldo_liquidacao": null,
+            "total_parcelas": null,
+            "valor_parcela": null
+          }
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "page_size": 50,
+        "total": 1
+      }
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/consultas",
+    "summary": "Solicitar consulta individual",
+    "scope": "consultas:create",
+    "body": {
+      "servico": "tjba_margem",
+      "convenio": "tjba",
+      "cpf": "000.000.000-00",
+      "referencia_externa": "contato-123"
+    },
+    "status": 202,
+    "response": {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "campanha_id": "00000000-0000-4000-8000-000000000001",
+      "status": "aguardando"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/consultas/{id}",
+    "summary": "Acompanhar consulta individual",
+    "scope": "read",
+    "body": null,
+    "status": 200,
+    "response": {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "campanha_id": "00000000-0000-4000-8000-000000000001",
+      "cpf": "000.000.000-00",
+      "status": "aguardando",
+      "progress": 0,
+      "resultado": {
+        "saldo_liquidacao": null,
+        "total_parcelas": null,
+        "valor_parcela": null
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/oportunidades",
+    "summary": "Listar oportunidades",
+    "scope": "read",
+    "body": null,
+    "status": 200,
+    "response": {
+      "data": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "cpf": "000.000.000-00",
+          "produto": "margem",
+          "etapa": "novo"
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "page_size": 50,
+        "total": 1
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/oportunidades/{id}",
+    "summary": "Consultar oportunidade",
+    "scope": "read",
+    "body": null,
+    "status": 200,
+    "response": {
+      "data": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "cpf": "000.000.000-00",
+        "produto": "margem",
+        "etapa": "novo"
+      }
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/oportunidades/{id}/etapa",
+    "summary": "Mover oportunidade",
+    "scope": "campanhas:write",
+    "body": {
+      "etapa": "contato",
+      "etapa_original": "novo"
+    },
+    "status": 200,
+    "response": {
+      "data": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "etapa": "contato"
+      }
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/oportunidades/exportacao",
+    "summary": "Confirmar exportação de oportunidades",
+    "scope": "campanhas:write",
+    "body": {
+      "itens": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "etapa": "novo"
+        }
+      ]
+    },
+    "status": 200,
+    "response": {
+      "movidas": 1,
+      "ids": [
+        "00000000-0000-4000-8000-000000000001"
+      ]
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/clientes/convenios",
+    "summary": "Catálogo e requisitos de importação",
+    "scope": "read",
+    "body": null,
+    "status": 200,
+    "response": {
+      "data": [
+        {
+          "uf": "BA",
+          "id": "saeb",
+          "nome": "Governo do Estado da Bahia (SAEB)",
+          "servicos": [
+            "consigx_margem"
+          ],
+          "campos_obrigatorios": [
+            "cpf"
+          ],
+          "campos_opcionais": [
+            "nome",
+            "telefone",
+            "numero_matricula",
+            "data_nascimento",
+            "margem_emprestimo",
+            "margem_cartao"
+          ],
+          "requisitos_servicos": {}
+        }
+      ]
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/clientes/importacoes",
+    "summary": "Importar clientes de um convênio",
+    "scope": "campanhas:write",
+    "body": {
+      "uf": "BA",
+      "convenio": "saeb",
+      "servicos": [],
+      "clientes": [
+        {
+          "cpf": "000.000.008-92",
+          "nome": "Pessoa Exemplo",
+          "numero_matricula": "000123",
+          "data_nascimento": "1985-04-23",
+          "margem_emprestimo": 120.5,
+          "margem_cartao": 45.25
+        }
+      ]
+    },
+    "status": 201,
+    "response": {
+      "data": {
+        "clientes": 1,
+        "consultas": 0,
+        "campanhas": []
+      }
+    }
+  }
+]

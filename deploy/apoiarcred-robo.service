@@ -1,0 +1,18 @@
+[Unit]
+Description=Robo de consultas ApoiarCred
+StartLimitIntervalSec=300
+StartLimitBurst=5
+Wants=network-online.target
+After=network-online.target
+[Service]
+User=apoiarcred
+RuntimeDirectory=apoiarcred-robots
+RuntimeDirectoryMode=0700
+WorkingDirectory=/opt/apoiarcred/vps
+EnvironmentFile=/opt/apoiarcred/.env
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/apoiarcred/browsers
+ExecStart=/opt/apoiarcred/.venv/bin/python -u worker.py
+Restart=always
+RestartSec=10
+[Install]
+WantedBy=multi-user.target

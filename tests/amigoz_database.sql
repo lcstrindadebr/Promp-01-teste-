@@ -1,0 +1,40 @@
+begin;
+do $$ declare r jsonb; r2 jsonb; begin
+ r=apoiarcred_private.amigoz_price(243.25,3,96,1000,'{"encargos_modo":"sem_encargos"}',5);
+ if (r->>'limite')::numeric<>7633.48 or (r->>'troco')::numeric<>6633.48 or (r->>'comissao')::numeric<>381.67 then raise exception 'Price example or commission failed';end if;
+ if (r->>'parcela_conferida')::numeric>243.25 then raise exception 'Installment exceeds margin';end if;
+ r=apoiarcred_private.amigoz_price(100,0,10,100,'{"encargos_modo":"sem_encargos"}');
+ if (r->>'limite')::numeric<>1000 then raise exception 'Zero interest failed';end if;
+ r=apoiarcred_private.amigoz_price(243.25,3,96,1000,'{}');
+ if r->>'limite' is not null or r->>'troco' is not null then raise exception 'Missing charges assumed zero';end if;
+ r=apoiarcred_private.amigoz_price(243.25,3,96,1000,'{"encargos_modo":"total_informado","encargos_total":100,"teto":5000,"tipo_teto":"liquido"}');
+ r2=apoiarcred_private.amigoz_price(243.25,3,96,1000,'{"encargos_modo":"total_informado","encargos_total":100,"teto":5000,"tipo_teto":"financiado"}');
+ if (r->>'limite')::numeric<>5000 or (r2->>'limite')::numeric<>4900 then raise exception 'Cap definitions confused';end if;
+ r=apoiarcred_private.amigoz_price(243.25,3,96,1000,'{"encargos_modo":"percentual_e_fixo","despesa_fixa":100,"encargos_percentual":5}');
+ if (r->>'total_financiado')::numeric>7633.48 or (r->>'parcela_conferida')::numeric>243.25 then raise exception 'Charge solving or rounding failed';end if;
+ r=apoiarcred_private.amigoz_price(100,0,10,2000,'{"encargos_modo":"sem_encargos"}',5);
+ if not (r->>'insuficiente')::boolean or r->>'troco' is not null or r->>'comissao' is not null then raise exception 'Insufficient limit shown as cash';end if;
+ r=apoiarcred_private.amigoz_price(100,12,96,0,'{"encargos_modo":"sem_encargos","tipo_taxa":"anual_efetiva"}');
+ if abs((r->>'taxa_mensal')::numeric-0.94887929345)>.000001 then raise exception 'Annual effective conversion failed';end if;
+end $$;
+create temporary table amigoz_fixture as select gen_random_uuid() uid,gen_random_uuid() other_uid,gen_random_uuid() job,gen_random_uuid() lot;
+grant select on amigoz_fixture to authenticated;
+insert into auth.users(id,aud,role,email) select uid,'authenticated','authenticated',uid::text||'@test.invalid' from amigoz_fixture union all select other_uid,'authenticated','authenticated',other_uid::text||'@test.invalid' from amigoz_fixture;
+insert into apoiarcred_private.user_profiles(user_id,role,name,email) select id,'admin','Test fixture',email from auth.users where (email like '%@test.invalid') and not exists(select 1 from apoiarcred_private.user_profiles p where p.user_id=auth.users.id);
+
+insert into public.consulta_lotes(id,user_id,nome,tipo) select lot,uid,'TESTE','individual' from amigoz_fixture;
+insert into public.consulta_jobs(id,lote_id,user_id,nome,cpf,telefone,status,saldo_liquidacao,valor_parcela) select job,lot,uid,'TESTE','00000000191','11999999999','concluida',1000,179.37 from amigoz_fixture;
+set local role authenticated;
+do $$ declare f record; r jsonb; denied boolean=false; begin
+ select * into f from amigoz_fixture;perform set_config('request.jwt.claim.sub',f.uid::text,true);
+ insert into public.amigoz_comissoes(taxa,percentual) values(3,5);
+ r=public.simular_amigoz_price(f.job,96,'{"_parcela_simulada":243.25,"3":{"encargos_modo":"sem_encargos"}}');
+ if jsonb_array_length(r->'tabelas')<>7 or (r->>'parcela')::numeric<>179.37 or (r->>'parcela_simulada')::numeric<>243.25 or (r->>'margem_adicional')::numeric<>63.88 then raise exception 'Margin aggregation failed';end if;
+ if (select valor_parcela from public.consulta_jobs where id=f.job)<>179.37 then raise exception 'Source installment overwritten';end if;
+ if not exists(select 1 from public.amigoz_simulacoes where job_id=f.job and resultado->>'metodo'='price_juros_contratuais_encargos_separados_v2') then raise exception 'Audit not saved';end if;
+ perform set_config('request.jwt.claim.sub',f.other_uid::text,true);
+ if exists(select 1 from public.amigoz_simulacoes) then raise exception 'Other owner can read simulations';end if;
+ begin perform public.simular_amigoz_price(f.job);exception when raise_exception then denied=true;end;
+ if not denied then raise exception 'Other owner can simulate job';end if;
+end $$;
+rollback;

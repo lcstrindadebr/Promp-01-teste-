@@ -1,0 +1,3276 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "ApoiarCred API",
+    "version": "1.2.0",
+    "description": "API assíncrona. Envie CPFs como texto, com ou sem pontuação. As respostas usam 000.000.000-00 e preservam zeros à esquerda. Digi+ exige nome e telefone; ConsigX apenas CPF e convênio. Nenhum resultado é inventado quando pendente. Cada token acessa somente sua conta. Campanhas nascem pausadas. Valores monetários em reais."
+  },
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "paths": {
+    "/servicos": {
+      "get": {
+        "summary": "Serviços disponíveis",
+        "description": "Permissão necessária: read.",
+        "operationId": "get_servicos",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [
+                    {
+                      "id": "digimais_saldo_parcela",
+                      "campos_obrigatorios": [
+                        "nome",
+                        "cpf",
+                        "telefone"
+                      ]
+                    },
+                    {
+                      "id": "tjba_margem",
+                      "campos_obrigatorios": [
+                        "cpf"
+                      ],
+                      "convenios": [
+                        "tjba",
+                        "dpeba",
+                        "embasa",
+                        "saeb",
+                        "suprev"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição ou chave de idempotência inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido, revogado ou expirado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Rota ou registro não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Campanha em execução ou conflito de idempotência",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 120 requisições/minuto por token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível: tente novamente com a mesma chave",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/campanhas": {
+      "get": {
+        "summary": "Listar campanhas",
+        "description": "Permissão necessária: read.",
+        "operationId": "get_campanhas",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "servico",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "paused",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [
+                    {
+                      "id": "00000000-0000-4000-8000-000000000001",
+                      "nome": "Campanha de exemplo",
+                      "servico": "digimais_saldo_parcela",
+                      "convenio": null,
+                      "paused": true
+                    }
+                  ],
+                  "pagination": {
+                    "page": 1,
+                    "page_size": 50,
+                    "total": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição ou chave de idempotência inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido, revogado ou expirado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Rota ou registro não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Campanha em execução ou conflito de idempotência",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 120 requisições/minuto por token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível: tente novamente com a mesma chave",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Criar campanha pausada",
+        "description": "Permissão necessária: campanhas:write.",
+        "operationId": "post_campanhas",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "Chave única por operação. Repita a mesma chave e payload se perder a resposta. Validade: 24 horas por token."
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000001",
+                  "nome": "Campanha de exemplo",
+                  "servico": "digimais_saldo_parcela",
+                  "convenio": null,
+                  "paused": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição ou chave de idempotência inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido, revogado ou expirado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Rota ou registro não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Campanha em execução ou conflito de idempotência",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 120 requisições/minuto por token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível: tente novamente com a mesma chave",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nome": {
+                    "type": "string"
+                  },
+                  "servico": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "nome",
+                  "servico"
+                ]
+              },
+              "example": {
+                "nome": "Campanha de exemplo",
+                "servico": "digimais_saldo_parcela"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/campanhas/{id}": {
+      "get": {
+        "summary": "Andamento e relatório",
+        "description": "Permissão necessária: read.",
+        "operationId": "get_campanhas_id",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000001",
+                  "nome": "Campanha de exemplo",
+                  "servico": "digimais_saldo_parcela",
+                  "convenio": null,
+                  "paused": true,
+                  "relatorio": {
+                    "total": 1,
+                    "clientes": 0,
+                    "nao_clientes": 0,
+                    "erros": 0,
+                    "revisao": 0,
+                    "aguardando": 1,
+                    "processando": 0
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição ou chave de idempotência inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido, revogado ou expirado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Rota ou registro não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Campanha em execução ou conflito de idempotência",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 120 requisições/minuto por token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível: tente novamente com a mesma chave",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/campanhas/{id}/leads": {
+      "get": {
+        "summary": "Leads da campanha",
+        "description": "Permissão necessária: read. Por padrão, 50 leads por página. Com all=true, retorna data e total sem paginação.",
+        "operationId": "get_campanhas_id_leads",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "all",
+            "in": "query",
+            "description": "Use all=true para retornar todos os leads. Pode combinar com status. Não combine com page ou page_size. A resposta contém data e total.",
+            "schema": {
+              "type": "boolean",
+              "enum": [
+                true
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [
+                    {
+                      "id": "00000000-0000-4000-8000-000000000002",
+                      "campanha_id": "00000000-0000-4000-8000-000000000001",
+                      "cpf": "000.000.000-00",
+                      "status": "aguardando",
+                      "progress": 0,
+                      "resultado": {
+                        "saldo_liquidacao": null,
+                        "total_parcelas": null,
+                        "valor_parcela": null
+                      }
+                    }
+                  ],
+                  "pagination": {
+                    "page": 1,
+                    "page_size": 50,
+                    "total": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição ou chave de idempotência inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido, revogado ou expirado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Rota ou registro não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Campanha em execução ou conflito de idempotência",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 120 requisições/minuto por token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível: tente novamente com a mesma chave",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Adicionar leads à campanha pausada",
+        "description": "Permissão necessária: campanhas:write.",
+        "operationId": "post_campanhas_id_leads",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "Chave única por operação. Repita a mesma chave e payload se perder a resposta. Validade: 24 horas por token."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "accepted": [
+                    {
+                      "linha": 1,
+                      "id": "00000000-0000-4000-8000-000000000002",
+                      "cpf": "000.000.000-00"
+                    }
+                  ],
+                  "duplicates": [],
+                  "rejected": []
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição ou chave de idempotência inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido, revogado ou expirado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Rota ou registro não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Campanha em execução ou conflito de idempotência",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 120 requisições/minuto por token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível: tente novamente com a mesma chave",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "leads": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 1000,
+                    "items": {
+                      "$ref": "#/components/schemas/LeadInput"
+                    }
+                  }
+                },
+                "required": [
+                  "leads"
+                ]
+              },
+              "example": {
+                "leads": [
+                  {
+                    "nome": "Cliente de exemplo",
+                    "cpf": "000.000.000-00",
+                    "telefone": "11999999999",
+                    "referencia_externa": "contato-123"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/campanhas/{id}/leads/status/{status}": {
+      "get": {
+        "summary": "Listar todos os leads com um status",
+        "description": "Permissão read. Retorna todos os leads com o status solicitado, inclusive durante a execução da campanha.",
+        "operationId": "get_campanha_leads_por_status",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "status",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "aguardando",
+                "processando",
+                "concluida",
+                "nao_cliente",
+                "nao_localizado",
+                "nao_encontrado",
+                "erro",
+                "revisao",
+                "interrompida"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [
+                    {
+                      "id": "00000000-0000-4000-8000-000000000002",
+                      "campanha_id": "00000000-0000-4000-8000-000000000001",
+                      "cpf": "000.000.000-00",
+                      "status": "concluida",
+                      "progress": 100,
+                      "resultado": {
+                        "saldo_liquidacao": 1000,
+                        "total_parcelas": 24,
+                        "valor_parcela": 100
+                      }
+                    }
+                  ],
+                  "total": 1
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição ou chave de idempotência inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido, revogado ou expirado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Rota ou registro não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Campanha em execução ou conflito de idempotência",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 120 requisições/minuto por token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível: tente novamente com a mesma chave",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/campanhas/{id}/iniciar": {
+      "post": {
+        "summary": "Iniciar ou retomar campanha",
+        "description": "Permissão necessária: campanhas:write.",
+        "operationId": "post_campanhas_id_iniciar",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "Chave única por operação. Repita a mesma chave e payload se perder a resposta. Validade: 24 horas por token."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000001",
+                  "paused": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição ou chave de idempotência inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido, revogado ou expirado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Rota ou registro não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Campanha em execução ou conflito de idempotência",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 120 requisições/minuto por token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível: tente novamente com a mesma chave",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+              },
+              "example": {}
+            }
+          }
+        }
+      }
+    },
+    "/campanhas/{id}/pausar": {
+      "post": {
+        "summary": "Pausar novas consultas",
+        "description": "Permissão necessária: campanhas:write.",
+        "operationId": "post_campanhas_id_pausar",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "Chave única por operação. Repita a mesma chave e payload se perder a resposta. Validade: 24 horas por token."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000001",
+                  "paused": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição ou chave de idempotência inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido, revogado ou expirado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Rota ou registro não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Campanha em execução ou conflito de idempotência",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 120 requisições/minuto por token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível: tente novamente com a mesma chave",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+              },
+              "example": {}
+            }
+          }
+        }
+      }
+    },
+    "/campanhas/{id}/repetir-revisoes": {
+      "post": {
+        "summary": "Reenfileirar erros e revisões",
+        "description": "Permissão necessária: campanhas:write.",
+        "operationId": "post_campanhas_id_repetir_revisoes",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "Chave única por operação. Repita a mesma chave e payload se perder a resposta. Validade: 24 horas por token."
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "reenfileirados": 1,
+                  "paused": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição ou chave de idempotência inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido, revogado ou expirado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Rota ou registro não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Campanha em execução ou conflito de idempotência",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 120 requisições/minuto por token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível: tente novamente com a mesma chave",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+              },
+              "example": {}
+            }
+          }
+        }
+      }
+    },
+    "/leads/{id}": {
+      "get": {
+        "summary": "Registro individual e resultado",
+        "description": "Permissão necessária: read.",
+        "operationId": "get_leads_id",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000002",
+                  "campanha_id": "00000000-0000-4000-8000-000000000001",
+                  "cpf": "000.000.000-00",
+                  "status": "aguardando",
+                  "progress": 0,
+                  "resultado": {
+                    "saldo_liquidacao": null,
+                    "total_parcelas": null,
+                    "valor_parcela": null
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição ou chave de idempotência inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido, revogado ou expirado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Rota ou registro não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Campanha em execução ou conflito de idempotência",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 120 requisições/minuto por token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível: tente novamente com a mesma chave",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/leads/buscar": {
+      "post": {
+        "summary": "Buscar registros por CPF",
+        "description": "Permissão necessária: read.",
+        "operationId": "post_leads_buscar",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [
+                    {
+                      "id": "00000000-0000-4000-8000-000000000002",
+                      "campanha_id": "00000000-0000-4000-8000-000000000001",
+                      "cpf": "000.000.000-00",
+                      "status": "aguardando",
+                      "progress": 0,
+                      "resultado": {
+                        "saldo_liquidacao": null,
+                        "total_parcelas": null,
+                        "valor_parcela": null
+                      }
+                    }
+                  ],
+                  "pagination": {
+                    "page": 1,
+                    "page_size": 50,
+                    "total": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição ou chave de idempotência inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido, revogado ou expirado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Rota ou registro não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Campanha em execução ou conflito de idempotência",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 120 requisições/minuto por token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível: tente novamente com a mesma chave",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "cpf": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "cpf"
+                ]
+              },
+              "example": {
+                "cpf": "000.000.000-00"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/consultas": {
+      "post": {
+        "summary": "Solicitar consulta individual",
+        "description": "Permissão necessária: consultas:create.",
+        "operationId": "post_consultas",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "Chave única por operação. Repita a mesma chave e payload se perder a resposta. Validade: 24 horas por token."
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000002",
+                  "campanha_id": "00000000-0000-4000-8000-000000000001",
+                  "status": "aguardando"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição ou chave de idempotência inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido, revogado ou expirado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Rota ou registro não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Campanha em execução ou conflito de idempotência",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 120 requisições/minuto por token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível: tente novamente com a mesma chave",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "servico": {
+                    "type": "string"
+                  },
+                  "convenio": {
+                    "type": "string"
+                  },
+                  "cpf": {
+                    "type": "string"
+                  },
+                  "referencia_externa": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "servico",
+                  "cpf"
+                ]
+              },
+              "example": {
+                "servico": "tjba_margem",
+                "convenio": "tjba",
+                "cpf": "000.000.000-00",
+                "referencia_externa": "contato-123"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/consultas/{id}": {
+      "get": {
+        "summary": "Acompanhar consulta individual",
+        "description": "Permissão necessária: read.",
+        "operationId": "get_consultas_id",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000002",
+                  "campanha_id": "00000000-0000-4000-8000-000000000001",
+                  "cpf": "000.000.000-00",
+                  "status": "aguardando",
+                  "progress": 0,
+                  "resultado": {
+                    "saldo_liquidacao": null,
+                    "total_parcelas": null,
+                    "valor_parcela": null
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição ou chave de idempotência inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido, revogado ou expirado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Rota ou registro não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Campanha em execução ou conflito de idempotência",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 120 requisições/minuto por token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível: tente novamente com a mesma chave",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oportunidades": {
+      "get": {
+        "tags": [
+          "Oportunidades"
+        ],
+        "summary": "Listar oportunidades",
+        "description": "Permissão necessária: read. Cada registro é uma oportunidade. Um CPF pode aparecer em diferentes produtos. Use exportaveis=true para preparar um arquivo.",
+        "operationId": "listOportunidades",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "etapa",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "novo",
+                "exportada",
+                "contato",
+                "simulacao",
+                "negociacao",
+                "ganho",
+                "perdido"
+              ]
+            },
+            "description": ""
+          },
+          {
+            "name": "tipos",
+            "in": "query",
+            "style": "form",
+            "explode": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "margem",
+                  "recompra",
+                  "saque"
+                ]
+              }
+            }
+          },
+          {
+            "name": "exportaveis",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "Quando true, restringe às etapas abertas elegíveis para exportação."
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000,
+              "default": 1
+            },
+            "description": ""
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            },
+            "description": ""
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Oportunidade"
+                      }
+                    },
+                    "pagination": {
+                      "type": "object",
+                      "properties": {
+                        "page": {
+                          "type": "integer"
+                        },
+                        "page_size": {
+                          "type": "integer"
+                        },
+                        "total": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "request_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição inválida"
+          },
+          "401": {
+            "description": "Token inválido"
+          },
+          "403": {
+            "description": "Sem permissão"
+          },
+          "404": {
+            "description": "Recurso não encontrado"
+          },
+          "409": {
+            "description": "Conflito de etapa ou idempotência"
+          },
+          "422": {
+            "description": "Dados inválidos"
+          },
+          "429": {
+            "description": "Limite de requisições"
+          }
+        }
+      }
+    },
+    "/oportunidades/{id}": {
+      "get": {
+        "tags": [
+          "Oportunidades"
+        ],
+        "summary": "Consultar oportunidade",
+        "description": "Permissão necessária: read. Retorna o cartão com os resultados consolidados do tipo.",
+        "operationId": "getOportunidade",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Oportunidade"
+                    },
+                    "request_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição inválida"
+          },
+          "401": {
+            "description": "Token inválido"
+          },
+          "403": {
+            "description": "Sem permissão"
+          },
+          "404": {
+            "description": "Recurso não encontrado"
+          },
+          "409": {
+            "description": "Conflito de etapa ou idempotência"
+          },
+          "422": {
+            "description": "Dados inválidos"
+          },
+          "429": {
+            "description": "Limite de requisições"
+          }
+        }
+      }
+    },
+    "/oportunidades/{id}/etapa": {
+      "post": {
+        "tags": [
+          "Oportunidades"
+        ],
+        "summary": "Mover oportunidade",
+        "description": "Permissão necessária: campanhas:write. Retorna 409 se a etapa atual já mudou.",
+        "operationId": "moveOportunidade",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "description": "Use a mesma chave ao repetir o mesmo pedido."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "etapa": {
+                          "type": "string",
+                          "enum": [
+                            "novo",
+                            "exportada",
+                            "contato",
+                            "simulacao",
+                            "negociacao",
+                            "ganho",
+                            "perdido"
+                          ]
+                        }
+                      }
+                    },
+                    "request_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição inválida"
+          },
+          "401": {
+            "description": "Token inválido"
+          },
+          "403": {
+            "description": "Sem permissão"
+          },
+          "404": {
+            "description": "Recurso não encontrado"
+          },
+          "409": {
+            "description": "Conflito de etapa ou idempotência"
+          },
+          "422": {
+            "description": "Dados inválidos"
+          },
+          "429": {
+            "description": "Limite de requisições"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "etapa",
+                  "etapa_original"
+                ],
+                "properties": {
+                  "etapa": {
+                    "type": "string",
+                    "enum": [
+                      "novo",
+                      "exportada",
+                      "contato",
+                      "simulacao",
+                      "negociacao",
+                      "ganho",
+                      "perdido"
+                    ]
+                  },
+                  "etapa_original": {
+                    "type": "string",
+                    "enum": [
+                      "novo",
+                      "exportada",
+                      "contato",
+                      "simulacao",
+                      "negociacao",
+                      "ganho",
+                      "perdido"
+                    ]
+                  }
+                }
+              },
+              "example": {
+                "etapa": "contato",
+                "etapa_original": "novo"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oportunidades/exportacao": {
+      "post": {
+        "tags": [
+          "Oportunidades"
+        ],
+        "summary": "Confirmar exportação de oportunidades",
+        "description": "Permissão necessária: campanhas:write. Chame após gerar o arquivo. Move apenas os IDs enviados que ainda estão na etapa aberta original. Para mais de 500, divida em lotes com chaves distintas.",
+        "operationId": "confirmExportOportunidades",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "description": "Use a mesma chave ao repetir o mesmo pedido."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "movidas": {
+                      "type": "integer"
+                    },
+                    "ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid"
+                      }
+                    },
+                    "request_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição inválida"
+          },
+          "401": {
+            "description": "Token inválido"
+          },
+          "403": {
+            "description": "Sem permissão"
+          },
+          "404": {
+            "description": "Recurso não encontrado"
+          },
+          "409": {
+            "description": "Conflito de etapa ou idempotência"
+          },
+          "422": {
+            "description": "Dados inválidos"
+          },
+          "429": {
+            "description": "Limite de requisições"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "itens"
+                ],
+                "properties": {
+                  "itens": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 500,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "etapa"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "etapa": {
+                          "type": "string",
+                          "enum": [
+                            "novo",
+                            "contato",
+                            "simulacao",
+                            "negociacao"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "example": {
+                "itens": [
+                  {
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "etapa": "novo"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clientes/convenios": {
+      "get": {
+        "summary": "Listar convênios e requisitos de importação",
+        "operationId": "get_clientes_convenios",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "description": "Escopo read. Use o id retornado no campo convenio da importação. IDs dos produtos de provedores não substituem o código deste catálogo.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "uf",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z]{2}$"
+            },
+            "example": "BA"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Catálogo com serviços e campos disponíveis",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "uf": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "nome": {
+                            "type": "string"
+                          },
+                          "servicos": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "campos_obrigatorios": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "campos_opcionais": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "requisitos_servicos": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "data": [
+                    {
+                      "uf": "BA",
+                      "id": "saeb",
+                      "nome": "Governo do Estado da Bahia (SAEB)",
+                      "servicos": [
+                        "consigx_margem"
+                      ],
+                      "campos_obrigatorios": [
+                        "cpf"
+                      ],
+                      "campos_opcionais": [
+                        "nome",
+                        "telefone",
+                        "numero_matricula",
+                        "data_nascimento",
+                        "margem_emprestimo",
+                        "margem_cartao"
+                      ],
+                      "requisitos_servicos": {}
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente ou inválido"
+          },
+          "403": {
+            "description": "Token sem escopo read"
+          },
+          "422": {
+            "description": "UF inválida. Informe duas letras."
+          }
+        }
+      }
+    },
+    "/clientes/importacoes": {
+      "post": {
+        "summary": "Importar clientes de um convênio",
+        "operationId": "post_clientes_importacoes",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "description": "Escopo campanhas:write. Um único convênio por requisição. A lista servicos vazia cadastra os dados sem iniciar consultas. Quando selecionados, os serviços são enfileirados. Consulte /clientes/convenios antes de enviar. Se a requisição falhar, repita com o mesmo corpo e a mesma chave de idempotência. O lote é atômico. Uma linha inválida cancela o lote inteiro. O limite é de 10.000 clientes e 2 MB por requisição. CPFs duplicados no mesmo lote são rejeitados. Use uma linha por CPF, matrícula e instituição. A resposta contém o ID do lote. Erros 422 podem trazer error.details com linha e mensagem.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "importacao-ba-001"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "uf",
+                  "convenio",
+                  "clientes"
+                ],
+                "properties": {
+                  "uf": {
+                    "type": "string",
+                    "description": "UF do convênio.",
+                    "pattern": "^[A-Za-z]{2}$"
+                  },
+                  "convenio": {
+                    "type": "string",
+                    "description": "ID retornado por GET /clientes/convenios."
+                  },
+                  "servicos": {
+                    "type": "array",
+                    "default": [],
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "consigx_margem",
+                        "digimais_saldo",
+                        "amigoz_margem",
+                        "amigoz_saque"
+                      ]
+                    }
+                  },
+                  "clientes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 10000,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "cpf"
+                      ],
+                      "properties": {
+                        "cpf": {
+                          "type": "string",
+                          "description": "CPF com 11 dígitos, com ou sem pontuação. Envie como texto para preservar zeros."
+                        },
+                        "nome": {
+                          "type": "string",
+                          "description": "Nome do cliente. Obrigatório ao solicitar Digi+."
+                        },
+                        "telefone": {
+                          "type": "string",
+                          "description": "DDD e número, somente dígitos. Obrigatório ao solicitar Digi+.",
+                          "pattern": "^[0-9]{10,13}$"
+                        },
+                        "numero_matricula": {
+                          "type": "string",
+                          "description": "Matrícula do vínculo no convênio. Preserve zeros à esquerda.",
+                          "maxLength": 256
+                        },
+                        "data_nascimento": {
+                          "type": "string",
+                          "description": "Data em formato ISO, AAAA-MM-DD.",
+                          "format": "date"
+                        },
+                        "margem_emprestimo": {
+                          "type": "number",
+                          "description": "Margem mensal para empréstimo, em reais."
+                        },
+                        "margem_cartao": {
+                          "type": "number",
+                          "description": "Margem mensal para cartão, em reais."
+                        },
+                        "margem_livre": {
+                          "type": "number",
+                          "deprecated": true,
+                          "description": "Campo legado aceito como margem de empréstimo quando margem_emprestimo estiver ausente."
+                        },
+                        "saque_amigoz_elegivel": {
+                          "type": "boolean",
+                          "description": "Elegibilidade conhecida para saque complementar Amigoz."
+                        },
+                        "saque_amigoz_valor": {
+                          "type": "number",
+                          "minimum": 0,
+                          "description": "Saque complementar Amigoz disponível, em reais."
+                        },
+                        "data_dados": {
+                          "type": "string",
+                          "description": "Data da observação, YYYY-MM-DD ou RFC 3339 com fuso"
+                        },
+                        "instituicao": {
+                          "type": "string",
+                          "maxLength": 80
+                        },
+                        "margem_beneficio": {
+                          "type": "number"
+                        },
+                        "margem_consignado": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  },
+                  "arquivo": {
+                    "type": "string",
+                    "maxLength": 255,
+                    "description": "Nome do arquivo para o histórico"
+                  }
+                }
+              },
+              "examples": {
+                "Bahia": {
+                  "summary": "SAEB com margens conhecidas",
+                  "value": {
+                    "uf": "BA",
+                    "convenio": "saeb",
+                    "servicos": [],
+                    "clientes": [
+                      {
+                        "cpf": "000.000.008-92",
+                        "nome": "Pessoa Exemplo",
+                        "numero_matricula": "000123",
+                        "data_nascimento": "1985-04-23",
+                        "margem_emprestimo": 120.5,
+                        "margem_cartao": 45.25
+                      }
+                    ]
+                  }
+                },
+                "SaoPaulo": {
+                  "summary": "Governo de São Paulo com Digi+",
+                  "value": {
+                    "uf": "SP",
+                    "convenio": "amigoz_23",
+                    "servicos": [
+                      "digimais_saldo"
+                    ],
+                    "clientes": [
+                      {
+                        "cpf": "000.000.008-92",
+                        "nome": "Pessoa Exemplo",
+                        "telefone": "11900000000"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Importação registrada. Consultas contabiliza itens enfileirados e campanhas retorna os lotes criados.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "clientes",
+                        "consultas",
+                        "campanhas"
+                      ],
+                      "properties": {
+                        "clientes": {
+                          "type": "integer"
+                        },
+                        "consultas": {
+                          "type": "integer"
+                        },
+                        "campanhas": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "servico": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "data": {
+                    "clientes": 1,
+                    "consultas": 0,
+                    "campanhas": []
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Chave de idempotência ausente ou inválida"
+          },
+          "401": {
+            "description": "Token ausente ou inválido"
+          },
+          "403": {
+            "description": "Token sem permissão"
+          },
+          "409": {
+            "description": "Chave de idempotência reutilizada com outro conteúdo"
+          },
+          "422": {
+            "description": "Dados, convênio ou serviços inválidos"
+          },
+          "429": {
+            "description": "Cota ou taxa de requisições atingida"
+          },
+          "415": {
+            "description": "Envie Content-Type application/json."
+          },
+          "503": {
+            "description": "API temporariamente indisponível. Repita com o mesmo corpo e a mesma chave de idempotência."
+          }
+        }
+      },
+      "get": {
+        "summary": "Listar histórico de importações",
+        "operationId": "listImportacoesClientes",
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Até 50 lotes do titular do token"
+          }
+        }
+      }
+    },
+    "/clientes/importacoes/previa": {
+      "post": {
+        "summary": "Conferir importação",
+        "operationId": "previewImportacaoClientes",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "description": "Simula o lote. Retorna data.valido, contagem de oportunidades e erros por linha. Nenhuma consulta é enfileirada pela prévia.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "importacao-ba-001"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "uf",
+                  "convenio",
+                  "clientes"
+                ],
+                "properties": {
+                  "uf": {
+                    "type": "string",
+                    "description": "UF do convênio.",
+                    "pattern": "^[A-Za-z]{2}$"
+                  },
+                  "convenio": {
+                    "type": "string",
+                    "description": "ID retornado por GET /clientes/convenios."
+                  },
+                  "servicos": {
+                    "type": "array",
+                    "default": [],
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "consigx_margem",
+                        "digimais_saldo",
+                        "amigoz_margem",
+                        "amigoz_saque"
+                      ]
+                    }
+                  },
+                  "clientes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 10000,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "cpf"
+                      ],
+                      "properties": {
+                        "cpf": {
+                          "type": "string",
+                          "description": "CPF com 11 dígitos, com ou sem pontuação. Envie como texto para preservar zeros."
+                        },
+                        "nome": {
+                          "type": "string",
+                          "description": "Nome do cliente. Obrigatório ao solicitar Digi+."
+                        },
+                        "telefone": {
+                          "type": "string",
+                          "description": "DDD e número, somente dígitos. Obrigatório ao solicitar Digi+.",
+                          "pattern": "^[0-9]{10,13}$"
+                        },
+                        "numero_matricula": {
+                          "type": "string",
+                          "description": "Matrícula do vínculo no convênio. Preserve zeros à esquerda.",
+                          "maxLength": 256
+                        },
+                        "data_nascimento": {
+                          "type": "string",
+                          "description": "Data em formato ISO, AAAA-MM-DD.",
+                          "format": "date"
+                        },
+                        "margem_emprestimo": {
+                          "type": "number",
+                          "description": "Margem mensal para empréstimo, em reais."
+                        },
+                        "margem_cartao": {
+                          "type": "number",
+                          "description": "Margem mensal para cartão, em reais."
+                        },
+                        "margem_livre": {
+                          "type": "number",
+                          "deprecated": true,
+                          "description": "Campo legado aceito como margem de empréstimo quando margem_emprestimo estiver ausente."
+                        },
+                        "saque_amigoz_elegivel": {
+                          "type": "boolean",
+                          "description": "Elegibilidade conhecida para saque complementar Amigoz."
+                        },
+                        "saque_amigoz_valor": {
+                          "type": "number",
+                          "minimum": 0,
+                          "description": "Saque complementar Amigoz disponível, em reais."
+                        },
+                        "data_dados": {
+                          "type": "string",
+                          "description": "Data da observação, YYYY-MM-DD ou RFC 3339 com fuso"
+                        },
+                        "instituicao": {
+                          "type": "string",
+                          "maxLength": 80
+                        },
+                        "margem_beneficio": {
+                          "type": "number"
+                        },
+                        "margem_consignado": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  },
+                  "arquivo": {
+                    "type": "string",
+                    "maxLength": 255,
+                    "description": "Nome do arquivo para o histórico"
+                  }
+                }
+              },
+              "examples": {
+                "Bahia": {
+                  "summary": "SAEB com margens conhecidas",
+                  "value": {
+                    "uf": "BA",
+                    "convenio": "saeb",
+                    "servicos": [],
+                    "clientes": [
+                      {
+                        "cpf": "000.000.008-92",
+                        "nome": "Pessoa Exemplo",
+                        "numero_matricula": "000123",
+                        "data_nascimento": "1985-04-23",
+                        "margem_emprestimo": 120.5,
+                        "margem_cartao": 45.25
+                      }
+                    ]
+                  }
+                },
+                "SaoPaulo": {
+                  "summary": "Governo de São Paulo com Digi+",
+                  "value": {
+                    "uf": "SP",
+                    "convenio": "amigoz_23",
+                    "servicos": [
+                      "digimais_saldo"
+                    ],
+                    "clientes": [
+                      {
+                        "cpf": "000.000.008-92",
+                        "nome": "Pessoa Exemplo",
+                        "telefone": "11900000000"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "description": "Chave de idempotência ausente ou inválida"
+          },
+          "401": {
+            "description": "Token ausente ou inválido"
+          },
+          "403": {
+            "description": "Token sem permissão"
+          },
+          "409": {
+            "description": "Chave de idempotência reutilizada com outro conteúdo"
+          },
+          "422": {
+            "description": "Dados, convênio ou serviços inválidos"
+          },
+          "429": {
+            "description": "Cota ou taxa de requisições atingida"
+          },
+          "415": {
+            "description": "Envie Content-Type application/json."
+          },
+          "503": {
+            "description": "API temporariamente indisponível. Repita com o mesmo corpo e a mesma chave de idempotência."
+          },
+          "200": {
+            "description": "Resultado da prévia, incluindo erros se data.valido for falso"
+          }
+        }
+      }
+    },
+    "/clientes/importacoes/{id}": {
+      "get": {
+        "summary": "Consultar lote de importação",
+        "operationId": "getImportacaoClientes",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Identificador, data, arquivo e resultado do lote"
+          },
+          "404": {
+            "description": "Lote indisponível"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "schemas": {
+      "LeadInput": {
+        "type": "object",
+        "required": [
+          "cpf"
+        ],
+        "properties": {
+          "nome": {
+            "type": "string"
+          },
+          "cpf": {
+            "type": "string"
+          },
+          "telefone": {
+            "type": "string"
+          },
+          "referencia_externa": {
+            "type": "string"
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "Oportunidade": {
+        "type": "object",
+        "required": [
+          "id",
+          "cpf",
+          "produto",
+          "etapa"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cpf": {
+            "type": "string",
+            "example": "000.000.000-00"
+          },
+          "nome": {
+            "type": "string",
+            "nullable": true
+          },
+          "etapa": {
+            "type": "string",
+            "enum": [
+              "novo",
+              "exportada",
+              "contato",
+              "simulacao",
+              "negociacao",
+              "ganho",
+              "perdido"
+            ]
+          },
+          "produto": {
+            "type": "string",
+            "enum": [
+              "margem",
+              "recompra",
+              "saque"
+            ],
+            "description": "margem = contrato novo; recompra = Digi+; saque = Amigoz."
+          },
+          "convenio": {
+            "type": "string"
+          },
+          "proxima_acao": {
+            "type": "string",
+            "nullable": true
+          },
+          "automatica": {
+            "type": "boolean"
+          },
+          "sinais_consulta": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "saldo_liquidacao": {
+            "type": "number",
+            "nullable": true
+          },
+          "emprestimo_disponivel": {
+            "type": "number",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  }
+}
