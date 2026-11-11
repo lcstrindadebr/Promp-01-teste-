@@ -138,7 +138,12 @@
               }
             }
           }
-        }
+        },
+        "tags": [
+          "Consultas e campanhas"
+        ],
+        "x-scope": "read",
+        "x-idempotency": false
       }
     },
     "/campanhas": {
@@ -293,7 +298,12 @@
               }
             }
           }
-        }
+        },
+        "tags": [
+          "Consultas e campanhas"
+        ],
+        "x-scope": "read",
+        "x-idempotency": false
       },
       "post": {
         "summary": "Criar campanha pausada",
@@ -441,7 +451,12 @@
               }
             }
           }
-        }
+        },
+        "tags": [
+          "Consultas e campanhas"
+        ],
+        "x-scope": "campanhas:write",
+        "x-idempotency": true
       }
     },
     "/campanhas/{id}": {
@@ -572,7 +587,12 @@
               }
             }
           }
-        }
+        },
+        "tags": [
+          "Consultas e campanhas"
+        ],
+        "x-scope": "read",
+        "x-idempotency": false
       }
     },
     "/campanhas/{id}/leads": {
@@ -745,7 +765,12 @@
               }
             }
           }
-        }
+        },
+        "tags": [
+          "Consultas e campanhas"
+        ],
+        "x-scope": "read",
+        "x-idempotency": false
       },
       "post": {
         "summary": "Adicionar leads à campanha pausada",
@@ -913,7 +938,12 @@
               }
             }
           }
-        }
+        },
+        "tags": [
+          "Consultas e campanhas"
+        ],
+        "x-scope": "campanhas:write",
+        "x-idempotency": true
       }
     },
     "/campanhas/{id}/leads/status/{status}": {
@@ -1064,7 +1094,12 @@
               }
             }
           }
-        }
+        },
+        "tags": [
+          "Consultas e campanhas"
+        ],
+        "x-scope": "read",
+        "x-idempotency": false
       }
     },
     "/campanhas/{id}/iniciar": {
@@ -1207,7 +1242,12 @@
               "example": {}
             }
           }
-        }
+        },
+        "tags": [
+          "Consultas e campanhas"
+        ],
+        "x-scope": "campanhas:write",
+        "x-idempotency": true
       }
     },
     "/campanhas/{id}/pausar": {
@@ -1350,7 +1390,12 @@
               "example": {}
             }
           }
-        }
+        },
+        "tags": [
+          "Consultas e campanhas"
+        ],
+        "x-scope": "campanhas:write",
+        "x-idempotency": true
       }
     },
     "/campanhas/{id}/repetir-revisoes": {
@@ -1493,7 +1538,12 @@
               "example": {}
             }
           }
-        }
+        },
+        "tags": [
+          "Consultas e campanhas"
+        ],
+        "x-scope": "campanhas:write",
+        "x-idempotency": true
       }
     },
     "/leads/{id}": {
@@ -1620,7 +1670,12 @@
               }
             }
           }
-        }
+        },
+        "tags": [
+          "Consultas e campanhas"
+        ],
+        "x-scope": "read",
+        "x-idempotency": false
       }
     },
     "/leads/buscar": {
@@ -1767,7 +1822,12 @@
               }
             }
           }
-        }
+        },
+        "tags": [
+          "Consultas e campanhas"
+        ],
+        "x-scope": "read",
+        "x-idempotency": false
       }
     },
     "/consultas": {
@@ -1923,7 +1983,12 @@
               }
             }
           }
-        }
+        },
+        "tags": [
+          "Consultas e campanhas"
+        ],
+        "x-scope": "consultas:create",
+        "x-idempotency": true
       }
     },
     "/consultas/{id}": {
@@ -2050,7 +2115,12 @@
               }
             }
           }
-        }
+        },
+        "tags": [
+          "Consultas e campanhas"
+        ],
+        "x-scope": "read",
+        "x-idempotency": false
       }
     },
     "/oportunidades": {
@@ -2059,7 +2129,7 @@
           "Oportunidades"
         ],
         "summary": "Listar oportunidades",
-        "description": "Permissão necessária: read. Cada registro é uma oportunidade. Um CPF pode aparecer em diferentes produtos. Use exportaveis=true para preparar um arquivo.",
+        "description": "Permissão necessária: crm:read ou read. Cada registro é uma oportunidade. Um CPF pode aparecer em diferentes produtos. Use exportaveis=true para preparar um arquivo.",
         "operationId": "listOportunidades",
         "security": [
           {
@@ -2131,6 +2201,15 @@
               "default": 50
             },
             "description": ""
+          },
+          {
+            "name": "etapa_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Filtro por ID de etapa. Tem precedência sobre o código legado etapa."
           }
         ],
         "responses": {
@@ -2144,7 +2223,7 @@
                     "data": {
                       "type": "array",
                       "items": {
-                        "$ref": "#/components/schemas/Oportunidade"
+                        "$ref": "#/components/schemas/CrmOportunidade"
                       }
                     },
                     "pagination": {
@@ -2158,6 +2237,10 @@
                         },
                         "total": {
                           "type": "integer"
+                        },
+                        "clientes_unicos": {
+                          "type": "integer",
+                          "description": "CPFs distintos dentro dos mesmos filtros."
                         }
                       }
                     },
@@ -2165,6 +2248,26 @@
                       "type": "string",
                       "format": "uuid"
                     }
+                  }
+                },
+                "example": {
+                  "data": [
+                    {
+                      "id": "00000000-0000-4000-8000-000000000001",
+                      "cliente_id": "00000000-0000-4000-8000-000000000004",
+                      "cpf": "000.000.000-00",
+                      "produto": "recompra",
+                      "etapa_id": "00000000-0000-4000-8000-000000000003",
+                      "etapa": "00000000-0000-4000-8000-000000000003",
+                      "etapa_nome": "Simulação enviada",
+                      "convenio": "amigoz_23"
+                    }
+                  ],
+                  "pagination": {
+                    "page": 1,
+                    "page_size": 50,
+                    "total": 1,
+                    "clientes_unicos": 1
                   }
                 }
               }
@@ -2191,7 +2294,9 @@
           "429": {
             "description": "Limite de requisições"
           }
-        }
+        },
+        "x-scope": "crm:read ou read",
+        "x-idempotency": false
       }
     },
     "/oportunidades/{id}": {
@@ -2200,7 +2305,7 @@
           "Oportunidades"
         ],
         "summary": "Consultar oportunidade",
-        "description": "Permissão necessária: read. Retorna o cartão com os resultados consolidados do tipo.",
+        "description": "Permissão necessária: crm:read ou read. Retorna o cartão com os resultados consolidados do tipo.",
         "operationId": "getOportunidade",
         "security": [
           {
@@ -2216,6 +2321,16 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "include",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "cliente"
+              ]
+            }
           }
         ],
         "responses": {
@@ -2227,11 +2342,64 @@
                   "type": "object",
                   "properties": {
                     "data": {
-                      "$ref": "#/components/schemas/Oportunidade"
+                      "$ref": "#/components/schemas/CrmOportunidade"
                     },
                     "request_id": {
                       "type": "string",
                       "format": "uuid"
+                    }
+                  }
+                },
+                "example": {
+                  "data": {
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "cliente_id": "00000000-0000-4000-8000-000000000004",
+                    "cpf": "000.000.000-00",
+                    "produto": "recompra",
+                    "etapa_id": "00000000-0000-4000-8000-000000000003",
+                    "etapa": "00000000-0000-4000-8000-000000000003",
+                    "etapa_nome": "Simulação enviada",
+                    "convenio": "amigoz_23",
+                    "cliente": {
+                      "cliente_id": "00000000-0000-4000-8000-000000000004",
+                      "cpf": "000.000.000-00",
+                      "nome": "Cliente exemplo",
+                      "telefone": "71999990000",
+                      "convenios": [
+                        {
+                          "uf": "SP",
+                          "convenio": "amigoz_23"
+                        }
+                      ],
+                      "vinculos": [],
+                      "margens": [
+                        {
+                          "produto": "cartao",
+                          "valor": 125.5
+                        }
+                      ],
+                      "resultados": [
+                        {
+                          "tipo": "saldo_parcela",
+                          "instituicao": "digimais",
+                          "dados": {
+                            "saldo": 6000,
+                            "parcela": 230
+                          }
+                        }
+                      ],
+                      "oportunidades": [
+                        {
+                          "id": "00000000-0000-4000-8000-000000000001",
+                          "cliente_id": "00000000-0000-4000-8000-000000000004",
+                          "cpf": "000.000.000-00",
+                          "produto": "recompra",
+                          "etapa_id": "00000000-0000-4000-8000-000000000003",
+                          "etapa": "00000000-0000-4000-8000-000000000003",
+                          "etapa_nome": "Simulação enviada",
+                          "convenio": "amigoz_23"
+                        }
+                      ]
                     }
                   }
                 }
@@ -2259,7 +2427,9 @@
           "429": {
             "description": "Limite de requisições"
           }
-        }
+        },
+        "x-scope": "crm:read ou read",
+        "x-idempotency": false
       }
     },
     "/oportunidades/{id}/etapa": {
@@ -2268,7 +2438,7 @@
           "Oportunidades"
         ],
         "summary": "Mover oportunidade",
-        "description": "Permissão necessária: campanhas:write. Retorna 409 se a etapa atual já mudou.",
+        "description": "Permissão necessária: crm:write ou campanhas:write. Use os IDs retornados por GET /crm/etapas. Os campos legados etapa e etapa_original também são aceitos. Um conflito retorna a etapa atual em error.details.",
         "operationId": "moveOportunidade",
         "security": [
           {
@@ -2313,17 +2483,12 @@
                           "type": "string",
                           "format": "uuid"
                         },
-                        "etapa": {
+                        "etapa_id": {
                           "type": "string",
-                          "enum": [
-                            "novo",
-                            "exportada",
-                            "contato",
-                            "simulacao",
-                            "negociacao",
-                            "ganho",
-                            "perdido"
-                          ]
+                          "format": "uuid"
+                        },
+                        "etapa": {
+                          "type": "string"
                         }
                       }
                     },
@@ -2331,6 +2496,13 @@
                       "type": "string",
                       "format": "uuid"
                     }
+                  }
+                },
+                "example": {
+                  "data": {
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "etapa_id": "00000000-0000-4000-8000-000000000003",
+                    "etapa": "00000000-0000-4000-8000-000000000003"
                   }
                 }
               }
@@ -2349,7 +2521,25 @@
             "description": "Recurso não encontrado"
           },
           "409": {
-            "description": "Conflito de etapa ou idempotência"
+            "description": "A etapa mudou ou a chave de idempotência foi reutilizada com dados diferentes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "stage_changed",
+                    "message": "A etapa mudou. Consulte a oportunidade novamente.",
+                    "details": {
+                      "id": "00000000-0000-4000-8000-000000000001",
+                      "etapa_id": "00000000-0000-4000-8000-000000000003",
+                      "etapa": "00000000-0000-4000-8000-000000000003"
+                    }
+                  }
+                }
+              }
+            }
           },
           "422": {
             "description": "Dados inválidos"
@@ -2364,44 +2554,47 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": [
-                  "etapa",
-                  "etapa_original"
-                ],
                 "properties": {
-                  "etapa": {
+                  "etapa_original_id": {
                     "type": "string",
-                    "enum": [
-                      "novo",
-                      "exportada",
-                      "contato",
-                      "simulacao",
-                      "negociacao",
-                      "ganho",
-                      "perdido"
-                    ]
+                    "format": "uuid"
+                  },
+                  "etapa_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "etapa": {
+                    "type": "string"
                   },
                   "etapa_original": {
-                    "type": "string",
-                    "enum": [
-                      "novo",
-                      "exportada",
-                      "contato",
-                      "simulacao",
-                      "negociacao",
-                      "ganho",
-                      "perdido"
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "oneOf": [
+                  {
+                    "required": [
+                      "etapa_original_id",
+                      "etapa_id"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "etapa_original",
+                      "etapa"
                     ]
                   }
-                }
+                ]
               },
               "example": {
-                "etapa": "contato",
-                "etapa_original": "novo"
+                "etapa_original_id": "00000000-0000-4000-8000-000000000002",
+                "etapa_id": "00000000-0000-4000-8000-000000000003"
               }
             }
           }
-        }
+        },
+        "x-scope": "crm:write ou campanhas:write",
+        "x-idempotency": true
       }
     },
     "/oportunidades/exportacao": {
@@ -2410,7 +2603,7 @@
           "Oportunidades"
         ],
         "summary": "Confirmar exportação de oportunidades",
-        "description": "Permissão necessária: campanhas:write. Chame após gerar o arquivo. Move apenas os IDs enviados que ainda estão na etapa aberta original. Para mais de 500, divida em lotes com chaves distintas.",
+        "description": "Permissão necessária: crm:write ou campanhas:write. Chame após gerar o arquivo. Move apenas os IDs enviados que ainda estão na etapa aberta original. Para mais de 500, divida em lotes com chaves distintas.",
         "operationId": "confirmExportOportunidades",
         "security": [
           {
@@ -2454,6 +2647,12 @@
                       "format": "uuid"
                     }
                   }
+                },
+                "example": {
+                  "movidas": 1,
+                  "ids": [
+                    "00000000-0000-4000-8000-000000000001"
+                  ]
                 }
               }
             }
@@ -2529,7 +2728,9 @@
               }
             }
           }
-        }
+        },
+        "x-scope": "crm:write ou campanhas:write",
+        "x-idempotency": true
       }
     },
     "/clientes/convenios": {
@@ -2646,7 +2847,12 @@
           "422": {
             "description": "UF inválida. Informe duas letras."
           }
-        }
+        },
+        "tags": [
+          "Clientes"
+        ],
+        "x-scope": "read",
+        "x-idempotency": false
       }
     },
     "/clientes/importacoes": {
@@ -2819,6 +3025,21 @@
                     ]
                   }
                 }
+              },
+              "example": {
+                "uf": "BA",
+                "convenio": "saeb",
+                "servicos": [],
+                "clientes": [
+                  {
+                    "cpf": "000.000.008-92",
+                    "nome": "Pessoa Exemplo",
+                    "numero_matricula": "000123",
+                    "data_nascimento": "1985-04-23",
+                    "margem_emprestimo": 120.5,
+                    "margem_cartao": 45.25
+                  }
+                ]
               }
             }
           }
@@ -2889,19 +3110,24 @@
           "409": {
             "description": "Chave de idempotência reutilizada com outro conteúdo"
           },
+          "415": {
+            "description": "Envie Content-Type application/json."
+          },
           "422": {
             "description": "Dados, convênio ou serviços inválidos"
           },
           "429": {
             "description": "Cota ou taxa de requisições atingida"
           },
-          "415": {
-            "description": "Envie Content-Type application/json."
-          },
           "503": {
             "description": "API temporariamente indisponível. Repita com o mesmo corpo e a mesma chave de idempotência."
           }
-        }
+        },
+        "tags": [
+          "Clientes"
+        ],
+        "x-scope": "campanhas:write",
+        "x-idempotency": true
       },
       "get": {
         "summary": "Listar histórico de importações",
@@ -2920,7 +3146,12 @@
           "200": {
             "description": "Até 50 lotes do titular do token"
           }
-        }
+        },
+        "tags": [
+          "Clientes"
+        ],
+        "x-scope": "read",
+        "x-idempotency": false
       }
     },
     "/clientes/importacoes/previa": {
@@ -3098,6 +3329,9 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "Resultado da prévia, incluindo erros se data.valido for falso"
+          },
           "400": {
             "description": "Chave de idempotência ausente ou inválida"
           },
@@ -3110,22 +3344,24 @@
           "409": {
             "description": "Chave de idempotência reutilizada com outro conteúdo"
           },
+          "415": {
+            "description": "Envie Content-Type application/json."
+          },
           "422": {
             "description": "Dados, convênio ou serviços inválidos"
           },
           "429": {
             "description": "Cota ou taxa de requisições atingida"
           },
-          "415": {
-            "description": "Envie Content-Type application/json."
-          },
           "503": {
             "description": "API temporariamente indisponível. Repita com o mesmo corpo e a mesma chave de idempotência."
-          },
-          "200": {
-            "description": "Resultado da prévia, incluindo erros se data.valido for falso"
           }
-        }
+        },
+        "tags": [
+          "Clientes"
+        ],
+        "x-scope": "read",
+        "x-idempotency": true
       }
     },
     "/clientes/importacoes/{id}": {
@@ -3150,7 +3386,1243 @@
           "404": {
             "description": "Lote indisponível"
           }
-        }
+        },
+        "tags": [
+          "Clientes"
+        ],
+        "x-scope": "read",
+        "x-idempotency": false
+      }
+    },
+    "/crm/etapas": {
+      "get": {
+        "tags": [
+          "Etapas do CRM"
+        ],
+        "summary": "Listar etapas",
+        "operationId": "listCrmEtapas",
+        "description": "Permissão necessária: crm:read ou read. Inclui etapas arquivadas. Use id nas movimentações.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/CrmEtapa"
+                      }
+                    },
+                    "request_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                },
+                "example": {
+                  "data": [
+                    {
+                      "id": "00000000-0000-4000-8000-000000000003",
+                      "codigo": "00000000-0000-4000-8000-000000000003",
+                      "nome": "Simulação enviada",
+                      "posicao": 40,
+                      "tipo": "aberta",
+                      "inicial": false,
+                      "destino_exportacao": false,
+                      "arquivada": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de requisições",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-scope": "crm:read ou read",
+        "x-idempotency": false
+      },
+      "post": {
+        "tags": [
+          "Etapas do CRM"
+        ],
+        "summary": "Criar etapa",
+        "operationId": "createCrmEtapa",
+        "description": "Permissão necessária: crm:write ou campanhas:write. Requer administrador na conta.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "Reutilize a mesma chave apenas ao repetir a mesma operação."
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CrmEtapa"
+                    },
+                    "request_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                },
+                "example": {
+                  "data": {
+                    "id": "00000000-0000-4000-8000-000000000003",
+                    "codigo": "00000000-0000-4000-8000-000000000003",
+                    "nome": "Simulação enviada",
+                    "posicao": 40,
+                    "tipo": "aberta",
+                    "inicial": false,
+                    "destino_exportacao": false,
+                    "arquivada": false
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de requisições",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nome": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "posicao": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "inicial": {
+                    "type": "boolean"
+                  },
+                  "destino_exportacao": {
+                    "type": "boolean"
+                  },
+                  "arquivada": {
+                    "type": "boolean"
+                  },
+                  "destino_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": true
+                  }
+                },
+                "required": [
+                  "nome"
+                ]
+              },
+              "example": {
+                "nome": "Simulação enviada",
+                "posicao": 40
+              }
+            }
+          }
+        },
+        "x-scope": "crm:write ou campanhas:write",
+        "x-idempotency": true
+      }
+    },
+    "/crm/etapas/{id}": {
+      "patch": {
+        "tags": [
+          "Etapas do CRM"
+        ],
+        "summary": "Editar ou arquivar etapa",
+        "operationId": "patchCrmEtapa",
+        "description": "Permissão necessária: crm:write ou campanhas:write. Requer administrador. Arquivar uma etapa com cartões exige destino_id. Para trocar a etapa inicial ou o destino da exportação, marque a nova etapa.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "Reutilize a mesma chave apenas ao repetir a mesma operação."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CrmEtapa"
+                    },
+                    "request_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                },
+                "example": {
+                  "data": {
+                    "id": "00000000-0000-4000-8000-000000000003",
+                    "codigo": "00000000-0000-4000-8000-000000000003",
+                    "nome": "Simulação enviada",
+                    "posicao": 40,
+                    "tipo": "aberta",
+                    "inicial": false,
+                    "destino_exportacao": false,
+                    "arquivada": false
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de requisições",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nome": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "posicao": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "inicial": {
+                    "type": "boolean"
+                  },
+                  "destino_exportacao": {
+                    "type": "boolean"
+                  },
+                  "arquivada": {
+                    "type": "boolean"
+                  },
+                  "destino_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": true
+                  }
+                },
+                "required": []
+              },
+              "example": {
+                "nome": "Simulação enviada",
+                "posicao": 45
+              }
+            }
+          }
+        },
+        "x-scope": "crm:write ou campanhas:write",
+        "x-idempotency": true
+      }
+    },
+    "/clientes/buscar": {
+      "post": {
+        "tags": [
+          "Clientes"
+        ],
+        "summary": "Buscar perfil consolidado pelo CPF",
+        "operationId": "findCrmCliente",
+        "description": "Permissão necessária: crm:read ou read. CPF no corpo. Retorna o cadastro mesmo sem registros de consulta.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CrmCliente"
+                    },
+                    "request_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                },
+                "example": {
+                  "data": {
+                    "cliente_id": "00000000-0000-4000-8000-000000000004",
+                    "cpf": "000.000.000-00",
+                    "nome": "Cliente exemplo",
+                    "telefone": "71999990000",
+                    "convenios": [
+                      {
+                        "uf": "SP",
+                        "convenio": "amigoz_23"
+                      }
+                    ],
+                    "vinculos": [],
+                    "margens": [
+                      {
+                        "produto": "cartao",
+                        "valor": 125.5
+                      }
+                    ],
+                    "resultados": [
+                      {
+                        "tipo": "saldo_parcela",
+                        "instituicao": "digimais",
+                        "dados": {
+                          "saldo": 6000,
+                          "parcela": 230
+                        }
+                      }
+                    ],
+                    "oportunidades": [
+                      {
+                        "id": "00000000-0000-4000-8000-000000000001",
+                        "cliente_id": "00000000-0000-4000-8000-000000000004",
+                        "cpf": "000.000.000-00",
+                        "produto": "recompra",
+                        "etapa_id": "00000000-0000-4000-8000-000000000003",
+                        "etapa": "00000000-0000-4000-8000-000000000003",
+                        "etapa_nome": "Simulação enviada",
+                        "convenio": "amigoz_23"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de requisições",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "cpf": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "cpf"
+                ]
+              },
+              "example": {
+                "cpf": "000.000.000-00"
+              }
+            }
+          }
+        },
+        "x-scope": "crm:read ou read",
+        "x-idempotency": false
+      }
+    },
+    "/clientes/{id}": {
+      "get": {
+        "tags": [
+          "Clientes"
+        ],
+        "summary": "Consultar perfil pelo ID do cliente",
+        "operationId": "getCrmCliente",
+        "description": "Permissão necessária: crm:read ou read. Use cliente_id retornado pela busca ou pela oportunidade.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CrmCliente"
+                    },
+                    "request_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                },
+                "example": {
+                  "data": {
+                    "cliente_id": "00000000-0000-4000-8000-000000000004",
+                    "cpf": "000.000.000-00",
+                    "nome": "Cliente exemplo",
+                    "telefone": "71999990000",
+                    "convenios": [
+                      {
+                        "uf": "SP",
+                        "convenio": "amigoz_23"
+                      }
+                    ],
+                    "vinculos": [],
+                    "margens": [
+                      {
+                        "produto": "cartao",
+                        "valor": 125.5
+                      }
+                    ],
+                    "resultados": [
+                      {
+                        "tipo": "saldo_parcela",
+                        "instituicao": "digimais",
+                        "dados": {
+                          "saldo": 6000,
+                          "parcela": 230
+                        }
+                      }
+                    ],
+                    "oportunidades": [
+                      {
+                        "id": "00000000-0000-4000-8000-000000000001",
+                        "cliente_id": "00000000-0000-4000-8000-000000000004",
+                        "cpf": "000.000.000-00",
+                        "produto": "recompra",
+                        "etapa_id": "00000000-0000-4000-8000-000000000003",
+                        "etapa": "00000000-0000-4000-8000-000000000003",
+                        "etapa_nome": "Simulação enviada",
+                        "convenio": "amigoz_23"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de requisições",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-scope": "crm:read ou read",
+        "x-idempotency": false
+      }
+    },
+    "/clientes/{id}/consultas": {
+      "get": {
+        "tags": [
+          "Clientes"
+        ],
+        "summary": "Listar consultas do cliente",
+        "operationId": "listCrmClienteConsultas",
+        "description": "Permissão necessária: crm:read ou read. Use cliente_id. O histórico é paginado e exclui logs de execução.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "pagination": {
+                      "type": "object",
+                      "properties": {
+                        "page": {
+                          "type": "integer"
+                        },
+                        "page_size": {
+                          "type": "integer"
+                        },
+                        "total": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "request_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                },
+                "example": {
+                  "data": [
+                    {
+                      "id": "00000000-0000-4000-8000-000000000001",
+                      "servico": "digimais_saldo_parcela",
+                      "status": "concluida",
+                      "saldo_liquidacao": 6000,
+                      "valor_parcela": 230
+                    }
+                  ],
+                  "pagination": {
+                    "page": 1,
+                    "page_size": 50,
+                    "total": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de requisições",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-scope": "crm:read ou read",
+        "x-idempotency": false
+      }
+    },
+    "/oportunidades/{id}/movimentacoes": {
+      "get": {
+        "tags": [
+          "Oportunidades"
+        ],
+        "summary": "Listar movimentações da oportunidade",
+        "operationId": "listCrmMovimentacoes",
+        "description": "Permissão necessária: crm:read ou read. Inclui os nomes registrados na data da movimentação.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/CrmMovimentacao"
+                      }
+                    },
+                    "pagination": {
+                      "type": "object",
+                      "properties": {
+                        "page": {
+                          "type": "integer"
+                        },
+                        "page_size": {
+                          "type": "integer"
+                        },
+                        "total": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "request_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                },
+                "example": {
+                  "data": [
+                    {
+                      "id": "00000000-0000-4000-8000-000000000001",
+                      "oportunidade_id": "00000000-0000-4000-8000-000000000001",
+                      "etapa_anterior_id": "00000000-0000-4000-8000-000000000002",
+                      "etapa_id": "00000000-0000-4000-8000-000000000003",
+                      "nome_anterior": "Novo",
+                      "nome_destino": "Simulação enviada",
+                      "origem": "api",
+                      "alterado_em": "2026-01-01T10:00:00Z"
+                    }
+                  ],
+                  "pagination": {
+                    "page": 1,
+                    "page_size": 50,
+                    "total": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requisição inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permissão insuficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de requisições",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Indisponível",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-scope": "crm:read ou read",
+        "x-idempotency": false
       }
     }
   },
@@ -3268,6 +4740,185 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "CrmEtapa": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "codigo": {
+            "type": "string"
+          },
+          "nome": {
+            "type": "string"
+          },
+          "posicao": {
+            "type": "integer"
+          },
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "aberta",
+              "ganho",
+              "perdido"
+            ]
+          },
+          "inicial": {
+            "type": "boolean"
+          },
+          "destino_exportacao": {
+            "type": "boolean"
+          },
+          "arquivada": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CrmOportunidade": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cliente_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "cpf": {
+            "type": "string"
+          },
+          "produto": {
+            "type": "string",
+            "enum": [
+              "recompra",
+              "saque",
+              "margem"
+            ]
+          },
+          "convenio": {
+            "type": "string"
+          },
+          "etapa_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "etapa": {
+            "type": "string"
+          },
+          "etapa_nome": {
+            "type": "string"
+          },
+          "cliente": {
+            "$ref": "#/components/schemas/CrmCliente"
+          }
+        }
+      },
+      "CrmCliente": {
+        "type": "object",
+        "properties": {
+          "cliente_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cpf": {
+            "type": "string"
+          },
+          "nome": {
+            "type": "string",
+            "nullable": true
+          },
+          "telefone": {
+            "type": "string",
+            "nullable": true
+          },
+          "data_nascimento": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "convenios": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "vinculos": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "margens": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "resultados": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "oportunidades": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CrmOportunidade"
+            }
+          }
+        }
+      },
+      "CrmMovimentacao": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "oportunidade_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "etapa_anterior_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "etapa_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nome_anterior": {
+            "type": "string"
+          },
+          "nome_destino": {
+            "type": "string"
+          },
+          "origem": {
+            "type": "string",
+            "enum": [
+              "painel",
+              "api"
+            ]
+          },
+          "alterado_em": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "autor_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "api_token_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
           }
         }
       }

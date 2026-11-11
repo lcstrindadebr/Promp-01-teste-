@@ -215,7 +215,7 @@ class Handler(BaseHTTPRequestHandler):
   if not admin and not re.fullmatch(r'Bearer apc_[a-f0-9]{64}',auth):return self.error(401,'invalid_token','Envie Authorization: Bearer SEU_TOKEN.')
   token=auth[7:];payload={}
   if self.headers.get('Transfer-Encoding'):return self.error(400,'invalid_body','Envie Content-Length e JSON.')
-  if self.command=='POST':
+  if self.command in ('POST','PATCH'):
    if self.headers.get('Content-Type','').split(';')[0].strip().lower()!='application/json':return self.error(415,'content_type','Use application/json.')
    try:length=int(self.headers.get('Content-Length','0'))
    except ValueError:return self.error(400,'invalid_length','Content-Length inválido.')
@@ -230,9 +230,11 @@ class Handler(BaseHTTPRequestHandler):
    if re.fullmatch(r'/api/v1/campanhas/[^/]+/leads',target.path):allowed+=('all',)
    if target.path=='/api/v1/clientes/convenios':allowed=('uf',)
    if target.path=='/api/v1/clientes/importacoes':allowed=('offset',)
-   if target.path=='/api/v1/oportunidades':allowed=('page','page_size','etapa','tipos','exportaveis')
+   if target.path=='/api/v1/oportunidades':allowed=('page','page_size','etapa','etapa_id','tipos','exportaveis')
+   if re.fullmatch(r'/api/v1/oportunidades/[0-9a-fA-F-]{36}',target.path):allowed=('include',)
    if any(k not in allowed or len(v)!=1 for k,v in query.items()):return self.error(422,'invalid_filter','Filtros inválidos. CPF deve ser enviado por POST /leads/buscar.')
    payload={k:v[0] for k,v in query.items()}
+   if 'include' in payload and payload['include']!='cliente':return self.error(422,'invalid_include','Use include=cliente.')
   key=self.headers.get('Idempotency-Key')
   if key is not None and (not 1<=len(key)<=128 or not re.fullmatch(r'[A-Za-z0-9_.:-]+',key)):return self.error(400,'invalid_idempotency_key','Use chave de 1 a 128 caracteres: letras, números, ponto, dois-pontos, hífen ou sublinhado.')
   try:
@@ -257,7 +259,9 @@ class Handler(BaseHTTPRequestHandler):
  def do_OPTIONS(self):self.request_id=str(uuid.uuid4());self.error(405,'method_not_allowed','Método não permitido. Integre pelo servidor, sem expor seu token no navegador público.')
  def do_PUT(self):self.do_OPTIONS()
  def do_DELETE(self):self.do_OPTIONS()
- def do_PATCH(self):self.do_OPTIONS()
+ def do_PATCH(self):
+  if re.fullmatch(r'/api/v1/crm/etapas/[0-9a-fA-F-]{36}',self.path):self.handle_route()
+  else:self.do_OPTIONS()
 
 if __name__=='__main__':
  import amigoz_queue

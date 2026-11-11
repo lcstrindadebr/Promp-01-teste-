@@ -894,3 +894,18 @@ Para instalações existentes, execute primeiro
 pelo instalador habitual. Sem a migração, resultados do cálculo anterior ficam
 bloqueados no painel e na exportação. Não é necessário reaplicar o schema.
 Detalhes e validação em `docs/amigoz-coefficients.md`.
+
+
+### Etapas, clientes e movimentação pela API
+
+A base é `/api/v1`. Envie `Authorization: Bearer SEU_TOKEN`. Os exemplos usam identificadores fictícios. Consulte o [OpenAPI](dist/openapi.json) para os campos e permissões. O catálogo no painel lê o mesmo contrato.
+
+1. **Importar e buscar o cliente.** Consulte `GET /clientes/convenios?uf=SP`. Envie a base para `POST /clientes/importacoes/previa`, confirme por `POST /clientes/importacoes` e use `POST /clientes/buscar` com `{"cpf":"000.000.000-00"}`. Guarde `data.cliente_id`. O cadastro, os vínculos, os resultados disponíveis e os cartões aparecem no perfil. A rota `/leads/buscar` continua retornando registros de consulta.
+2. **Selecionar o cartão.** Use `GET /oportunidades/{id}?include=cliente` para ler a etapa atual e o perfil. `GET /oportunidades?etapa_id=UUID` filtra pelo ID da etapa. A paginação distingue o total de cartões de `clientes_unicos`. Um CPF pode ter cartões de produtos distintos.
+3. **Listar etapas e mover.** Use `GET /crm/etapas` e selecione um ID ativo. Em `POST /oportunidades/{id}/etapa`, envie `{"etapa_original_id":"UUID_ORIGEM","etapa_id":"UUID_DESTINO"}` e uma `Idempotency-Key`. Reutilize a chave apenas para reenviar a mesma ação. No n8n, trate HTTP 409 consultando novamente o cartão antes de decidir se deve movê-lo. Consulte `GET /oportunidades/{id}/movimentacoes` para o histórico.
+4. **Configurar o funil.** Administradores usam `POST /crm/etapas` para criar e `PATCH /crm/etapas/{id}` para editar. Para arquivar uma etapa com cartões, envie `arquivada: true` e `destino_id`. Para trocar a entrada de novos cartões ou o destino da exportação, marque a nova etapa com `inicial` ou `destino_exportacao`.
+5. **Exportar.** Liste as oportunidades com `exportaveis=true`, escolha os cartões e enriqueça as linhas com o perfil do cliente, incluindo telefone e margens. Depois que a planilha estiver pronta, use `POST /oportunidades/exportacao` com os IDs e as etapas lidas na listagem para mover os cartões confirmados ao destino de exportação.
+
+Para novos tokens de CRM, use `crm:read` para consultar e `crm:write` para alterar. As permissões anteriores `read` e `campanhas:write` também são aceitas nas rotas correspondentes. As gravações exigem `Idempotency-Key`. As listas paginadas aceitam `page` e `page_size`.
+
+Em instalações existentes, aplique `supabase/upgrade_crm_etapas_e_clientes_api.sql` depois `supabase/upgrade_crm_auditoria_e_totais.sql` e `supabase/upgrade_crm_permissoes_api.sql` antes de atualizar o painel e o serviço HTTP.
