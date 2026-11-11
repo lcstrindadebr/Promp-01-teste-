@@ -1,7 +1,7 @@
 // Settings sections preserve the existing forms and their event handlers.
 let apiTokenEpoch=0,apiCatalog=[],apiTokensLoading=false;
 const settingsRoot=$('#settings');
-const settingsGroups=[['operation','Operação'],['robots','Robôs e monitoramento'],['commissions','Comissões'],['integrations','Integrações'],['account','Conta e diagnóstico'],['partners','Parceiros'],['amigoz-api','API Amigoz']];
+const settingsGroups=[['operation','Operação'],['robots','Robôs e monitoramento'],['digimais-api','Log API Digimais'],['commissions','Comissões'],['integrations','Integrações'],['account','Conta e diagnóstico'],['partners','Parceiros'],['amigoz-api','API Amigoz']];
 const settingsNav=document.createElement('div');settingsNav.className='settings-tabs';settingsNav.setAttribute('role','tablist');settingsNav.setAttribute('aria-label','Seções das configurações');
 settingsNav.innerHTML=settingsGroups.map(([id,label],i)=>`<button type="button" id="settings-tab-${id}" role="tab" aria-controls="settings-${id}" aria-selected="${i===0}" tabindex="${i===0?0:-1}" data-settings-section="${id}">${label}</button>`).join('');
 settingsRoot.insertBefore(settingsNav,settingsRoot.querySelector('.portal-card'));

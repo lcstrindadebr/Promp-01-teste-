@@ -252,8 +252,10 @@ async def api_loop(index,capacity,slot,config):
     slot.state='idle';await asyncio.sleep(5);continue
    job=jobs[0];slot.begin('digimais_api')
    try:result=await process_digimais(job,adapter)
-   except Exception:
-    result={'status':'revisao','message':'API interrompida. Confira o resultado parcial antes de tentar novamente.'}
+   except Exception as error:
+    diagnostic=diagnose(error,'digimais_api')
+    log_failure('API DigiMais · execução ou checkpoint',diagnostic)
+    result={'status':'revisao','stage':'API interrompida durante execução ou gravação parcial','message':'Motivo da interrupção: '+diagnostic['codigo']+'. Confira o resultado parcial antes de tentar novamente.'}
    slot.saving(result)
    result['consultado_em']=datetime.now(timezone.utc).isoformat()
    while True:

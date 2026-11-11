@@ -1,5 +1,6 @@
 """HTTP pilot: original n8n menus, waits and success predicates, isolated per flow."""
 import asyncio,json,re,uuid,urllib.request,urllib.parse,urllib.error
+from robot_failures import diagnose
 from datetime import datetime,timezone
 
 
@@ -29,6 +30,10 @@ class ApiSession:
  def __init__(self,config):self.config=config;self.telemetry=None
  async def flow(self,job,kind):
   cfg=self.config;cookie='';session=str(uuid.uuid4());user=str(uuid.uuid4());items=[]
+  events=[];stage='autenticação'
+  def mark(value,status='iniciada'):
+   nonlocal stage
+   stage=value;events.append({'horario':datetime.now(timezone.utc).isoformat(),'etapa':value,'status':status})
   async def call(path,body=None,limit=None):
    def send():
     query={'code':cfg['code']}
@@ -51,26 +56,42 @@ class ApiSession:
       return {'id':o['id'],'title':o.get('title') or o.get('label')}
    raise ValueError('Opção esperada não encontrada: '+kind)
   try:
+   mark('autenticação')
    login,cookies=await call('/auth/login-public',{'userData':None,'userAccountUid':cfg['accountUid'],
     'userFullName':job['nome'],'userId':user,'userRole':'public','userName':job['telefone'],'userPhotoUrl':None,'userCustomData':{}})
    if not login.get('userId'):raise RuntimeError('Login sem usuário')
    user=login['userId'];cookie='; '.join(c.split(';')[0].strip() for c in cookies)
+   mark('criação da sessão')
    sess,_=await call('/sessions',{'id':session,'fromId':user,'from':job['telefone'],'fromName':job['nome'],
     'to':cfg['accountUid'],'context':{'uid':job['telefone'],'name':job['nome'],'setCustomData':{}}})
    session=sess.get('id') or session
+   mark('menu de cobrança')
    await asyncio.sleep(8)
    raw,_=await call('/sessions/'+session+'/messages',limit=20);items=messages(raw)
    selected=option(lambda t:'cobran' in t);await message(selected['id'],selected)
+   mark('envio do CPF')
    await asyncio.sleep(5);await message(job['cpf'])
    await asyncio.sleep(6)
    raw,_=await call('/sessions/'+session+'/messages',limit=20);items=messages(raw)
+   mark('seleção de '+kind)
    selected=option((lambda t:'iquid' in t or 'saldo' in t) if kind=='saldo' else (lambda t:'parcela' in t or ('valor' in t and 'saldo' not in t)))
-   await message(selected['id'],selected);await asyncio.sleep(8)
+   await message(selected['id'],selected);mark('retorno de '+kind);await asyncio.sleep(8)
    raw,_=await call('/sessions/'+session+'/messages',limit=30);items=messages(raw)
-   return parse_result(items,kind)
+   result=parse_result(items,kind)
+   reason=None if result['sucesso'] else 'O atendimento não retornou uma mensagem de '+kind+' reconhecida.'
+   if result['sucesso'] and result.get('valorSaldo' if kind=='saldo' else 'valorParcela') is None:
+    reason='A mensagem de '+kind+' foi reconhecida, mas não contém valor numérico.'
+   mark(stage,'interrompida' if reason else 'concluída')
+   result.update(etapa=stage,motivo_interrupcao=reason,eventos=events)
+   return result
   except Exception as error:
-   # Never log request URLs, cookies or identifiers. Keep commercial reply for owner's result.
-   return {'sucesso':False,'erro':('HTTP '+str(error.code)) if isinstance(error,urllib.error.HTTPError) else ('Opção esperada não encontrada' if isinstance(error,ValueError) else 'Falha na comunicação com o atendimento'),
+   # Persist only classified errors, never exception text, URLs or cookies.
+   diagnostic=diagnose(error,'digimais_api')
+   reason=('Resposta JSON inválida do atendimento' if isinstance(error,json.JSONDecodeError) else
+    'Opção esperada não encontrada no menu de '+kind if isinstance(error,ValueError) else
+    'Autenticação retornou resposta sem usuário' if isinstance(error,RuntimeError) else diagnostic['codigo'])
+   mark(stage,'interrompida')
+   return {'sucesso':False,'etapa':stage,'motivo_interrupcao':reason,'eventos':events,'erro':('HTTP '+str(error.code)) if isinstance(error,urllib.error.HTTPError) else ('Opção esperada não encontrada' if isinstance(error,ValueError) else 'Falha na comunicação com o atendimento'),
     'http_status':error.code if isinstance(error,urllib.error.HTTPError) else None,
     'todasMensagens':[m.get('contentText','') for m in items]}
 
@@ -90,4 +111,6 @@ class ApiSession:
   referral=next((t for t in texts if 'assessoria de cobrança' in t.lower()),None)
   if referral:result['message']='Contrato em assessoria de cobrança. '+referral
   elif not(first['sucesso'] and second['sucesso']):result['message']='API sem retorno conclusivo. '+str(first.get('erro') or second.get('erro') or 'Valores não informados pelo atendimento.')
+  reasons=[kind+': '+r['etapa']+' — '+r['motivo_interrupcao'] for kind,r in [('Saldo',first),('Parcela',second)] if r.get('motivo_interrupcao')]
+  if reasons:result['message']+=' Motivo da interrupção: '+'; '.join(reasons)
   return result

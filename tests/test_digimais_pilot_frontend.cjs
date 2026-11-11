@@ -1,6 +1,6 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');const {setup,response}=require('./test_frontend.cjs');
 (async()=>{
- const t=setup();t.ctx.document.createElement=()=>({hidden:false,innerHTML:'',className:''});t.get('#settings-robots').prepend=()=>{};t.get('#digiPilotMode').setAttribute=()=>{};
+ const t=setup();t.ctx.document.createElement=()=>({hidden:false,innerHTML:'',className:''});t.get('#settings-robots').prepend=()=>{};t.get('#settings-digimais-api').append=()=>{};t.get('#digiPilotMode').setAttribute=()=>{};
  vm.runInContext('function applyAccessUi(){};function switchSettings(){};function resetApiSettings(){};function renderMonitoring(){};function robotDuration(v){return String(v)};let monitoringSnapshot=null;',t.ctx);
  vm.runInContext(fs.readFileSync('dist/digimais-pilot.js','utf8'),t.ctx);
  vm.runInContext("authenticated=true;session={access_token:'fixture',expires_at:Date.now()/1000+3600};currentAccess={active:true,role:'partner'}",t.ctx);

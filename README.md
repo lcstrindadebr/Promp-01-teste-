@@ -861,3 +861,23 @@ O sistema usa POST `/api/login` com `usuario` e `senha`, depois o campo `access`
 ### Catálogo completo Amigoz
 
 `vps/amigoz_convenios.json` preserva os 114 registros fornecidos, incluindo produtos, tipos de margem, subórgãos, ocupações e regras cadastrais. O registro 150, marcado pelo fornecedor como simulação/não digitar, fica com `operacional: false`. O backend valida IDs duplicados e tipos dos identificadores ao iniciar. A seleção pública retorna somente os campos necessários à tela. Regras cadastrais não são automaticamente transformadas em campos obrigatórios na consulta simplificada. Atualização via instalador preserva as credenciais existentes.
+
+### Log exclusivo da API Digimais
+
+Administradores acessam **Configurações → Log API Digimais**. O histórico é da
+conta conectada, inclui campanhas e execuções em andamento, permite filtrar
+por executor e mostra até 50 consultas carregadas mais recentes. Consultas que
+ainda aguardam na fila ficam fora do log. Os registros dos robôs continuam
+separados em Robôs e monitoramento.
+
+Novas execuções salvam nos resultados de saldo e parcela a etapa, horários do
+fluxo e o motivo da interrupção: HTTP, tempo excedido, falha de rede/TLS, menu
+não encontrado, resposta JSON inválida ou retorno sem valor reconhecido. Os
+campos são persistidos nos JSONs de resultado existentes, sem migração SQL.
+Registros antigos preservam os dados já disponíveis; não é possível recuperar
+retroativamente detalhes que não foram registrados. Cookies, configuração da
+API e texto bruto de exceções não entram no diagnóstico.
+
+Depois de atualizar pelo instalador, recarregue o painel. A comunicação real
+com o atendimento deve ser conferida na VPS; os testes locais usam respostas
+simuladas, sem consultar clientes.

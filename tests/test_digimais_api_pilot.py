@@ -15,6 +15,41 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
   r=parse_result([{'contentText':'Valor Saldo: *R$ 12761.8*\nTotal de parcelas: *85*'}],'saldo')
   self.assertEqual(money(r['valorSaldo']),12761.8);self.assertEqual(r['totalParcelas'],'85')
   self.assertEqual(money('7.906,79'),7906.79)
+ async def test_http_timeout_and_menu_failures_are_persistable_and_sanitized(self):
+  import urllib.error
+  api=ApiSession({'baseUrl':'https://example.invalid/api','code':'PRIVATE_CODE','accountUid':'PRIVATE_ACCOUNT'})
+  job={'nome':'Fixture','cpf':'00000000000','telefone':'11999999999'}
+  for error,reason in [(urllib.error.HTTPError('https://secret.invalid?code=PRIVATE_CODE',429,'private',{},None),'HTTP_429'),(TimeoutError('PRIVATE_CODE'),'TEMPO_EXCEDIDO')]:
+   with patch('digimais_api.urllib.request.urlopen',side_effect=error):
+    result=await api.run(job)
+   self.assertEqual(result['status'],'revisao')
+   self.assertEqual(result['resultado_saldo']['etapa'],'autenticação')
+   self.assertEqual(result['resultado_saldo']['motivo_interrupcao'],reason)
+   self.assertEqual(result['resultado_saldo']['eventos'][-1]['status'],'interrompida')
+   self.assertIn(reason,result['message'])
+   self.assertNotIn('PRIVATE_CODE',json.dumps(result))
+   self.assertNotIn('secret.invalid',json.dumps(result))
+  with patch('digimais_api.urllib.request.urlopen',side_effect=json.JSONDecodeError('private','x',0)):
+   result=await api.flow(job,'saldo')
+  self.assertEqual(result['motivo_interrupcao'],'Resposta JSON inválida do atendimento')
+
+ async def test_missing_menu_records_exact_stage(self):
+  class Headers:
+   def get_all(self,*args):return []
+  class Response:
+   headers=Headers()
+   def __init__(self,data):self.data=data
+   def __enter__(self):return self
+   def __exit__(self,*args):pass
+   def read(self):return json.dumps(self.data).encode()
+  api=ApiSession({'baseUrl':'https://example.invalid','code':'private','accountUid':'fixture'})
+  with patch('digimais_api.urllib.request.urlopen',side_effect=[Response({'userId':'fixture'}),Response({}),Response([])]),patch('digimais_api.asyncio.sleep',new_callable=AsyncMock):
+   result=await api.flow({'nome':'Fixture','cpf':'00000000000','telefone':'11999999999'},'saldo')
+  self.assertFalse(result['sucesso'])
+  self.assertEqual(result['etapa'],'menu de cobrança')
+  self.assertIn('Opção esperada não encontrada',result['motivo_interrupcao'])
+  self.assertEqual([e['etapa'] for e in result['eventos'][:-1]],['autenticação','criação da sessão','menu de cobrança'])
+
  async def test_sequential_checkpoint_and_referral(self):
   api=ApiSession({});events=[]
   async def flow(job,kind):
