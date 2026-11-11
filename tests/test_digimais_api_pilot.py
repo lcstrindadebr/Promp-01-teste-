@@ -2,7 +2,7 @@ import asyncio,sys,unittest,json
 from pathlib import Path
 from unittest.mock import AsyncMock,patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'vps'))
-from digimais_api import ApiSession,parse_result,money
+from digimais_api import ApiSession,parse_result,money,format_cpf,CpfFormatError
 from robot_metrics import Slot
 
 class PilotTests(unittest.IsolatedAsyncioTestCase):
@@ -11,6 +11,12 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
   self.assertTrue(r['sucesso']);self.assertIsNone(r['valorSaldo'])
   slot=Slot('api-1');slot.begin('digimais_api');slot.saving({'status':'concluida','saldo_liquidacao':None,'valor_parcela':10});slot.saved()
   self.assertEqual(slot.snapshot()['missing_values_last_hour'],1)
+ def test_cpf_chat_format_is_idempotent(self):
+  self.assertEqual(format_cpf('00000000191'),'000.000.001-91')
+  self.assertEqual(format_cpf('000.000.001-91'),'000.000.001-91')
+  for value in ['123',None,'0000000019a','000000001910']:
+   with self.assertRaises(CpfFormatError):format_cpf(value)
+
  def test_values(self):
   r=parse_result([{'contentText':'Valor Saldo: *R$ 12761.8*\nTotal de parcelas: *85*'}],'saldo')
   self.assertEqual(money(r['valorSaldo']),12761.8);self.assertEqual(r['totalParcelas'],'85')
@@ -89,6 +95,10 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
   sessions=[json.loads(r.data)['id'] for r in requests if r.full_url.split('?')[0].endswith('/sessions')]
   self.assertNotEqual(*sessions)
   self.assertEqual(requests[0].get_header('Cookie'),'');self.assertEqual(requests[8].get_header('Cookie'),'')
+  cpf_messages=[json.loads(request.data)['contentText'] for request in requests if request.data and 'contentText' in json.loads(request.data) and not json.loads(request.data).get('customData')]
+  self.assertEqual(cpf_messages,['000.000.000-00','000.000.000-00'])
+  self.assertEqual(job['cpf'],'00000000000')
+
 
 if __name__=='__main__':unittest.main()
 

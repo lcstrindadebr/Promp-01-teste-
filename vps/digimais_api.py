@@ -4,6 +4,18 @@ from robot_failures import diagnose
 from datetime import datetime,timezone
 
 
+class CpfFormatError(ValueError):
+ pass
+
+
+def format_cpf(value):
+ """Keep storage identifiers unchanged; mask only the outbound chat message."""
+ digits=re.sub(r'[.\-\s]','',str(value or ''))
+ if not re.fullmatch(r'[0-9]{11}',digits):
+  raise CpfFormatError('CPF deve conter 11 dígitos')
+ return f'{digits[:3]}.{digits[3:6]}.{digits[6:9]}-{digits[9:]}'
+
+
 def money(value):
  if value is None:return None
  return float(value.replace('.','').replace(',','.')) if ',' in value else float(value)
@@ -70,7 +82,7 @@ class ApiSession:
    raw,_=await call('/sessions/'+session+'/messages',limit=20);items=messages(raw)
    selected=option(lambda t:'cobran' in t);await message(selected['id'],selected)
    mark('envio do CPF')
-   await asyncio.sleep(5);await message(job['cpf'])
+   await asyncio.sleep(5);await message(format_cpf(job['cpf']))
    await asyncio.sleep(6)
    raw,_=await call('/sessions/'+session+'/messages',limit=20);items=messages(raw)
    mark('seleção de '+kind)
@@ -87,7 +99,8 @@ class ApiSession:
   except Exception as error:
    # Persist only classified errors, never exception text, URLs or cookies.
    diagnostic=diagnose(error,'digimais_api')
-   reason=('Resposta JSON inválida do atendimento' if isinstance(error,json.JSONDecodeError) else
+   reason=('CPF inválido: informe 11 dígitos' if isinstance(error,CpfFormatError) else
+    'Resposta JSON inválida do atendimento' if isinstance(error,json.JSONDecodeError) else
     'Opção esperada não encontrada no menu de '+kind if isinstance(error,ValueError) else
     'Autenticação retornou resposta sem usuário' if isinstance(error,RuntimeError) else diagnostic['codigo'])
    mark(stage,'interrompida')
