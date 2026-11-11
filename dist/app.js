@@ -13,9 +13,12 @@ function resultMessage(r){
  if(r.status==='Erro')return 'Não foi possível concluir. Consulte o log em Configurações.';
  return '';
 }
+function consultationWasPerformed(row){
+ return ['Concluída','Não é cliente','Não encontrado','Erro','Revisão','Consulta interrompida'].includes(row.status);
+}
 function consultationLogRecords(){
  const selection=$('#consultationLogRobot').value;
- const rows=records.filter(row=>row.execution_mode!=='api');
+ const rows=records.filter(row=>row.execution_mode!=='api'&&consultationWasPerformed(row));
  if(!selection)return rows;
  return rows.filter(row=>selection==='unassigned'?row.robot_slot==null:String(row.robot_slot)===selection);
 }

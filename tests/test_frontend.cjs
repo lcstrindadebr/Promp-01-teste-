@@ -19,15 +19,15 @@ if(require.main===module)(async()=>{
  const bad=setup();bad.handler(async()=>response({msg:'Invalid login credentials'},400));await bad.get('#login').onsubmit({preventDefault(){}});assert.equal(bad.get('#appShell').hidden,true);assert.match(bad.get('#loginError').textContent,/inválidos/);
  const stale=setup([['apoiarcred-auth:https://test.supabase.co',JSON.stringify({access_token:'revoked',refresh_token:'x',expires_at:Date.now()/1000+3600})]]);stale.handler(async()=>response({},401));await new Promise(setImmediate);assert.equal(stale.get('#appShell').hidden,true,'Revoked stored session must not open dashboard');
  vm.runInContext("records=[{id:'job',nome:'CLIENTE',cpf:'00123456789',status:'Processando',progress:70,stage:'CPF enviado',date:'2026-10-30T20:00:00Z'}];render()",t.ctx);
- assert(t.get('#rows').innerHTML.includes('value="70"'));assert(t.get('#rows').innerHTML.includes('70%'));assert(!t.get('#rows').innerHTML.includes('CPF enviado'));assert(t.get('#rows').innerHTML.includes('Consultando...'));assert(t.get('#consultationLogs').textContent.includes('CPF enviado'));
+ assert(t.get('#rows').innerHTML.includes('value="70"'));assert(t.get('#rows').innerHTML.includes('70%'));assert(!t.get('#rows').innerHTML.includes('CPF enviado'));assert(t.get('#rows').innerHTML.includes('Consultando...'));assert(!t.get('#consultationLogs').textContent.includes('CPF enviado'));
  vm.runInContext("records=[{id:'job',nome:'CLIENTE',cpf:'00123456789',status:'Não é cliente',progress:100,stage:'Não é cliente',date:'2026-10-30T20:00:00Z'}];render()",t.ctx);
- assert(t.get('#rows').innerHTML.includes('value="100"'));assert(t.get('#rows').innerHTML.includes('Não é cliente'));
+ assert(t.get('#consultationLogs').textContent.includes('Não é cliente'));assert(t.get('#rows').innerHTML.includes('value="100"'));assert(t.get('#rows').innerHTML.includes('Não é cliente'));
  vm.runInContext("records=[{id:'job',nome:'CLIENTE',status:'Revisão',saldo:1234.56,parcelas:24,valorParcela:123.4,date:'2026-10-30T20:00:00Z'}];render()",t.ctx);
  assert(t.get('#rows').innerHTML.includes('123,40'));assert(t.get('#rows').innerHTML.includes('1.234,56'));
  vm.runInContext("records=[{id:'job',nome:'CLIENTE',cpf:'00123456789',status:'Erro',progress:40,stage:'Selecionar empréstimo consignado',message:'Tempo excedido: detalhe técnico <img src=x>',date:'2026-10-30T20:00:00Z'}];render()",t.ctx);
  assert(!t.get('#rows').innerHTML.includes('Selecionar empréstimo'));assert(!t.get('#rows').innerHTML.includes('detalhe técnico'));
  assert(t.get('#consultationLogs').textContent.includes('detalhe técnico <img src=x>'));
- vm.runInContext("records=[{cpf:'fixture-one',robot_slot:1,message:'Falha do primeiro'},{cpf:'fixture-two',robot_slot:2,message:'Falha do segundo'},{cpf:'fixture-legacy',message:'Histórico'}]",t.ctx);
+ vm.runInContext("records=[{status:'Erro',cpf:'fixture-one',robot_slot:1,message:'Falha do primeiro'},{status:'Erro',cpf:'fixture-two',robot_slot:2,message:'Falha do segundo'},{status:'Concluída',cpf:'fixture-legacy',message:'Histórico'}]",t.ctx);
  t.get('#consultationLogRobot').value='2';t.get('#consultationLogRobot').onchange();
  assert(t.get('#consultationLogs').textContent.includes('Robô 2'));
  assert(t.get('#consultationLogs').textContent.includes('Falha do segundo'));

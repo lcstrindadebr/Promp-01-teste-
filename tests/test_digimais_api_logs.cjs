@@ -1,8 +1,11 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const nodes=new Map();const $=id=>{if(!nodes.has(id))nodes.set(id,{value:'',textContent:'',append(){}});return nodes.get(id)};
 const ctx={$,document:{createElement:()=>({})},authenticated:true,currentAccess:{active:true,role:'admin'},records:[{execution_mode:'robot',cpf:'ROBOT'},{execution_mode:'api',api_slot:2,cpf:'API_CLIENT',date:'2026-11-11',status:'Revisão',resultado_saldo:{sucesso:false,http_status:429,erro:'HTTP 429',todasMensagens:['<script>unsafe</script>']}}],statusLabel:s=>s,renderLogs(){},applyAccessUi(){},resetApiSettings(){}};
-vm.createContext(ctx);vm.runInContext(fs.readFileSync('dist/digimais-pilot.js','utf8').split('// Separate own-account API diagnostics; never render cookies or API configuration.')[1],ctx);
-ctx.renderLogs();assert($('#digiApiLogContent').textContent.includes('API_CLIENT'));assert(!$('#digiApiLogContent').textContent.includes('ROBOT'));assert($('#digiApiLogContent').textContent.includes('HTTP: 429'));assert($('#digiApiLogContent').textContent.includes('<script>unsafe</script>'));
+vm.createContext(ctx);vm.runInContext(fs.readFileSync('dist/app.js','utf8').match(/function consultationWasPerformed[\s\S]*?(?=function renderLogs)/)[0],ctx);
+ctx.records.push({execution_mode:'api',cpf:'QUEUED',status:'Aguardando'},{execution_mode:'api',cpf:'RUNNING',status:'Processando'},{execution_mode:'robot',cpf:'ROBOT_QUEUE',status:'Aguardando'},{execution_mode:'robot',cpf:'ROBOT_DONE',status:'Concluída'});
+assert.deepEqual(Array.from(ctx.consultationLogRecords(),r=>r.cpf),['ROBOT_DONE']);
+vm.runInContext(fs.readFileSync('dist/digimais-pilot.js','utf8').split('// Separate own-account API diagnostics; never render cookies or API configuration.')[1],ctx);
+ctx.renderLogs();assert(!$('#digiApiLogContent').textContent.includes('QUEUED'));assert(!$('#digiApiLogContent').textContent.includes('RUNNING'));assert($('#digiApiLogContent').textContent.includes('API_CLIENT'));assert(!$('#digiApiLogContent').textContent.includes('ROBOT'));assert($('#digiApiLogContent').textContent.includes('HTTP: 429'));assert($('#digiApiLogContent').textContent.includes('<script>unsafe</script>'));
 $('#digiApiLogSlot').value='1';ctx.renderLogs();assert(!$('#digiApiLogContent').textContent.includes('API_CLIENT'));
 $('#digiApiLogSlot').value='2';ctx.renderLogs();assert($('#digiApiLogContent').textContent.includes('API_CLIENT'));
 ctx.authenticated=false;ctx.applyAccessUi();assert.equal($('#digiApiLogContent').textContent,'');
