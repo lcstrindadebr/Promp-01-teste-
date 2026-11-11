@@ -392,7 +392,7 @@ async function crmDownloadOpportunities({stage,uf,convenio,products},button,stat
       after = next;
     }
     if (!rows.length) {status.textContent = 'Nenhuma oportunidade aberta neste filtro.';return;}
-    const workbookRows = [
+    let workbookRows = [
       ['Nome','CPF','Convênio','Produto','Etapa original','Responsável','Próxima ação','Saldo Digi+','Parcela Digi+','Saque Amigoz','Margem livre'],
       ...rows.map(row => {
         const signals = row.sinais_consulta || {};
@@ -403,6 +403,7 @@ async function crmDownloadOpportunities({stage,uf,convenio,products},button,stat
           offers.map(item=>crmMoney.format(item.valor_saque_disponivel)).join(' · '),crmOpportunityMargins(signals).map(value=>crmMoney.format(value)).join(' · ')];
       })
     ];
+    if(typeof amigozAppendExport==='function') workbookRows=await amigozAppendExport(workbookRows,rows.map(row=>({cpf:row.cpf,convenio:row.convenio||'',source:row.produto==='margem'?'margin':'auto'})));
     const download = async (trigger)=>{
       trigger.disabled = true;
       try {
@@ -515,18 +516,29 @@ async function crmExportClients(template,excel=false){
       return;
     }
     const headers=template?crmAgreementTemplate(agreement,false)[0]:['Nome','CPF','Telefone','Última atividade'];
-    const chunks=['\uFEFF'+headers.join(';')+'\r\n'];
-    const workbookRows=excel?[headers]:null;
+    const outputHeaders=typeof amigozEstimateHeaders!=='undefined'?headers.concat(amigozEstimateHeaders):headers;
+    const chunks=['\uFEFF'+outputHeaders.map(crmCsvCell).join(';')+'\r\n'];
+    const workbookRows=excel?[outputHeaders]:null;
     for(;;){
       const rows=await crmRpc('crm_filter_clients',{...filters,p_after:after,p_limit:500});
       if(!authenticated||epoch!==authEpoch)throw Error('Sessão encerrada');
       if(!rows.length)break;
-      const cells = template
+      let cells = template
         ? await crmClientTemplateRows(rows,filters,headers)
         : rows.map(x=>[x.nome,formatCpf(x.cpf),x.telefone,x.ultima_atividade?new Date(x.ultima_atividade).toLocaleString('pt-BR'):'']);
+      if(typeof amigozExportEstimates==='function') {
+        const inputs=cells.map((cell,index)=>{
+          if(!template) return {cpf:rows[index].cpf,convenio:filters.p_convenio||''};
+          const values=Object.fromEntries(headers.map((header,column)=>[header,cell[column]]));
+          return {cpf:values.cpf,convenio:filters.p_convenio,matricula:values.matricula||undefined,
+            instituicao:values.instituicao||undefined,source:headers.includes('margem_emprestimo')?'margin':'auto'};
+        });
+        const estimates=await amigozExportEstimates(inputs);
+        cells=cells.map((cell,index)=>cell.concat(estimates[index]));
+      }
       if(!authenticated||epoch!==authEpoch)throw Error('Sessão encerrada');
       if(excel) workbookRows.push(...cells);
-      else chunks.push(cells.map(row=>row.map(crmCsvCell).join(';')).join('\r\n')+'\r\n');
+      else chunks.push(cells.map(row=>(typeof amigozCsvCells==='function'?amigozCsvCells(row):row).map(crmCsvCell).join(';')).join('\r\n')+'\r\n');
       exportedRows+=cells.length;
       total+=rows.length;status.textContent='Exportando '+total+' clientes…';
       const next=rows[rows.length-1].cpf;if(next<=after)throw Error('Paginação inválida');after=next;
@@ -777,6 +789,11 @@ async function crmOpenClientProfile(row,selectedId) {
       registration.append(crmElement('p','',label+': '+(value||'Não informado')));
     }
     for (const link of links) registration.append(crmElement('p','','Matrícula '+link.matricula+' · '+link.uf+' · '+link.convenio));
+    if(typeof openAmigozClient==='function') {
+      const simulate=crmElement('button','primary','Simular Amigoz');simulate.type='button';
+      simulate.onclick=()=>{dialog.close();openAmigozClient(row.cpf,row.convenio||'',null,client.nome);};
+      registration.append(simulate);
+    }
     form.append(registration);
     const dataSection=crmElement('section','crm-profile-section');
     dataSection.append(crmElement('h3','','Dados registrados no perfil'));

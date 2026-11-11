@@ -15,8 +15,9 @@ function resultMessage(r){
 }
 function consultationLogRecords(){
  const selection=$('#consultationLogRobot').value;
- if(!selection)return records;
- return records.filter(row=>selection==='unassigned'?row.robot_slot==null:String(row.robot_slot)===selection);
+ const rows=records.filter(row=>row.execution_mode!=='api');
+ if(!selection)return rows;
+ return rows.filter(row=>selection==='unassigned'?row.robot_slot==null:String(row.robot_slot)===selection);
 }
 function renderLogs(){
  // Only the signed-in user's loaded records are available here; cleared on logout.
@@ -176,7 +177,14 @@ $('#import').onclick=async()=>{
  finally{creatingCampaign=false;syncImportButton();}
 };
 function download(name,content){const u=URL.createObjectURL(new Blob(['\uFEFF'+content],{type:'text/csv;charset=utf-8'})),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)}
-function exportResults(items,filename='consultas.csv'){const safe=v=>'"'+String(v??'').replace(/^[=+@\-]/,"'$&").replaceAll('"','""')+'"';download(filename,[['nome','cpf','telefone','tipo_higienizacao','status','saldo','parcelas','valor_parcela','data','observacao'],...items.map(r=>[r.nome,r.cpf,r.telefone,serviceLabel(r.servico),statusLabel(r.status),r.saldo,r.parcelas,r.valorParcela,r.date,resultMessage(r)])].map(r=>r.map(safe).join(';')).join('\r\n'))}
+async function exportResults(items,filename='consultas.csv') {
+ const safe=value=>'"'+String(value??'').replace(/^[=+@\-]/,"'$&").replaceAll('"','""')+'"';
+ let rows=[['nome','cpf','telefone','tipo_higienizacao','status','saldo','parcelas','valor_parcela','data','observacao'],
+  ...items.map(row=>[row.nome,formatCpf(row.cpf),row.telefone,serviceLabel(row.servico),statusLabel(row.status),row.saldo,row.parcelas,row.valorParcela,row.date,resultMessage(row)])];
+ if(typeof amigozAppendExport==='function') rows=await amigozAppendExport(rows,items.map(row=>({cpf:row.cpf,job_id:row.id,convenio:row.convenio||''})));
+ if(typeof amigozCsvCells==='function') rows=[rows[0],...rows.slice(1).map(amigozCsvCells)];
+ download(filename,rows.map(row=>row.map(safe).join(';')).join('\r\n'));
+}
 $('#export').onclick=()=>exportResults(individualRecords());
 $('#exportCampaign').onclick=()=>exportResults(campaignRecords(activeCampaign),'campanha-resultados.csv');
 $('#exportCampaignReport').onclick=()=>{

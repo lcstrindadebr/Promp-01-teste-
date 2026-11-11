@@ -1,7 +1,7 @@
 // All financial calculations run in Supabase, using the saved job and commissions.
 let amigozReturnFocus=null;
 let amigozCurrent=null,amigozBusy=false,amigozGeneration=0,amigozDirty=false;
-const amigozRates=[3,3.25,3.5,3.75,3.98,4.5,4.8];
+const amigozRates=[3,3.25,3.5,3.75,3.98,4.5];
 const brl=v=>Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 function amigozAction(r){
  if(r.servico==='tjba_margem')return '';

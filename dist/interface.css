@@ -172,3 +172,9 @@ body{background:var(--app-bg);color:var(--text-primary)}h1{font-size:24px;letter
 @media(max-width:1000px){#crmSearch{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){#crmSearch{grid-template-columns:1fr}.crm-kanban-column{flex-basis:260px}.crm-dialog{padding:16px}.consultation-tabs button{flex:1}}
 nav button{display:flex;align-items:center;gap:12px}nav button svg{flex-shrink:0}#sidebarToggle{color:#fff;background:transparent;border:1px solid #63776d;margin:0 0 12px;min-width:40px}.crm-kanban-card.compact{padding:10px}.crm-kanban-card.compact .crm-card-detail{margin:2px 0}.crm-kanban-card.compact .crm-card-finance{margin:8px 0;padding:6px 0}#clients>.consultation-header{display:grid;grid-template-columns:1fr auto;align-items:center}#clients>.consultation-header p{grid-column:1/-1}
 @media(min-width:761px){.sidebar-collapsed aside{width:72px;padding:20px 10px}.sidebar-collapsed main{margin-left:72px}.sidebar-collapsed aside .caption,.sidebar-collapsed aside footer,.sidebar-collapsed aside .brand-image,.sidebar-collapsed nav button span{display:none}.sidebar-collapsed nav button{justify-content:center;padding:12px;min-width:0}.sidebar-collapsed #sidebarToggle{margin-top:8px}}@media(max-width:760px){#sidebarToggle{display:none}nav button{justify-content:center;gap:5px}nav button svg{width:14px}}
+
+.amigoz-controls.coefficient-controls{grid-template-columns:repeat(2,minmax(0,1fr))}
+.coefficient-controls #amigozMarginField{grid-column:1/-1}
+.coefficient-controls select,.coefficient-controls input{width:100%;max-width:100%}
+.coefficient-controls .amigoz-update{grid-column:1/-1}
+@media(max-width:600px){.amigoz-controls.coefficient-controls{grid-template-columns:1fr}}
