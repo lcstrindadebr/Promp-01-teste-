@@ -40,6 +40,20 @@ vm.createContext(ctx);vm.runInContext(fs.readFileSync('dist/crm.js','utf8'),ctx)
  assert.match(get('#crmExportOpportunitiesStatus').textContent,/1 movidas/);
  moved=false;ctx.XLSX.writeFile=()=>{throw Error('falha ao gerar');};
  await exportFile();assert.equal(moved,false);
+ blobs=[];
+ get('#crmUF').value='SP';get('#crmAgreementFilter').value='amigoz_33';
+ handler=async(path,options)=>{
+  if(path.includes('crm_vinculos')) return new URLSearchParams(path.split('?')[1]).get('offset')==='0'?[{cpf:'00000000001',matricula:'0007'}]:[];
+  const params=JSON.parse(options.body);
+  return params.p_after?[]:[{cpf:'00000000001',nome:'Teste',resumo_consultas:{
+   margem_importada_amigoz_33:{data:'2026-11-10',dados:{margem_emprestimo:0}},
+   amigoz_saque_amigoz_33:{dados:[{elegivel:'Sim',valor_saque_disponivel:250}]}
+  }}];
+ };
+ await get('#crmExportTemplate').onclick();
+ const template=await blobs[0].text();
+ assert.match(template,/margem_livre;saque_amigoz_elegivel;saque_amigoz_valor;uf;convenio/);
+ assert(template.includes('"0007"') && template.includes('"0";"Sim";"250";"SP";"amigoz_33"'));
  const html=fs.readFileSync('dist/index.html','utf8');const nav=html.match(/<nav>(.*?)<\/nav>/s)[1];assert(!nav.includes('data-page="campaigns"'));assert(html.includes('data-consultation="campaigns"'));
  console.log('PASS: CRM cursor pagination, 1,201-row export, failed export, failed stage move, seven Kanban columns, unified navigation');
 })().catch(e=>{console.error(e);process.exitCode=1});

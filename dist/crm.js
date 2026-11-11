@@ -213,7 +213,10 @@ function syncCrmPage(page) {
   crmPipelineRequest++;
   $('#crmPipelineRows').replaceChildren();
   if (page === 'opportunities') loadCrmPipeline(0);
-  if (!authenticated) $('#crmStageFilter').value = '';
+  if (!authenticated) {
+    for (const id of ['crmStageFilter','crmKanbanProduct','crmKanbanAgreement','crmKanbanOwner']) $('#'+id).value='';
+    $('#crmKanbanAgreement').replaceChildren(new Option('Todos',''));
+  }
   if (page === 'clients') {
     loadCrmFilterOptions();loadCrmClients(crmPage);
     return;
@@ -265,6 +268,17 @@ async function loadCrmPipeline(page) {
     const settings=await crmLoadSettings();
     if(request!==crmPipelineRequest)return;
     const selected=$('#crmStageFilter').value;
+    const agreement=$('#crmKanbanAgreement');
+    const filters={p_produto:$('#crmKanbanProduct').value,p_convenio:agreement.value,p_responsavel:$('#crmKanbanOwner').value.trim()};
+    try {
+      const options=await crmRpc('crm_filter_options');
+      if(request!==crmPipelineRequest)return;
+      agreement.replaceChildren(new Option('Todos',''));
+      for(const value of [...new Set(options.map(row=>row.convenio))]) agreement.add(new Option(value.toUpperCase(),value));
+      agreement.value=filters.p_convenio;
+    } catch {
+      if(request!==crmPipelineRequest)return;
+    }
     for(const [key,label] of Object.entries(crmStages)) {
       if(selected&&key!==selected)continue;
       const column=crmElement('section','crm-kanban-column');
@@ -275,7 +289,7 @@ async function loadCrmPipeline(page) {
       const load=async()=>{
         if(busy)return;busy=true;more.disabled=true;more.textContent='Carregando…';
         try {
-          const rows=await sbRequest(crmPath('crm_opportunity_cards',{etapa:'eq.'+key,order:'created_at.desc,id.desc',limit:crmPageSize+1,offset}));
+          const rows=await crmRpc('crm_filtrar_kanban',{...filters,p_etapa:key,p_offset:offset});
           if(request!==crmPipelineRequest)return;
           for(const row of rows.slice(0,crmPageSize))cards.append(crmOpportunityCard(row,settings,request));
           offset+=Math.min(rows.length,crmPageSize);
@@ -301,6 +315,7 @@ async function loadCrmPipeline(page) {
 
 crmStageOptions($('#crmStageFilter'), '', true);
 $('#crmStageFilter').onchange = () => loadCrmPipeline(0);
+for (const id of ['crmKanbanProduct','crmKanbanAgreement','crmKanbanOwner']) $('#'+id).onchange = () => loadCrmPipeline(0);
 $('#crmExportOpportunities').onclick = async () => {
   const {dialog,form} = crmDialog('Exportar oportunidades');
   const epoch = authEpoch;
@@ -484,27 +499,77 @@ function crmUpdateAgreements(){
   select.value=Array.from(select.options).some(x=>x.value===selected)?selected:'';
 }
 $('#crmUF').onchange=crmUpdateAgreements;
-function crmCsvCell(value){let str=String(value??'');if(/^[=+@\-\t\r]/.test(str))str="'"+str;return '"'+str.replace(/"/g,'""')+'"';}
-$('#crmExport').onclick=async()=>{
-  const button=$('#crmExport'),status=$('#crmStatus'),epoch=authEpoch;button.disabled=true;
+function crmCsvCell(value){let str=String(value??'');if(typeof value!=='number' && /^[=+@\-\t\r]/.test(str))str="'"+str;return '"'+str.replace(/"/g,'""')+'"';}
+$('#crmExport').onclick=()=>crmExportClients(false);
+$('#crmExportTemplate').onclick=()=>crmExportClients(true);
+async function crmExportClients(template){
+  const button=$(template?'#crmExportTemplate':'#crmExport'),status=$('#crmStatus'),epoch=authEpoch;
+  button.disabled=true;
   const filters={p_query:$('#crmQuery').value.trim(),p_uf:$('#crmUF').value,p_convenio:$('#crmAgreementFilter').value,p_servico:$('#crmServiceFilter').value};
-  const chunks=['\uFEFFNome;CPF;Telefone;Última atividade\r\n'];let after='',total=0;
+  const chunks=[template
+    ? '\uFEFFcpf;nome;telefone;matricula;data_nascimento;margem_livre;saque_amigoz_elegivel;saque_amigoz_valor;uf;convenio\r\n'
+    : '\uFEFFNome;CPF;Telefone;Última atividade\r\n'];
+  let after='',total=0;
   try{
+    if(template && (!filters.p_uf || !filters.p_convenio)){
+      status.textContent='Selecione Estado e Convênio para baixar no modelo padrão.';
+      return;
+    }
     for(;;){
       const rows=await crmRpc('crm_filter_clients',{...filters,p_after:after,p_limit:500});
       if(!authenticated||epoch!==authEpoch)throw Error('Sessão encerrada');
       if(!rows.length)break;
-      chunks.push(rows.map(x=>[x.nome,formatCpf(x.cpf),x.telefone,x.ultima_atividade?new Date(x.ultima_atividade).toLocaleString('pt-BR'):''].map(crmCsvCell).join(';')).join('\r\n')+'\r\n');
+      const cells = template
+        ? await crmClientTemplateRows(rows,filters)
+        : rows.map(x=>[x.nome,formatCpf(x.cpf),x.telefone,x.ultima_atividade?new Date(x.ultima_atividade).toLocaleString('pt-BR'):'']);
+      if(!authenticated||epoch!==authEpoch)throw Error('Sessão encerrada');
+      chunks.push(cells.map(row=>row.map(crmCsvCell).join(';')).join('\r\n')+'\r\n');
       total+=rows.length;status.textContent='Exportando '+total+' clientes…';
       const next=rows[rows.length-1].cpf;if(next<=after)throw Error('Paginação inválida');after=next;
     }
     if(!total){status.textContent='Nenhum cliente corresponde aos filtros.';return;}
     const url=URL.createObjectURL(new Blob(chunks,{type:'text/csv;charset=utf-8'}));
-    const link=document.createElement('a');link.href=url;link.download='clientes-'+new Date().toISOString().slice(0,10)+'.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    const link=document.createElement('a');link.href=url;link.download=(template?'clientes-modelo-padrao-':'clientes-')+new Date().toISOString().slice(0,10)+'.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
     status.textContent=total+' clientes exportados. Filtros aplicados ao arquivo inteiro.';
   }catch{status.textContent='A exportação não foi concluída. Nenhum arquivo parcial foi baixado. Tente novamente.';}
   finally{button.disabled=false;}
-};
+}
+async function crmClientTemplateRows(rows,filters){
+  const registrations=new Map();
+  for(let start=0;start<rows.length;start+=100){
+    const group=rows.slice(start,start+100);
+    let offset=0;
+    for(;;){
+      const links=await sbRequest(crmPath('crm_vinculos',{
+        cpf:'in.('+group.map(row=>row.cpf).join(',')+')',uf:'eq.'+filters.p_uf,convenio:'eq.'+filters.p_convenio,
+        select:'cpf,matricula',order:'confirmado_em.desc,cpf.asc,matricula.asc',limit:100,offset
+      }));
+      for(const link of links) if(!registrations.has(link.cpf)) registrations.set(link.cpf,link.matricula);
+      offset+=links.length;
+      if(!links.length || registrations.size===rows.length) break;
+    }
+  }
+  const agreement=filters.p_convenio;
+  return rows.map(row=>{
+    const facts=row.resumo_consultas||{};
+    const margins=[
+      [facts['margem_importada_'+agreement],value=>value?.margem_emprestimo],
+      [facts['consigx_margem_'+agreement],value=>value?.margem_emprestimo],
+      [facts['amigoz_margem_'+agreement],value=>{
+        const values=Array.isArray(value)?value.map(item=>item?.margem_atual).filter(Number.isFinite):[];
+        return values.length?Math.max(...values):null;
+      }]
+    ].filter(([fact])=>fact).sort(([a],[b])=>String(b.data).localeCompare(String(a.data)));
+    const margin=margins.map(([fact,read])=>read(fact.dados)).find(Number.isFinite);
+    const offers=facts['amigoz_saque_'+agreement]?.dados;
+    const valid=Array.isArray(offers)?offers.filter(item=>item && !item.erro_informado):[];
+    const eligible=valid.filter(item=>String(item.elegivel).toLowerCase()==='sim');
+    const declined=valid.some(item=>['não','nao'].includes(String(item.elegivel).toLowerCase()));
+    const values=(eligible.length?eligible:valid).map(item=>item.valor_saque_disponivel).filter(Number.isFinite);
+    return [formatCpf(row.cpf),row.nome,row.telefone,registrations.get(row.cpf),row.data_nascimento,margin,
+      eligible.length?'Sim':declined?'Não':'',values.length && (eligible.length || !declined)?Math.max(...values):null,filters.p_uf,agreement];
+  });
+}
 async function crmLoadSettings(){
   const rows=await sbRequest(crmPath('crm_card_settings',{}));
   crmSettings=rows[0]||{visible:Object.keys(crmBuiltinFields),fields:[]};return crmSettings;
@@ -542,7 +607,7 @@ function crmOpportunityCard(row,settings,request){
 function crmOpportunityMargins(signals) {
   return Object.entries(signals).flatMap(([source,data])=>{
     if(source.startsWith('amigoz_margem_') && Array.isArray(data)) return data.map(item=>item?.margem_atual);
-    if(source.startsWith('consigx_margem_')) return [data?.margem_emprestimo];
+    if(source.startsWith('consigx_margem_') || source.startsWith('margem_importada_')) return [data?.margem_emprestimo];
     return [];
   }).filter(value=>typeof value==='number' && value>20);
 }
@@ -636,11 +701,12 @@ async function crmOpenClientProfile(row,selectedId) {
   const scope={cpf:'eq.'+row.cpf,user_id:'eq.'+row.user_id};
   const money=value=>value==null?'Não informado':crmMoney.format(value);
   try {
-    const [clients,links,opportunities,history]=await Promise.all([
+    const [clients,links,opportunities,history,profileData]=await Promise.all([
       sbRequest(crmPath('crm_cadastros',{...scope,limit:1})),
       sbRequest(crmPath('crm_vinculos',{...scope,order:'confirmado_em.desc'})),
       sbRequest(crmPath('crm_opportunity_cards',{...scope,order:'created_at.desc,id.desc'})),
-      sbRequest(crmPath('crm_consultas',{...scope,order:'created_at.desc,id.desc',limit:25}))
+      sbRequest(crmPath('crm_consultas',{...scope,order:'created_at.desc,id.desc',limit:25})),
+      sbRequest(crmPath('crm_dados_cliente',{...scope,order:'registrado_em.desc'}))
     ]);
     if (!dialog.open || epoch!==authEpoch) return;
     const client=clients[0]||row;
@@ -652,6 +718,29 @@ async function crmOpenClientProfile(row,selectedId) {
     }
     for (const link of links) registration.append(crmElement('p','','Matrícula '+link.matricula+' · '+link.uf+' · '+link.convenio));
     form.append(registration);
+    const dataSection=crmElement('section','crm-profile-section');
+    dataSection.append(crmElement('h3','','Dados registrados no perfil'));
+    for(const fact of profileData){
+      const institution={amigoz:'Amigoz',consigx:'ConsigX',digimais:'Digi+'}[fact.instituicao] || 'Instituição não informada';
+      const kind={margem:'Margem',saque_complementar:'Saque complementar',saldo_parcela:'Saldo e parcela'}[fact.tipo];
+      const entry=crmElement('div','crm-profile-opportunity');
+      entry.append(crmElement('strong','',[kind,institution,fact.convenio].filter(Boolean).join(' · ')),
+        crmElement('p','muted',(fact.origem==='importacao'?'Planilha':'Consulta')+' · '+new Date(fact.registrado_em).toLocaleString('pt-BR')));
+      if(fact.tipo==='saque_complementar' && Array.isArray(fact.dados)){
+        for(const offer of fact.dados) entry.append(crmElement('p','',
+          'Elegível: '+(offer.elegivel ?? 'Não informado')+' · Valor disponível: '+money(offer.valor_saque_disponivel)));
+        if(!fact.dados.length) entry.append(crmElement('p','','Sem oferta registrada.'));
+      } else if(fact.tipo==='margem'){
+        const values=Array.isArray(fact.dados) ? fact.dados.map(item=>item.margem_atual) : [fact.dados.margem_emprestimo,fact.dados.margem_cartao];
+        entry.append(crmElement('p','','Margem livre: '+(values.filter(value=>value!=null).map(money).join(' · ') || 'Não informado')));
+      } else if(fact.tipo==='saldo_parcela'){
+        entry.append(crmElement('p','',fact.dados.status==='nao_cliente'?'Não é cliente':'Saldo: '+money(fact.dados.saldo)+' · Parcela: '+money(fact.dados.parcela)));
+      }
+      dataSection.append(entry);
+    }
+    if(!profileData.length) dataSection.append(crmElement('p','muted','Nenhum dado registrado.'));
+    form.append(dataSection);
+
     const cards=crmElement('section','crm-profile-section');cards.append(crmElement('h3','','Oportunidades deste cliente'));
     const ordered=[...opportunities].sort((a,b)=>Number(b.id===selectedId)-Number(a.id===selectedId));
     for (const opportunity of ordered) {

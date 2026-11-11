@@ -60,8 +60,28 @@ async function crmReadClientFile(file, uf, convenio, convenioNome = convenio) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dataNascimento) || !Number.isFinite(date.getTime()) ||
           date.toISOString().slice(0,10) !== dataNascimento) invalid('data de nascimento inválida.');
     }
+    const amount = (value, label) => {
+      if (!value) return null;
+      const raw = value.replace(/^R\$\s*/i,'').trim();
+      const normalized = /^-?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{1,2}$/.test(raw) ? raw.replace(/\./g,'').replace(',','.') : raw;
+      if (!/^-?\d{1,12}(?:\.\d{1,2})?$/.test(normalized)) invalid(label+' inválido.');
+      return Number(normalized);
+    };
+    const margemLivre = amount(entry['margem livre'],'Margem livre');
+    const saqueValor = amount(entry['saque amigoz valor'] || entry['valor saque complementar amigoz'],'Valor do saque Amigoz');
+    const eligibility = normalize(entry['saque amigoz elegivel'] || entry['saque complementar amigoz']);
+    let saqueElegivel = null;
+    if (eligibility) {
+      if (['sim','true','1'].includes(eligibility)) saqueElegivel = true;
+      else if (['nao','false','0'].includes(eligibility)) saqueElegivel = false;
+      else invalid('Elegibilidade de saque Amigoz deve ser Sim ou Não.');
+    }
+    if (saqueValor < 0 || (saqueElegivel === false && saqueValor > 0)) invalid('Dados de saque Amigoz incompatíveis.');
     seen.add(cpf);
     return {cpf, nome:entry.nome || null, telefone:telefone || null,
+      ...(margemLivre !== null ? {margem_livre:margemLivre} : {}),
+      ...(saqueElegivel !== null ? {saque_amigoz_elegivel:saqueElegivel} : {}),
+      ...(saqueValor !== null ? {saque_amigoz_valor:saqueValor} : {}),
       ...(dataNascimento ? {data_nascimento:dataNascimento} : {}),
       ...((entry.matricula || entry.numero_matricula || entry['numero matricula']) ? {numero_matricula:entry.matricula || entry.numero_matricula || entry['numero matricula']} : {})};
   });
@@ -96,7 +116,7 @@ async function crmOpenClientImport() {
       </fieldset>
       <div class="crm-import-file" hidden>
         <label>Planilha de clientes<input name="arquivo" type="file" accept=".csv,.tsv,.xlsx,.xls" required disabled></label>
-        <small>CPF obrigatório. Digi+ exige nome e telefone. Amigoz exige apenas CPF; matrícula e data de nascimento são opcionais. Até 2 MB e 10.000 clientes.</small>
+        <small>CPF obrigatório. Digi+ exige nome e telefone. Amigoz exige apenas CPF; matrícula, data de nascimento, margem livre e saque complementar Amigoz são opcionais. Até 2 MB e 10.000 clientes.</small>
         <a href="modelo-clientes.csv" download>Baixar modelo de cadastro</a>
       </div>
     </div>

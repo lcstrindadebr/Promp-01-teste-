@@ -32,3 +32,14 @@ test('accepts the provider code or catalog display name in an imported row', asy
     assert.equal(rows[0].cpf,'00000000101');
   }
 });
+
+test('imports reported margin and Amigoz eligibility without treating blank as zero', async () => {
+  const rows = await read('cpf;margem_livre;saque_amigoz_elegivel;saque_amigoz_valor\n00000000101;1.234,56;Sim;250,00\n00000000102;0;Não;');
+  assert.equal(rows[0].margem_livre,1234.56);
+  assert.equal(rows[0].saque_amigoz_elegivel,true);
+  assert.equal(rows[0].saque_amigoz_valor,250);
+  assert.equal(rows[1].margem_livre,0);
+  assert.equal(rows[1].saque_amigoz_elegivel,false);
+  assert.equal(rows[1].saque_amigoz_valor,undefined);
+  await assert.rejects(read('cpf;saque_amigoz_elegivel;saque_amigoz_valor\n00000000101;Não;50'),/incompatíveis/);
+});
