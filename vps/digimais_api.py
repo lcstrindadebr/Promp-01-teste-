@@ -24,13 +24,26 @@ class FlowStopped(Exception):
   super().__init__(reason)
 
 
-def assert_service_available(items):
+BUSINESS_RESULTS={
+ 'DOCUMENTO_NAO_LOCALIZADO':('nao_cliente','Não é cliente'),
+ 'CONTRATO_EM_ASSESSORIA':('ja_vendeu','Já vendeu'),
+}
+
+
+def assert_service_available(items,after_cpf=False):
  for item in items:
   if item.get('direction')=='I':continue
   text=item.get('contentText') or item.get('content') or item.get('text') or ''
   text=''.join(c for c in unicodedata.normalize('NFKD',text.lower()) if not unicodedata.combining(c))
   if re.search(r'fora do horario(?: de atendimento)?|fora (?:do nosso|de nosso) horario',text):
    raise FlowStopped('FORA_HORARIO_ATENDIMENTO','Atendimento DigiMais indisponível: fora do horário de atendimento informado pelo provedor.')
+  if not after_cpf:continue
+  text=' '.join(re.sub(r'[*_]', '', text).split())
+  if 'nao consegui localizar o seu documento' in text:
+   raise FlowStopped('DOCUMENTO_NAO_LOCALIZADO','O atendimento Digi+ informou que não localizou o documento.')
+  if re.search(r'(?:seu|o) contrato esta sob (?:a )?responsabilidade d[ae] (?:nossa |uma )?assessoria de cobranca',text):
+   raise FlowStopped('CONTRATO_EM_ASSESSORIA','O atendimento Digi+ informou que o contrato está sob responsabilidade de uma assessoria de cobrança.')
+
 
 
 def money(value):
@@ -115,10 +128,10 @@ class ApiSession:
    await asyncio.sleep(5);await message(format_cpf(job['cpf']))
    await asyncio.sleep(6)
    mark('seleção de '+kind)
-   raw,_=await call('/sessions/'+session+'/messages',limit=20);items=messages(raw);assert_service_available(items)
+   raw,_=await call('/sessions/'+session+'/messages',limit=20);items=messages(raw);assert_service_available(items,after_cpf=True)
    selected=option((lambda t:'iquid' in t or 'saldo' in t) if kind=='saldo' else (lambda t:'parcela' in t or ('valor' in t and 'saldo' not in t)))
    await message(selected['id'],selected);mark('retorno de '+kind);await asyncio.sleep(8)
-   raw,_=await call('/sessions/'+session+'/messages',limit=30);items=messages(raw);assert_service_available(items)
+   raw,_=await call('/sessions/'+session+'/messages',limit=30);items=messages(raw);assert_service_available(items,after_cpf=True)
    result=parse_result(items,kind)
    reason=None if result['sucesso'] else 'O atendimento não retornou uma mensagem de '+kind+' reconhecida.'
    if result['sucesso'] and result.get('valorSaldo' if kind=='saldo' else 'valorParcela') is None:
@@ -137,7 +150,7 @@ class ApiSession:
    mark(stage,'interrompida')
    return {'sucesso':False,'etapa':stage,'motivo_interrupcao':reason,'codigo':error.code if isinstance(error,FlowStopped) else diagnostic['codigo'],'eventos':events,'erro':error.reason if isinstance(error,FlowStopped) else ('HTTP '+str(error.code)) if isinstance(error,urllib.error.HTTPError) else ('Opção esperada não encontrada' if isinstance(error,ValueError) else 'Falha na comunicação com o atendimento'),
     'http_status':error.code if isinstance(error,urllib.error.HTTPError) else None,
-    'todasMensagens':[m.get('contentText','') for m in items]}
+    'todasMensagens':[m.get('contentText') or m.get('content') or m.get('text') or '' for m in items]}
 
  async def run(self,job,on_progress=None,on_checkpoint=None):
   if on_progress:await on_progress(5,'API experimental · saldo')
@@ -145,6 +158,10 @@ class ApiSession:
   result={'resultado_saldo':first,'saldo_liquidacao':money(first.get('valorSaldo')),
    'total_parcelas':int(first['totalParcelas']) if first.get('totalParcelas') else None,
    'status':'processando','progress':50,'stage':'API experimental · fora do horário' if first.get('codigo')=='FORA_HORARIO_ATENDIMENTO' else 'API experimental · parcela'}
+  if first.get('codigo') in BUSINESS_RESULTS:
+   status,label=BUSINESS_RESULTS[first['codigo']]
+   result.update(status=status,progress=100,stage=label,message=first['motivo_interrupcao'])
+   return result
   if on_checkpoint:await on_checkpoint(result.copy())
   if on_progress and first.get('codigo')!='FORA_HORARIO_ATENDIMENTO':await on_progress(50,'API experimental · parcela')
   if first.get('codigo')=='FORA_HORARIO_ATENDIMENTO':
@@ -156,6 +173,10 @@ class ApiSession:
   result['valor_parcela']=money(second.get('valorParcela'))
   result.update(status='concluida' if first['sucesso'] and second['sucesso'] else 'revisao',progress=100,stage='API experimental · finalizada')
   if first.get('codigo')=='FORA_HORARIO_ATENDIMENTO':result['stage']='API experimental · interrompida: fora do horário de atendimento'
+  if second.get('codigo') in BUSINESS_RESULTS:
+   status,label=BUSINESS_RESULTS[second['codigo']]
+   result.update(status=status,stage=label,message=second['motivo_interrupcao'])
+   return result
   result['message']='Fluxos API executados. Confira os valores retornados.'
   texts=first.get('todasMensagens',[])+second.get('todasMensagens',[])
   referral=next((t for t in texts if 'assessoria de cobrança' in t.lower()),None)

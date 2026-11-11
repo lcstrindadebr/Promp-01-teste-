@@ -14,7 +14,7 @@ function resultMessage(r){
  return '';
 }
 function consultationWasPerformed(row){
- return ['Concluída','Não é cliente','Não encontrado','Erro','Revisão','Consulta interrompida'].includes(row.status);
+ return ['Concluída','Não é cliente','Já vendeu','Não encontrado','Erro','Revisão','Consulta interrompida'].includes(row.status);
 }
 function consultationLogRecords(){
  const selection=$('#consultationLogRobot').value;
@@ -36,7 +36,7 @@ $('#consultationLogRobot').onchange=()=>renderLogs();
 function campaignRecords(id){return records.filter(r=>r.lote_id===id)}
 function individualRecords(){const ids=new Set(campaigns.map(c=>c.id));return records.filter(r=>!ids.has(r.lote_id)&&(r.servico||'digimais_saldo_parcela')===selectedService())}
 function campaignStats(rows){
- return {total:rows.length,clients:rows.filter(r=>r.saldo!=null||r.valorParcela!=null||r.emprestimo_disponivel!=null||r.cartao_disponivel!=null||r.matricula!=null||r.status==='Concluída').length,nonclients:rows.filter(r=>['Não é cliente','Não encontrado'].includes(r.status)).length,errors:rows.filter(r=>r.status==='Erro').length,review:rows.filter(r=>r.status==='Revisão').length,interrupted:rows.filter(r=>r.status==='Consulta interrompida').length,waiting:rows.filter(r=>['Aguardando','Processando'].includes(r.status)).length};
+ return {total:rows.length,clients:rows.filter(r=>r.saldo!=null||r.valorParcela!=null||r.emprestimo_disponivel!=null||r.cartao_disponivel!=null||r.matricula!=null||r.status==='Concluída').length,nonclients:rows.filter(r=>['Não é cliente','Não encontrado'].includes(r.status)).length,errors:rows.filter(r=>r.status==='Erro').length,sold:rows.filter(r=>r.status==='Já vendeu').length,review:rows.filter(r=>r.status==='Revisão').length,interrupted:rows.filter(r=>r.status==='Consulta interrompida').length,waiting:rows.filter(r=>['Aguardando','Processando'].includes(r.status)).length};
 }
 function rowsHTML(rows){return rows.map(r=>`<tr><td><b>${escapeHTML(r.nome)}</b><br><span class="muted">${escapeHTML(r.cpf)}</span></td><td><span class="pill ${r.status==='Concluída'?'ok':['Erro','Revisão','Consulta interrompida'].includes(r.status)?'err':r.status==='Processando'?'run':''}">${escapeHTML(statusLabel(r.status))}</span><div class="progress-line"><progress max="100" value="${Math.max(0,Math.min(100,Number(r.progress)||(['Concluída','Não é cliente'].includes(r.status)?100:0)))}" aria-label="Progresso da consulta"></progress><small>${Math.max(0,Math.min(100,Number(r.progress)||(['Concluída','Não é cliente'].includes(r.status)?100:0)))}%</small></div>${resultMessage(r)?`<small class="muted">${escapeHTML(resultMessage(r))}</small>`:''}</td><td>${r.saldo==null?'—':r.saldo.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</td><td>${r.parcelas??'—'}</td><td>${r.valorParcela==null?'—':r.valorParcela.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</td><td><span class="service-tag">${escapeHTML(serviceLabel(r.servico))}</span><br><span class="muted">${new Date(r.date).toLocaleString('pt-BR')}</span></td><td>${['Erro','Revisão','Consulta interrompida'].includes(r.status)?`<button data-retry="${r.id}">Tentar novamente</button>`:'—'}<br>${typeof amigozAction==='function'?amigozAction(r):''}<button class="danger" data-delete-job="${escapeHTML(r.id)}">Excluir</button></td></tr>`).join('')||'<tr><td colspan="7" class="empty">Nenhuma consulta encontrada.</td></tr>'}
 function renderCampaigns(renderRows=true){
@@ -45,7 +45,7 @@ function renderCampaigns(renderRows=true){
  const c=campaigns.find(c=>c.id===activeCampaign);if(typeof setTableHead==='function'&&c)setTableHead(c.servico,'campaignHead');$('#campaignDetail').classList.toggle('hide',!c);if(!c)return;
  const rows=campaignRecords(c.id),n=campaignStats(rows);
  $('#campaignTitle').textContent=c.nome;$('#campaignState').textContent=serviceLabel(c.servico)+(c.servico==='tjba_margem'?' · '+convenioLabel(c.convenio):'')+' · '+(n.waiting?'Consultando...':'Campanha finalizada');
- $('#campaignReport').innerHTML=[['Consultas solicitadas',n.total],[c.servico==='tjba_margem'?'CPFs localizados':'Clientes identificados',n.clients],[c.servico==='tjba_margem'?'Não encontrados':'Não são clientes',n.nonclients],['Erros',n.errors],['Solicitam revisão',n.review],...c.servico==='tjba_margem'?[]:[['Interrompidas',n.interrupted]],['Na fila / consultando',n.waiting]].map(([label,value])=>`<div class="stat"><label>${label}</label><strong>${value}</strong></div>`).join('');
+ $('#campaignReport').innerHTML=[['Consultas solicitadas',n.total],[c.servico==='tjba_margem'?'CPFs localizados':'Clientes identificados',n.clients],[c.servico==='tjba_margem'?'Não encontrados':'Não são clientes',n.nonclients],['Erros',n.errors],['Solicitam revisão',n.review],...c.servico==='tjba_margem'?[]:[['Já vendeu',n.sold],['Interrompidas',n.interrupted]],['Na fila / consultando',n.waiting]].map(([label,value])=>`<div class="stat"><label>${label}</label><strong>${value}</strong></div>`).join('');
  $('#retryCampaign').disabled=retryingCampaign||!(n.errors+n.review+n.interrupted);$('#retryCampaign').textContent=`Nova tentativa: consultas com falha (${n.errors+n.review+n.interrupted})`;
  if(renderRows)$('#campaignRows').innerHTML=rowsHTML(rows).replace(/<button data-retry="[^"]+">Tentar novamente<\/button>/g,'Use o botão da campanha');
 }
@@ -193,7 +193,7 @@ $('#exportCampaign').onclick=()=>exportResults(campaignRecords(activeCampaign),'
 $('#exportCampaignReport').onclick=()=>{
  const c=campaigns.find(c=>c.id===activeCampaign);if(!c)return;const n=campaignStats(campaignRecords(c.id));
  const safe=value=>'"'+String(value).replaceAll('"','""').replace(/^[=+@\-]/,"'$&")+'"';
- download('campanha-relatorio.csv',[['campanha','solicitadas',c.servico==='tjba_margem'?'cpfs_localizados':'clientes',c.servico==='tjba_margem'?'nao_encontrados':'nao_clientes','erros','revisao','interrompidas','pendentes'],[c.nome,n.total,n.clients,n.nonclients,n.errors,n.review,n.interrupted,n.waiting]].map(row=>row.map(safe).join(';')).join('\r\n'));
+ download('campanha-relatorio.csv',[['campanha','solicitadas',c.servico==='tjba_margem'?'cpfs_localizados':'clientes',c.servico==='tjba_margem'?'nao_encontrados':'nao_clientes','erros','revisao','interrompidas',...c.servico==='tjba_margem'?[]:['ja_vendeu'],'pendentes'],[c.nome,n.total,n.clients,n.nonclients,n.errors,n.review,n.interrupted,...c.servico==='tjba_margem'?[]:[n.sold],n.waiting]].map(row=>row.map(safe).join(';')).join('\r\n'));
 };
 $('#campaignList').onclick=e=>{const button=e.target.closest('[data-campaign]');if(!button)return;activeCampaign=button.dataset.campaign;renderCampaigns()};
 $('#retryCampaign').onclick=async()=>{

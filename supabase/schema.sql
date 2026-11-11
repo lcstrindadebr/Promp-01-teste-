@@ -4976,3 +4976,8 @@ order by d.user_id,d.cpf,d.convenio,coalesce(x->>'numeroMatricula',x->>'numero_m
 on conflict(user_id,cpf,convenio,matricula,instituicao,produto) do update set
  valor=excluded.valor,observado_em=excluded.observado_em,origem=excluded.origem
 where public.crm_margens_vinculo.observado_em<excluded.observado_em;
+
+alter table public.consulta_jobs
+ drop constraint if exists consulta_jobs_status_check,
+ add constraint consulta_jobs_status_check
+ check(status in ('aguardando','processando','concluida','nao_localizado','nao_cliente','erro','revisao','interrompida','ja_vendeu'));

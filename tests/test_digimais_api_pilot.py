@@ -99,6 +99,40 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
   self.assertNotIn('session=before',requests[2].get_header('Cookie'))
   self.assertEqual(progress.await_count,1);checkpoint.assert_awaited_once()
 
+ async def test_definitive_chat_replies_before_option_lookup(self):
+  cases=[
+   ('Desculpe, não consegui localizar o seu documento. Este canal é exclusivo para clientes.', 'nao_cliente', 'DOCUMENTO_NAO_LOCALIZADO'),
+   ('Informamos que seu contrato está sob a responsabilidade da nossa assessoria de cobrança,**MZ ASSESSORIA E COBRANÇA - (11)4293-0260**.', 'ja_vendeu', 'CONTRATO_EM_ASSESSORIA'),
+  ]
+  for message,status,code in cases:
+   with self.subTest(status=status):
+    requests=[]
+    class Headers:
+     def get_all(self,*args):return []
+    class Response:
+     headers=Headers()
+     def __init__(self,data):self.data=data
+     def __enter__(self):return self
+     def __exit__(self,*args):pass
+     def read(self):return json.dumps(self.data).encode()
+    def request(req,timeout):
+     requests.append(req)
+     path=req.full_url.split('?')[0]
+     if path.endswith('login-public'):return Response({'userId':'fixture'})
+     if path.endswith('/sessions'):return Response({'id':'fixture-session'})
+     if req.data:return Response({})
+     if len(requests)==3:return Response([{'options':[{'id':'central','title':'Central de cobrança'}]}])
+     return Response([{'direction':'O','contentText':message}])
+    api=ApiSession({'baseUrl':'https://example.invalid','code':'fixture','accountUid':'fixture'})
+    job={'nome':'Fixture','cpf':'00000000000','telefone':'11999999999'}
+    with patch('digimais_api.urllib.request.urlopen',side_effect=request),patch('digimais_api.asyncio.sleep',new_callable=AsyncMock):
+     result=await api.run(job)
+    self.assertEqual(result['status'],status)
+    self.assertEqual(result['resultado_saldo']['codigo'],code)
+    self.assertIn(message,result['resultado_saldo']['todasMensagens'])
+    self.assertNotIn('resultado_parcela',result)
+    self.assertEqual(len(requests),6)
+
  async def test_sequential_checkpoint_and_referral(self):
   api=ApiSession({});events=[]
   async def flow(job,kind):
