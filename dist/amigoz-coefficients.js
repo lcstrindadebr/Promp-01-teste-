@@ -48,12 +48,13 @@ function coefficientResultCards(result) {
  return result.tabelas.map(table => {
   const title={limite_insuficiente:'Limite insuficiente',pre_aprovada_sem_troco:'Pré-aprovada sem troco',pre_aprovada_com_troco:'Pré-aprovada com troco',quitacao_pendente:'Quitação pendente'}[table.situacao]||'Simulação indisponível';
   return `<article class="card amigoz-option">
-    <div class="amigoz-option-top"><h4>${Number(table.taxa).toFixed(2).replace('.',',')}% <small>a.m.</small></h4></div>
+    <div class="amigoz-option-top"><h4>${table.nome_tabela?escapeHTML(table.nome_tabela)+' · ':''}${Number(table.taxa).toFixed(2).replace('.',',')}% <small>a.m.</small></h4></div>
     <p class="amigoz-option-term">96 parcelas · simulação preliminar</p><p><strong>${title}</strong></p><dl>
     <div class="amigoz-troco"><dt>Troco estimado</dt><dd class="amigoz-cash">${table.troco==null?'Pendente':brl(table.troco)}</dd></div>
     <div class="amigoz-amount-row"><dt>Limite do cartão</dt><dd>${brl(table.limite)}</dd></div>
     <div class="amigoz-amount-row"><dt>Valor da quitação</dt><dd>${table.quitacao == null ? 'Não informado' : brl(table.quitacao)}</dd></div>
     <div class="amigoz-amount-row"><dt>Limite restante após quitação</dt><dd>${table.limite_restante==null?'Pendente':brl(table.limite_restante)}</dd></div>
+    ${table.comissao!=null?`<div class="amigoz-commission"><dt>Comissão estimada (${Number(table.percentual).toLocaleString('pt-BR')}%)</dt><dd>${brl(table.comissao)}</dd></div>`:''}
     </dl><p>${escapeHTML(table.motivo||'')}</p></article>`;
  }).join('');
 }
@@ -139,10 +140,6 @@ resetAmigoz = function() {
   $('#amigozPanel').hidden = true;
   $('#appShell').inert = false;
   $('#amigozCards').innerHTML = '';
-  modelAdmin.hidden = true;
-  $('#amigozModelJSON').value = '';
-  $('#amigozSaveModel').disabled = true;
-  for(const rate of amigozRates) $('#commission-'+String(rate).replace('.','_')).value='';
 };
 const coefficientPreviousClose=closeAmigoz;
 closeAmigoz=function(){
@@ -239,35 +236,6 @@ async function amigozAppendExport(rows, inputs) {
   const values = await amigozExportEstimates(inputs);
   return [rows[0].concat(amigozEstimateHeaders), ...rows.slice(1).map((row,index) => row.concat(values[index]))];
 }
-
-const modelAdmin = document.createElement('section');
-modelAdmin.className = 'card';modelAdmin.hidden = true;
-modelAdmin.innerHTML = `<h2>Coeficientes da simulação Amigoz</h2><p>Configuração técnica dos coeficientes observados, IOF histórico e elegibilidade por convênio. Cada gravação cria uma versão.</p><button type="button" id="amigozLoadModel">Carregar configuração atual</button><label class="field" for="amigozModelJSON">Tabela e regras de elegibilidade</label><textarea id="amigozModelJSON" rows="18" style="width:100%;font-family:monospace" spellcheck="false"></textarea><button type="button" id="amigozSaveModel" disabled>Salvar nova versão</button><p id="amigozModelStatus" role="status"></p>`;
-$('#settings-commissions').appendChild(modelAdmin);
-const coefficientAccess = applyAccessUi;
-applyAccessUi = function() {
-  coefficientAccess();
-  modelAdmin.hidden = !(authenticated && currentAccess?.active && currentAccess.role === 'admin');
-};
-$('#amigozLoadModel').onclick = async () => {
-  const epoch=authEpoch;
-  try {
-    const [row] = await sbRequest('/rest/v1/amigoz_model_versions?order=id.desc&limit=1');
-    if (epoch !== authEpoch) return;
-    $('#amigozModelJSON').value = JSON.stringify(row.config,null,2);
-    $('#amigozModelStatus').textContent = 'Versão '+row.id;
-    $('#amigozSaveModel').disabled = false;
-  } catch (error) {if(epoch===authEpoch) $('#amigozModelStatus').textContent=error.message;}
-};
-$('#amigozSaveModel').onclick = async () => {
-  const epoch=authEpoch;
-  $('#amigozSaveModel').disabled=true;
-  try {
-    const version=await coefficientRequest('amigoz_save_model',{p_config:JSON.parse($('#amigozModelJSON').value)});
-    if(epoch===authEpoch) $('#amigozModelStatus').textContent='Versão '+version+' salva.';
-  } catch(error) {if(epoch===authEpoch) $('#amigozModelStatus').textContent=error.message;}
-  finally {if(epoch===authEpoch) $('#amigozSaveModel').disabled=false;}
-};
 
 const coefficientExportResults = exportResults;
 exportResults = async function(items, filename='consultas.csv') {
