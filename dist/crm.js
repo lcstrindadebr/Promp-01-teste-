@@ -502,13 +502,15 @@ $('#crmUF').onchange=crmUpdateAgreements;
 function crmCsvCell(value){let str=String(value??'');if(typeof value!=='number' && /^[=+@\-\t\r]/.test(str))str="'"+str;return '"'+str.replace(/"/g,'""')+'"';}
 $('#crmExport').onclick=()=>crmExportClients(false);
 $('#crmExportTemplate').onclick=()=>crmExportClients(true);
-async function crmExportClients(template){
-  const button=$(template?'#crmExportTemplate':'#crmExport'),status=$('#crmStatus'),epoch=authEpoch;
+$('#crmExportTemplateExcel').onclick=()=>crmExportClients(true,true);
+async function crmExportClients(template,excel=false){
+  const button=$(excel?'#crmExportTemplateExcel':template?'#crmExportTemplate':'#crmExport'),status=$('#crmStatus'),epoch=authEpoch;
   button.disabled=true;
   const filters={p_query:$('#crmQuery').value.trim(),p_uf:$('#crmUF').value,p_convenio:$('#crmAgreementFilter').value,p_servico:$('#crmServiceFilter').value};
   const chunks=[template
     ? '\uFEFFcpf;nome;telefone;matricula;data_nascimento;margem_livre;saque_amigoz_elegivel;saque_amigoz_valor;uf;convenio\r\n'
     : '\uFEFFNome;CPF;Telefone;Última atividade\r\n'];
+  const workbookRows=excel?[chunks[0].trim().split(';')]:null;
   let after='',total=0;
   try{
     if(template && (!filters.p_uf || !filters.p_convenio)){
@@ -523,13 +525,31 @@ async function crmExportClients(template){
         ? await crmClientTemplateRows(rows,filters)
         : rows.map(x=>[x.nome,formatCpf(x.cpf),x.telefone,x.ultima_atividade?new Date(x.ultima_atividade).toLocaleString('pt-BR'):'']);
       if(!authenticated||epoch!==authEpoch)throw Error('Sessão encerrada');
-      chunks.push(cells.map(row=>row.map(crmCsvCell).join(';')).join('\r\n')+'\r\n');
+      if(excel) workbookRows.push(...cells);
+      else chunks.push(cells.map(row=>row.map(crmCsvCell).join(';')).join('\r\n')+'\r\n');
       total+=rows.length;status.textContent='Exportando '+total+' clientes…';
       const next=rows[rows.length-1].cpf;if(next<=after)throw Error('Paginação inválida');after=next;
     }
     if(!total){status.textContent='Nenhum cliente corresponde aos filtros.';return;}
-    const url=URL.createObjectURL(new Blob(chunks,{type:'text/csv;charset=utf-8'}));
-    const link=document.createElement('a');link.href=url;link.download=(template?'clientes-modelo-padrao-':'clientes-')+new Date().toISOString().slice(0,10)+'.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    let file;
+    if(excel){
+      const sheet=XLSX.utils.aoa_to_sheet(workbookRows);
+      sheet['!cols']=[19,32,19,17,21,17,26,23,10,23].map(wch=>({wch}));
+      const book=XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(book,sheet,'Clientes');
+      const bytes=XLSX.write(book,{type:'array',bookType:'xlsx',compression:true});
+      file=new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      if(total>10000 || file.size>2000000){
+        status.textContent='O arquivo excede o limite de importação. Reduza o filtro para baixar um lote reimportável.';
+        return;
+      }
+    }else{
+      file=new Blob(chunks,{type:'text/csv;charset=utf-8'});
+    }
+    const url=URL.createObjectURL(file);
+    const link=document.createElement('a');link.href=url;
+    link.download=(template?'clientes-modelo-padrao-':'clientes-')+new Date().toISOString().slice(0,10)+(excel?'.xlsx':'.csv');
+    link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
     status.textContent=total+' clientes exportados. Filtros aplicados ao arquivo inteiro.';
   }catch{status.textContent='A exportação não foi concluída. Nenhum arquivo parcial foi baixado. Tente novamente.';}
   finally{button.disabled=false;}

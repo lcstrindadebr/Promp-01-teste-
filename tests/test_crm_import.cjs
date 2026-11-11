@@ -43,3 +43,16 @@ test('imports reported margin and Amigoz eligibility without treating blank as z
   assert.equal(rows[1].saque_amigoz_valor,undefined);
   await assert.rejects(read('cpf;saque_amigoz_elegivel;saque_amigoz_valor\n00000000101;Não;50'),/incompatíveis/);
 });
+
+test('downloads a real Excel template with exactly the import columns', () => {
+  const sheetContext=vm.createContext({});
+  vm.runInContext(fs.readFileSync('dist/vendor/xlsx-0.20.3.min.js','utf8'),sheetContext);
+  const xlsx=sheetContext.XLSX;
+  const book=xlsx.read(fs.readFileSync('dist/modelo-clientes.xlsx'),{type:'buffer',sheetRows:10002});
+  assert.equal(book.SheetNames[0],'Clientes');
+  const sheet=book.Sheets.Clientes;
+  const rows=xlsx.utils.sheet_to_json(sheet,{header:1,blankrows:false});
+  const expected=fs.readFileSync('dist/modelo-clientes.csv','utf8').trim().split(';');
+  assert.equal(JSON.stringify(rows),JSON.stringify([expected]));
+  assert(xlsx.utils.decode_range(sheet['!fullref']||sheet['!ref']).e.r<=10000);
+});

@@ -117,7 +117,8 @@ async function crmOpenClientImport() {
       <div class="crm-import-file" hidden>
         <label>Planilha de clientes<input name="arquivo" type="file" accept=".csv,.tsv,.xlsx,.xls" required disabled></label>
         <small>CPF obrigatório. Digi+ exige nome e telefone. Amigoz exige apenas CPF; matrícula, data de nascimento, margem livre e saque complementar Amigoz são opcionais. Até 2 MB e 10.000 clientes.</small>
-        <a href="modelo-clientes.csv" download>Baixar modelo de cadastro</a>
+        <a href="modelo-clientes.xlsx" download>Baixar planilha padrão (.xlsx)</a>
+        <a href="modelo-clientes.csv" download>Modelo em CSV</a>
       </div>
     </div>
     <p role="status" class="crm-import-status"></p>
