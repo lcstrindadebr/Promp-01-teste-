@@ -16,14 +16,20 @@ amigozControls.innerHTML = `
  </select></div>
  <div id="amigozMarginField" hidden><label class="field" for="amigozMarginSelect">Margem do cliente</label><select id="amigozMarginSelect"></select></div>
  <div id="amigozManualField" hidden><label class="field" for="amigozManualTotal">Parcela total desejada (R$)</label><input id="amigozManualTotal" type="number" min="0.01" step="0.01"></div>
- <div class="amigoz-update"><button id="amigozCoefficientCalculate" class="primary" type="button">Simular em 96 parcelas</button></div>`;
+ <div class="amigoz-update"><button id="amigozCoefficientCalculate" class="primary" type="button">Simular em 96 parcelas</button></div>
+ <details class="amigoz-field-wide"><summary>Consultar ou atualizar margem pela API Amigoz</summary>
+ <p id="amigozQueryMarginHint">Use o convênio selecionado para consultar a margem e salvar no histórico do cliente.</p>
+ <label class="field" for="amigozQueryRegistration">Matrícula (opcional)</label><input id="amigozQueryRegistration" maxlength="256">
+ <label class="field" for="amigozQueryPassword">Senha do servidor (se exigida pelo convênio)</label><input id="amigozQueryPassword" type="password" autocomplete="off" maxlength="256">
+ <button id="amigozQueryMargin" type="button">Consultar margem do cliente</button>
+ <p id="amigozQueryMarginStatus" role="status"></p></details>`;
 document.querySelector('.amigoz-disclaimer').textContent = 'Simulação preliminar com coeficientes observados e IOF estimado. Valores sujeitos à confirmação no banco.';
 
 function coefficientRequest(name, body) {
   return sbRequest('/rest/v1/rpc/'+name, {method:'POST', body:JSON.stringify(body)});
 }
 function setCoefficientBusy(busy) {
-  for (const id of ['#amigozAgreement','#amigozBaseMode','#amigozMarginSelect','#amigozManualTotal','#amigozCoefficientCalculate']) $(id).disabled=busy;
+  for (const id of ['#amigozAgreement','#amigozBaseMode','#amigozMarginSelect','#amigozManualTotal','#amigozCoefficientCalculate','#amigozQueryMargin','#amigozQueryRegistration','#amigozQueryPassword']) $(id).disabled=busy;
 }
 function coefficientMarginFields() {
   const mode = $('#amigozBaseMode').value;
@@ -32,14 +38,22 @@ function coefficientMarginFields() {
   $('#amigozCards').innerHTML = '';
   $('#amigozStatus').textContent = 'Condições alteradas. Clique em Simular em 96 parcelas.';
 }
+function coefficientTablesValidated(result) {
+ return result.tabelas.every(table=>table.regra_calculo==='limite_residual_v1');
+}
 function coefficientResultCards(result) {
-  return result.tabelas.map(table => `<article class="card amigoz-option">
+ if(!coefficientTablesValidated(result))return '<p role="alert">Atualize o cálculo no banco com upgrade_amigoz_debt_cash.sql antes de simular. O cálculo antigo foi bloqueado.</p>';
+ return result.tabelas.map(table => {
+  const title={limite_insuficiente:'Limite insuficiente',pre_aprovada_sem_troco:'Pré-aprovada sem troco',pre_aprovada_com_troco:'Pré-aprovada com troco',quitacao_pendente:'Quitação pendente'}[table.situacao]||'Simulação indisponível';
+  return `<article class="card amigoz-option">
     <div class="amigoz-option-top"><h4>${Number(table.taxa).toFixed(2).replace('.',',')}% <small>a.m.</small></h4></div>
-    <p class="amigoz-option-term">96 parcelas · simulação preliminar</p><dl>
-    <div class="amigoz-troco"><dt>Troco estimado</dt><dd class="amigoz-cash">${brl(table.troco)}</dd></div>
+    <p class="amigoz-option-term">96 parcelas · simulação preliminar</p><p><strong>${title}</strong></p><dl>
+    <div class="amigoz-troco"><dt>Troco estimado</dt><dd class="amigoz-cash">${table.troco==null?'Pendente':brl(table.troco)}</dd></div>
     <div class="amigoz-amount-row"><dt>Limite do cartão</dt><dd>${brl(table.limite)}</dd></div>
     <div class="amigoz-amount-row"><dt>Valor da quitação</dt><dd>${table.quitacao == null ? 'Não informado' : brl(table.quitacao)}</dd></div>
-    </dl></article>`).join('');
+    <div class="amigoz-amount-row"><dt>Limite restante após quitação</dt><dd>${table.limite_restante==null?'Pendente':brl(table.limite_restante)}</dd></div>
+    </dl><p>${escapeHTML(table.motivo||'')}</p></article>`;
+ }).join('');
 }
 async function loadCoefficientContext() {
   if (!amigozSource) return;
@@ -69,6 +83,7 @@ async function loadCoefficientContext() {
         new Date(margin.observado_em).toLocaleString('pt-BR')
       ].join(' · '), margin.key));
     }
+    $('#amigozQueryMarginHint').textContent=context.margens.some(m=>m.elegivel)?'Há margem registrada. Consulte novamente apenas se precisar atualizá-la.':'Não há margem elegível registrada. Consulte pela API Amigoz para comparar usando a margem disponível.';
     const original = context.fonte.parcela;
     $('#amigozBaseMode').value = amigozSource.margin ? 'margin' : original > 0 ? 'original' : 'margin';
     $('#amigozManualTotal').value = original || '';
@@ -83,6 +98,8 @@ async function loadCoefficientContext() {
   }
 }
 async function openAmigozClient(cpf, convenio='', jobId=null, name='', margin=false) {
+  $('#amigozQueryMarginStatus').textContent='';
+  $('#amigozQueryRegistration').value='';$('#amigozQueryPassword').value='';
   amigozSource = {cpf:String(cpf).replace(/\D/g,''), convenio, job_id:jobId, margin};
   amigozReturnFocus = document.activeElement;
   $('#amigozPanel').hidden = false;
@@ -107,6 +124,7 @@ resetAmigoz = function() {
   amigozCurrent = null;
   amigozContext = null;
   amigozSource = null;
+  $('#amigozQueryPassword').value='';$('#amigozQueryRegistration').value='';$('#amigozQueryMarginStatus').textContent='';
   amigozBusy = false;
   $('#amigozPanel').hidden = true;
   $('#appShell').inert = false;
@@ -115,6 +133,36 @@ resetAmigoz = function() {
   $('#amigozModelJSON').value = '';
   $('#amigozSaveModel').disabled = true;
   for(const rate of amigozRates) $('#commission-'+String(rate).replace('.','_')).value='';
+};
+const coefficientPreviousClose=closeAmigoz;
+closeAmigoz=function(){
+ amigozGeneration++;amigozSource=null;amigozBusy=false;
+ $('#amigozQueryPassword').value='';
+ coefficientPreviousClose();
+};
+$('#amigozClose').onclick=closeAmigoz;
+$('#amigozQueryMargin').onclick=async()=>{
+ if(!amigozSource||amigozBusy)return;
+ const source=amigozSource,generation=amigozGeneration,epoch=authEpoch;
+ const convenio=$('#amigozAgreement').value;
+ const payload={cpf:source.cpf,convenio,matricula:$('#amigozQueryRegistration').value.trim(),senha:$('#amigozQueryPassword').value};
+ $('#amigozQueryPassword').value='';
+ amigozBusy=true;setCoefficientBusy(true);
+ $('#amigozQueryMarginStatus').textContent='Consultando margem pela API Amigoz…';
+ $('#amigozCards').innerHTML='';amigozCurrent=null;
+ try{
+  if(typeof window.consultarMargemAmigozSimulador!=='function')throw Error('Integração Amigoz indisponível. Recarregue o painel.');
+  const result=await window.consultarMargemAmigozSimulador(payload);
+  if(epoch!==authEpoch||generation!==amigozGeneration||source!==amigozSource||!authenticated)return;
+  if(result.salvo_no_historico===false){$('#amigozQueryMarginStatus').textContent='Consulta realizada, mas não foi salva no banco. Não repita; confira o histórico e o diagnóstico.';return;}
+  if(result.margem?.status!=='respondido')throw Error(result.margem?.mensagem||'A API não retornou a margem.');
+  await loadCoefficientContext();
+  if(epoch!==authEpoch||source!==amigozSource||!authenticated)return;
+  $('#amigozQueryMarginStatus').textContent=amigozContext?.margens.some(m=>m.elegivel)
+   ?'Margem atualizada. Selecione a base e o vínculo para recalcular a comparação.'
+   :'Consulta finalizada, mas nenhuma margem elegível foi registrada para este convênio. Confira o cadastro e o retorno da API.';
+ }catch(error){if(epoch===authEpoch&&generation===amigozGeneration)$('#amigozQueryMarginStatus').textContent=error.message;}
+ finally{payload.senha='';if(epoch===authEpoch&&source===amigozSource){amigozBusy=false;setCoefficientBusy(false);}}
 };
 $('#amigozAgreement').onchange = async () => {
   if (!amigozSource) return;
@@ -140,7 +188,7 @@ $('#amigozCoefficientCalculate').onclick = async () => {
     if (generation !== amigozGeneration || !authenticated) return;
     amigozCurrent = result;
     $('#amigozCards').innerHTML = coefficientResultCards(result);
-    $('#amigozStatus').textContent = result.motivo;
+    $('#amigozStatus').textContent = coefficientTablesValidated(result)?result.motivo:'Atualização do cálculo no banco necessária. Simulação antiga bloqueada.';
     if (result.base != null) $('#amigozMarginInfo').textContent = 'Base utilizada '+brl(result.base)+
       ' · Margem agregada '+brl(result.margem_adicional)+' · Tabela versão '+result.version_id;
   } catch (error) {
@@ -156,6 +204,7 @@ async function amigozExportEstimates(inputs) {
   for (let start=0; start<inputs.length; start+=100) {
     const results = await coefficientRequest('amigoz_exportar_estimativas', {p_items:inputs.slice(start,start+100)});
     if (epoch !== authEpoch || !authenticated) throw Error('Sessão encerrada.');
+    if(results.some(result=>!coefficientTablesValidated(result)))throw Error('Atualize o cálculo Amigoz no banco antes de exportar estimativas.');
     for (const result of results) rows.push([
       ...amigozEstimateRates.map(rate => result.tabelas.find(table => Number(table.taxa) === rate)?.troco ?? ''),
       result.base ?? '', result.margem_adicional ?? '', result.prazo ?? '', result.motivo || '', result.version_id ?? ''

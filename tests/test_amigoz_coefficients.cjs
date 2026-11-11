@@ -18,7 +18,7 @@ const {setup,response} = require('./test_frontend.cjs');
   const margin={key:'a',elegivel:true,produto:'beneficio',valor:50,convenio:'amigoz_23',matricula:'A',instituicao:'amigoz',observado_em:'2026-11-11T12:00:00Z'};
   const source={saldo:200,parcela:200};
   const context={cpf:'00000000191',convenio:'amigoz_23',elegivel:true,fonte:source,version_id:1,config:{eligibilidade:[{convenio:'amigoz_23'}]},margens:[margin]};
-  const result={cpf:'00000000191',convenio:'amigoz_23',fonte:source,base:250,margem_adicional:50,margem_selecionada:margin,version_id:1,prazo:96,motivo:'Simulação preliminar',tabelas:[{taxa:3,troco:5074.13,limite:7497.5,quitacao:200}]};
+  const result={cpf:'00000000191',convenio:'amigoz_23',fonte:source,base:250,margem_adicional:50,margem_selecionada:margin,version_id:1,prazo:96,motivo:'Simulação preliminar',tabelas:[{taxa:3,troco:4938.77,limite:7497.5,quitacao:200,limite_restante:7297.5,regra_calculo:"limite_residual_v1",situacao:"pre_aprovada_com_troco"}]};
   t.handler(async (url,options) => {
     if(url.includes('simulation_context')) return response(context);
     if(url.includes('simular_coeficientes')) return response(result);
@@ -28,14 +28,40 @@ const {setup,response} = require('./test_frontend.cjs');
   await vm.runInContext("openAmigozClient('00000000191','amigoz_23',null,'Fixture')",t.ctx);
   t.get('#amigozBaseMode').value='aggregate';t.get('#amigozMarginSelect').value='a';t.get('#amigozManualTotal').value='';
   await t.get('#amigozCoefficientCalculate').onclick();
-  assert(t.get('#amigozCards').innerHTML.includes('5.074,13'));
+  assert(t.get('#amigozCards').innerHTML.includes('4.938,77'));
   assert.equal(JSON.parse(t.calls.at(-1)[1].body).p_input.mode,'aggregate');
   t.get('#amigozBaseMode').value='manual';t.get('#amigozManualTotal').value='229.37';
   await t.get('#amigozCoefficientCalculate').onclick();
   assert.equal(JSON.parse(t.calls.at(-1)[1].body).p_input.manual,229.37);
   const rows=await vm.runInContext("amigozAppendExport([['CPF'],['000.000.001-91']],[{cpf:'00000000191'}])",t.ctx);
-  assert.equal(rows[0].length,12);assert.equal(rows[1].length,12);assert.equal(rows[1][1],5074.13);
+  assert.equal(rows[0].length,12);assert.equal(rows[1].length,12);assert.equal(rows[1][1],4938.77);
   assert.equal(rows[1][2],''); // An unavailable rate must not become a numeric zero.
+  const originalCard=result.tabelas[0];
+  for(const [state,limit,debt,label] of [
+    ['limite_insuficiente',9612.69,11131.31,'Limite insuficiente'],
+    ['pre_aprovada_sem_troco',5998,5598,'Pré-aprovada sem troco']]){
+    result.tabelas=[{...originalCard,situacao:state,troco:0,limite:limit,quitacao:debt}];
+    await t.get('#amigozCoefficientCalculate').onclick();
+    assert(t.get('#amigozCards').innerHTML.includes(label));
+    assert(t.get('#amigozCards').innerHTML.includes('R$ 0,00'));
+  }
+  result.tabelas=[{...originalCard,regra_calculo:undefined}];
+  await t.get('#amigozCoefficientCalculate').onclick();
+  assert(t.get('#amigozCards').innerHTML.includes('cálculo antigo foi bloqueado'));
+  await assert.rejects(vm.runInContext("amigozExportEstimates([{cpf:'00000000191'}])",t.ctx),/Atualize o cálculo/);
+  result.tabelas=[originalCard];
+  let marginCalls=0;
+  t.ctx.window.consultarMargemAmigozSimulador=async input=>{
+    marginCalls++;assert.equal(input.cpf,'00000000191');assert.equal(input.convenio,'amigoz_23');
+    assert.equal(input.senha,'test-only');return {salvo_no_historico:true,margem:{status:'respondido'}};
+  };
+  t.get('#amigozQueryRegistration').value='';t.get('#amigozQueryPassword').value='test-only';
+  await t.get('#amigozQueryMargin').onclick();
+  assert.equal(marginCalls,1);assert.equal(t.get('#amigozQueryPassword').value,'');
+  assert(t.get('#amigozQueryMarginStatus').textContent.includes('Margem atualizada'));
+  t.ctx.window.consultarMargemAmigozSimulador=async()=>({salvo_no_historico:false,margem:{status:'respondido'}});
+  await t.get('#amigozQueryMargin').onclick();
+  assert(t.get('#amigozQueryMarginStatus').textContent.includes('Não repita'));
   context.version_id=2;
   await vm.runInContext('refreshAmigoz()',t.ctx);
   assert.equal(t.get('#amigozCards').innerHTML,'');

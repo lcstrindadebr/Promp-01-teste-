@@ -13,17 +13,17 @@ insert into public.crm_margens_vinculo(user_id,cpf,convenio,matricula,instituica
 select uid,'00000000191','amigoz_23','B','consigx','emprestimo',999,now(),'consulta' from coefficient_fixture;
 select set_config('request.jwt.claim.sub',(select uid::text from coefficient_fixture),true);
 set local role authenticated;
-do $$declare cfg jsonb;r jsonb;ctx jsonb;k text;expected numeric[]=array[4059.30,3792.50,3554.17,3338.89,3161.53,2817.69];i integer;before_count integer;begin
+do $$declare cfg jsonb;r jsonb;ctx jsonb;k text;expected numeric[]=array[3923.94,3657.15,3418.82,3203.55,3026.19,2682.35];i integer;before_count integer;begin
  select config into cfg from public.amigoz_model_versions order by id desc limit 1;
  r=apoiarcred_private.amigoz_coefficient_calculate(200,200,cfg,'amigoz_23');
  for i in 0..5 loop
   if (r->i->>'troco')::numeric<>expected[i+1] then raise exception 'Wrong reference %',i;end if;
  end loop;
- if (r->0->>'comprometimento_total')::numeric<>139.55 then raise exception 'Wrong component installments';end if;
+ if r->0->>'comprometimento_total' is not null then raise exception 'Wrong component installments';end if;
  r=apoiarcred_private.amigoz_coefficient_calculate(350,10000,cfg,'amigoz_23');
- if (r->0->>'saque_bruto')::numeric<>7347.55 or r->0->>'parcela_quitacao' is not null then raise exception 'Unvalidated debt adjustment';end if;
+ if (r->0->>'saque_bruto')::numeric<>347.55 or r->0->>'parcela_quitacao' is not null then raise exception 'Debt reservation incorrect';end if;
  r=apoiarcred_private.amigoz_coefficient_calculate(200,200,cfg,'amigoz_23','{"3":100}'::jsonb);
- if (r->0->>'troco')::numeric<>4098.60 then raise exception 'Bank IOF precedence';end if;
+ if (r->0->>'troco')::numeric<>3958.60 then raise exception 'Bank IOF precedence';end if;
  ctx=public.amigoz_simulation_context('000.000.001-91','amigoz_23',(select job from coefficient_fixture));
  select x->>'key' into k from jsonb_array_elements(ctx->'margens') x where x->>'matricula'='A';
  r=public.amigoz_simular_coeficientes(jsonb_build_object('cpf','00000000191','job_id',(select job from coefficient_fixture),'convenio','amigoz_23','mode','aggregate','margin_key',k));

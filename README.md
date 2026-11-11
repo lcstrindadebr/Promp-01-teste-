@@ -881,3 +881,16 @@ API e texto bruto de exceções não entram no diagnóstico.
 Depois de atualizar pelo instalador, recarregue o painel. A comunicação real
 com o atendimento deve ser conferida na VPS; os testes locais usam respostas
 simuladas, sem consultar clientes.
+
+### Correção do simulador Amigoz: quitação antes do saque
+
+O troco agora considera 70% do limite restante **após quitar a dívida**, descontado
+IOF estimado. Saque bruto abaixo de R$ 315 gera proposta preliminar sem troco;
+limite abaixo da dívida gera limite insuficiente. O simulador também permite
+consultar a margem pela integração Amigoz existente e recarregar os vínculos salvos.
+
+Para instalações existentes, execute primeiro
+`supabase/upgrade_amigoz_debt_cash.sql` no SQL Editor do Supabase. Depois atualize
+pelo instalador habitual. Sem a migração, resultados do cálculo anterior ficam
+bloqueados no painel e na exportação. Não é necessário reaplicar o schema.
+Detalhes e validação em `docs/amigoz-coefficients.md`.

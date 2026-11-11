@@ -1,16 +1,42 @@
 # Simulação Amigoz por coeficientes observados
 
-O motor utiliza a tabela fornecida em 11/11/2026. Prazo de 96 meses, taxas de 3%, 3,25%, 3,50%, 3,75%, 3,98% e 4,50%. Os seis cenários de margem R$ 200 e quitação R$ 200 reproduzem os valores do documento. A fórmula de limite é base × multiplicador. O saque bruto usa 70% do limite, e o troco desconta o IOF do saque.
+O motor utiliza a tabela fornecida em 11/11/2026. Prazo de 96 meses, taxas de 3%, 3,25%, 3,50%, 3,75%, 3,98% e 4,50%. A regra operacional confirmada pelo usuário substitui a interpretação anterior do documento: limite = base × multiplicador; limite restante = máximo(limite − quitação, 0); saque bruto = 70% do limite restante; troco = saque bruto − IOF estimado, desde que o saque bruto atinja R$ 315,00. Não se desconta a quitação novamente do troco. O mínimo é aplicado ao saque bruto, antes do IOF.
 
 A tela permite parcela original, parcela original acrescida de margem elegível selecionada, margem consultada e parcela total manual. A identificação de margem inclui convênio, matrícula, instituição, produto e data. A configuração inicial cobre Governo de São Paulo (`amigoz_23`), produtos benefício e consignado da instituição Amigoz, conforme o catálogo do projeto. Outros convênios, instituições e produtos podem ser habilitados pelo administrador após confirmação de elegibilidade.
 
-Para consultas Digi+ sem vínculo cadastrado, Governo de São Paulo é o convênio padrão configurado, identificado na tela para conferência. Havendo vínculos cadastrados, a escolha deve corresponder a um deles. Vários vínculos exigem seleção explícita. Extrapolações e o efeito de dívidas diferentes do cenário de referência exigem validação no banco.
+Para consultas Digi+ sem vínculo cadastrado, Governo de São Paulo é o convênio padrão configurado, identificado na tela para conferência. Havendo vínculos cadastrados, a escolha deve corresponder a um deles. Vários vínculos exigem seleção explícita. As condições continuam preliminares e dependem de confirmação no banco. Limite abaixo da dívida é insuficiente, com troco zero. Limite que cobre a dívida mas não gera saque bruto mínimo aparece como pré-aprovada sem troco. Sem saldo de quitação, o troco fica pendente, nunca um valor presumido.
 
 ## Configuração e histórico
 
 Em Configurações → Comissões, o administrador carrega e edita o JSON técnico da configuração. Salvar cria nova versão imutável em `amigoz_model_versions`. A configuração contém os seis coeficientes, CET de referência, IOF histórico, parcelas de referência e elegibilidade por convênio. Cada simulação guarda a versão, base, parcela original, dívida, margem selecionada, fonte e data dos dados em `amigoz_coefficient_simulations`, com isolamento por usuário.
 
-O IOF estimado usa a proporção histórica própria de cada taxa. O motor aceita opcionalmente `iof_banco`, um objeto com o IOF do saque informado para cada taxa, por exemplo `{"3":139.30}`. O resultado identifica a origem. Essa entrada deve vir de uma informação da instituição sobre a operação. Não existe integração automática de cálculo fiscal neste projeto. Para valores fora da referência, parcela da quitação, parcela do saque e comprometimento total ficam sem estimativa até haver regra validada. O IOF da quitação permanece sem valor quando não fornecido. A interface exibe somente limite, quitação e troco estimado, com taxa e prazo.
+O IOF estimado usa a proporção histórica própria de cada taxa. O motor aceita opcionalmente `iof_banco`, um objeto com o IOF do saque informado para cada taxa, por exemplo `{"3":139.30}`. O resultado identifica a origem. Essa entrada deve vir de uma informação da instituição sobre a operação. Não existe integração automática de cálculo fiscal neste projeto. Como o saque passa a usar o limite residual, parcela da quitação, parcela do saque e comprometimento total ficam sem estimativa até haver regra validada para essa composição. O IOF da quitação permanece sem valor quando não fornecido. A interface exibe situação, limite, quitação, limite restante e troco estimado, com taxa e prazo.
+
+## Consulta de margem durante a comparação
+
+No simulador, expanda **Consultar ou atualizar margem pela API Amigoz** e clique
+em **Consultar margem do cliente**. O CPF e o convênio selecionados são reutilizados;
+matrícula e senha do servidor são opcionais. A consulta usa a integração já
+configurada, com a mesma autorização, cota e persistência em histórico/CRM.
+A senha não fica no formulário após o envio nem entra na simulação salva.
+
+Após retorno salvo, o contexto de margens é recarregado. Selecione a base
+**Parcela atual + margem consultada** ou **Margem consultada**, escolha o vínculo
+e recalcule. Nenhuma margem de outro produto ou vínculo é agregada automaticamente.
+Se o provedor responder sem margem elegível, a tela informa isso. Falha de gravação
+orienta conferir o diagnóstico sem repetir a consulta externa.
+
+## Atualizar uma instalação existente
+
+1. Execute `supabase/upgrade_amigoz_debt_cash.sql` no SQL Editor do projeto
+   Supabase já utilizado pelo sistema. Requer o motor de coeficientes instalado;
+   não reaplique o schema completo. A migração substitui apenas a função de cálculo
+   e preserva permissões e dados; pode ser repetida.
+2. Atualize o código pelo comando habitual da VPS e recarregue o painel.
+
+Sem essa migração, o painel e as exportações bloqueiam resultados do motor antigo.
+As simulações salvas antigas permanecem no histórico; novas simulações e exportações
+recalculam usando a regra residual (`limite_residual_v1`).
 
 ## Exportações
 
@@ -30,6 +56,6 @@ Estas chamadas usam JWT do usuário autenticado no Supabase, com RLS. Os tokens 
 
 ## Verificação e homologação pendente
 
-O teste SQL `tests/amigoz_coefficients_database.sql` termina com rollback e cobre os seis resultados, os componentes da referência, saque bruto de R$ 7.347,55 com base R$ 350, IOF informado, agregação, parcela manual, margens incompatíveis, prazo, histórico, exportação, desatualização e isolamento entre contas. O teste `tests/test_amigoz_coefficients.cjs` verifica o fluxo do painel e a montagem das colunas.
+O teste SQL `tests/amigoz_coefficients_database.sql` termina com rollback e cobre os seis resultados atualizados, saque bruto de R$ 347,55 com base R$ 350 e dívida R$ 10.000, IOF informado, agregação, parcela manual, margens incompatíveis, prazo, histórico, exportação, desatualização e isolamento entre contas. O teste `tests/test_amigoz_coefficients.cjs` verifica os cartões, bloqueio do cálculo antigo, consulta de margem e montagem das colunas. `tests/amigoz_debt_cash_database.sql` cobre as seis taxas do caso de limite insuficiente, dívida igual ao limite, compra sem troco, mínimo de R$ 315, dívida pendente, dívida zero e precedência do IOF bancário. Esse teste financeiro foi executado em PostgreSQL embarcado (PGlite), incluindo repetição da migração. Os testes com RLS e fonte/CRM exigem um banco completo de teste; não foram executados no projeto de produção.
 
 A homologação oficial deve variar saldo mantendo margem R$ 200, variar margens com dívida constante, testar R$ 100/R$ 250/R$ 500, dívida acima da capacidade, arredondamento, primeiro vencimento e composição do IOF. Essa etapa depende de acesso ao simulador da instituição e não é substituída pelos testes de software.

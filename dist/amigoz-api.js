@@ -65,6 +65,18 @@ async function amigozRequest(route,body){
  if(!response.ok)throw Error(value.error?.message||'Falha ao acessar a integração Amigoz.');
  return value.data;
 }
+// Reuse the authenticated route, quota checks and CRM persistence from the simulator.
+window.consultarMargemAmigozSimulador=async function(input){
+ const match=/^amigoz_([0-9]+)$/.exec(input.convenio||'');
+ if(!match)throw Error('Selecione um convênio Amigoz para consultar a margem.');
+ if(!amigozCanConsult())throw Error('Acesso Amigoz não liberado para esta conta.');
+ if(!amigozCatalog.length)amigozCatalog=await amigozRequest('convenios');
+ const convenio=amigozCatalog.find(row=>row.id===Number(match[1]));
+ if(!convenio||convenio.averbadora==null)throw Error('Consulta de margem indisponível neste convênio.');
+ return amigozRequest('consultar',{modo:'margem',convenio_id:convenio.id,cpf:input.cpf,
+  ...(input.matricula?{numero_matricula:input.matricula}:{}),
+  ...(convenio.senha_servidor&&input.senha?{senha_servidor:input.senha}:{})});
+};
 function updateAmigozPanel(){
  const admin=amigozIsAdmin(),home=currentPage==='home',allowed=amigozCanConsult();
  $('#settings-tab-amigoz-api').hidden=!admin;
