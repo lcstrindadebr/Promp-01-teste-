@@ -12,13 +12,17 @@ do $$begin
  if exists(select 1 from public.consulta_jobs where lote_id=(select lot from pilot_fixture) and execution_mode<>'api') then raise exception 'Mode not captured';end if;
  if has_function_privilege('authenticated','public.claim_consulta_job_for_api(integer)','execute') or has_function_privilege('anon','public.manage_digimais_pilot(text,boolean,integer)','execute') or has_function_privilege('authenticated','public.get_digimais_api_config()','execute') then raise exception 'Unsafe grants';end if;
 end$$;
--- Pause applies to queued jobs, and does not rewrite their selected mode.
-select public.manage_digimais_pilot('robot',true,12);
+-- An existing campaign can switch both ways before its jobs are reserved.
+select public.manage_digimais_pilot('robot',false,12);
+do $$begin
+ if exists(select 1 from public.consulta_jobs where lote_id=(select lot from pilot_fixture) and execution_mode<>'robot') then raise exception 'Existing campaign did not switch to robot';end if;
+end$$;
+select public.manage_digimais_pilot('api',true,12);
 do $$begin
  if exists(select 1 from public.claim_consulta_job_for_api(1)) then raise exception 'Paused API claimed';end if;
 end$$;
-select public.manage_digimais_pilot('robot',false,12);
 insert into public.consulta_jobs(lote_id,user_id,nome,cpf,telefone) select lot,uid,'ROBOT','00000000099','11999999999' from pilot_fixture;
+select public.manage_digimais_pilot('api',false,12);
 do $$declare i integer;j public.consulta_jobs;begin
  for i in 1..12 loop
   select * into j from public.claim_consulta_job_for_api(i);
@@ -35,6 +39,10 @@ do $$begin
  if (select count(*) from public.consulta_jobs where lote_id=(select lot from pilot_fixture) and status='processando')<>11 then raise exception 'Pause interrupted active jobs';end if;
 end$$;
 select public.set_campaign_paused((select lot from pilot_fixture),'digimais_saldo_parcela',false);
+select public.manage_digimais_pilot('robot',false,12);
+do $$begin
+ if exists(select 1 from public.consulta_jobs where lote_id=(select lot from pilot_fixture) and ((status='processando' and execution_mode<>'api') or (status='aguardando' and execution_mode<>'robot'))) then raise exception 'Switch changed active reservations or left waiting jobs unchanged';end if;
+end$$;
 -- Existing reservations finish; lower owner limit blocks additional claims.
 select public.manage_digimais_pilot('api',false,1);
 update public.consulta_jobs set status='concluida' where lote_id=(select lot from pilot_fixture) and api_slot=1;
