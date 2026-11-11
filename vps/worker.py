@@ -232,8 +232,56 @@ class RobotCapacity:
     self.healthy_samples=self.hot_samples=0
     previous=None
    if self.target!=before:
-    print(f'Capacidade dos robôs: {before} → {self.target}.',flush=True)
+    print(f"Capacidade {'API experimental' if isinstance(self,ApiCapacity) else 'dos robôs'}: {before} → {self.target}.",flush=True)
    await asyncio.sleep(5)
+
+class ApiCapacity(RobotCapacity):
+ def __init__(self,maximum=12):
+  super().__init__(maximum)
+  self.target=maximum
+
+async def api_loop(index,capacity,slot,config):
+ from digimais_api import ApiSession
+ adapter=ApiSession(config);adapter.telemetry=slot
+ while True:
+  try:
+   if MODE!='live' or index>=capacity.target:
+    slot.state='resource_paused';await asyncio.sleep(5);continue
+   jobs=await asyncio.to_thread(request,'rpc/claim_consulta_job_for_api',{'p_slot':index+1})
+   if not jobs:
+    slot.state='idle';await asyncio.sleep(5);continue
+   job=jobs[0];slot.begin('digimais_api')
+   try:result=await process_digimais(job,adapter)
+   except Exception:
+    result={'status':'revisao','message':'API interrompida. Confira o resultado parcial antes de tentar novamente.'}
+   slot.saving(result)
+   result['consultado_em']=datetime.now(timezone.utc).isoformat()
+   while True:
+    try:
+     await asyncio.to_thread(request,'consulta_jobs?id=eq.'+job['id'],result,'PATCH');break
+    except Exception:
+     await asyncio.sleep(10) # Retry persistence only, never replay the external consultation.
+   slot.saved()
+  except Exception:
+   slot.state='queue_error';await asyncio.sleep(10)
+
+async def api_supervisor():
+ from robot_metrics import Slot
+ while True:
+  try:
+   config=await asyncio.to_thread(request,'rpc/get_digimais_api_config',{})
+   if not config:await asyncio.sleep(30);continue
+   break
+  except Exception:await asyncio.sleep(30)
+ capacity=ApiCapacity(12)
+ slots=[Slot(f'api-{i+1}') for i in range(12)]
+ robot_metrics.api_slots=slots;robot_metrics.api_capacity=capacity
+ tasks=[asyncio.create_task(api_loop(i,capacity,slot,config)) for i,slot in enumerate(slots)]
+ tasks.append(asyncio.create_task(capacity.watch()))
+ try:await asyncio.gather(*tasks)
+ finally:
+  for task in tasks:task.cancel()
+  await asyncio.gather(*tasks,return_exceptions=True)
 
 async def main_async():
  global robot_metrics
@@ -251,7 +299,7 @@ async def main_async():
   adapter.peers=sessions
   adapter.login_locks=login_locks
  print(f'Até {maximum} robôs para Digi+ e ConsigX, com ajuste automático de capacidade.',flush=True)
- background=[asyncio.create_task(robot_metrics.publish_loop()),asyncio.create_task(capacity.watch())]
+ background=[asyncio.create_task(robot_metrics.publish_loop()),asyncio.create_task(capacity.watch()),asyncio.create_task(api_supervisor())]
  tasks=[asyncio.create_task(robot_loop(index,capacity,sessions)) for index in range(maximum)]
  try:
   await asyncio.gather(*tasks,*background)

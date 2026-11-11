@@ -15,7 +15,7 @@ cd "$REPO"
 python3 - <<'PY'
 import ast
 from pathlib import Path
-for p in [Path('vps/worker.py'),Path('vps/api.py'),Path('vps/amigoz_queue.py'),Path('vps/webhooks.py'),Path('vps/robot_metrics.py'),Path('vps/robot.py'),Path('vps/chat_browser.py'),Path('vps/diagnose.py'),Path('vps/monitor.py'),Path('vps/tjba.py'),Path('vps/diagnose_tjba.py'),Path('vps/tjba_proxy.py')]:
+for p in [Path('vps/worker.py'),Path('vps/digimais_api.py'),Path('vps/api.py'),Path('vps/amigoz_queue.py'),Path('vps/webhooks.py'),Path('vps/robot_metrics.py'),Path('vps/robot.py'),Path('vps/chat_browser.py'),Path('vps/diagnose.py'),Path('vps/monitor.py'),Path('vps/tjba.py'),Path('vps/diagnose_tjba.py'),Path('vps/tjba_proxy.py')]:
  ast.parse(p.read_text())
 assert Path('dist/index.html').is_file()
 PY

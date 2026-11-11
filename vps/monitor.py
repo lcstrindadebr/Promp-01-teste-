@@ -30,9 +30,11 @@ def robot_activity(path='/run/apoiarcred-robots/state.json'):
   data=json.loads(source.read_text())
   if not isinstance(data,dict) or not isinstance(data.get('slots'),list):return None
   keys=('id','service','state','progress','elapsed_seconds','last_duration_seconds','last_activity',
-        'finished_last_hour','conclusive_last_hour','errors_last_hour','review_last_hour','average_seconds')
+        'complete_values_last_hour','missing_values_last_hour','rate_limited_last_hour','finished_last_hour','conclusive_last_hour','errors_last_hour','review_last_hour','average_seconds')
   return dict(updated_at=data.get('updated_at'),started_at=data.get('started_at'),
-   slots=[{key:s.get(key) for key in keys} for s in data['slots'][:4] if isinstance(s,dict)])
+   slots=[{key:s.get(key) for key in keys} for s in data['slots'][:4] if isinstance(s,dict)],
+   api_slots=[{key:s.get(key) for key in keys} for s in data.get('api_slots',[])[:12] if isinstance(s,dict)],
+   api_capacity=data.get('api_capacity',0),api_maximum=12)
  except (OSError,ValueError,TypeError):return None
 
 def snapshot(previous,current):

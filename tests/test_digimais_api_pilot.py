@@ -1,0 +1,95 @@
+import asyncio,sys,unittest,json
+from pathlib import Path
+from unittest.mock import AsyncMock,patch
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'vps'))
+from digimais_api import ApiSession,parse_result,money
+from robot_metrics import Slot
+
+class PilotTests(unittest.IsolatedAsyncioTestCase):
+ def test_original_false_success_is_preserved_and_observable(self):
+  r=parse_result([{'contentText':'Saldo para quitação não disponível'}],'saldo')
+  self.assertTrue(r['sucesso']);self.assertIsNone(r['valorSaldo'])
+  slot=Slot('api-1');slot.begin('digimais_api');slot.saving({'status':'concluida','saldo_liquidacao':None,'valor_parcela':10});slot.saved()
+  self.assertEqual(slot.snapshot()['missing_values_last_hour'],1)
+ def test_values(self):
+  r=parse_result([{'contentText':'Valor Saldo: *R$ 12761.8*\nTotal de parcelas: *85*'}],'saldo')
+  self.assertEqual(money(r['valorSaldo']),12761.8);self.assertEqual(r['totalParcelas'],'85')
+  self.assertEqual(money('7.906,79'),7906.79)
+ async def test_sequential_checkpoint_and_referral(self):
+  api=ApiSession({});events=[]
+  async def flow(job,kind):
+   events.append(kind)
+   return {'sucesso':False,'todasMensagens':['Contrato em assessoria de cobrança MAXISERV']}
+  api.flow=flow
+  async def save(data):events.append('saved')
+  r=await api.run({},on_checkpoint=save)
+  self.assertEqual(events,['saldo','saved','parcela']);self.assertEqual(r['status'],'revisao');self.assertIn('assessoria',r['message'])
+ async def test_failed_checkpoint_does_not_start_parcela(self):
+  api=ApiSession({});api.flow=AsyncMock(return_value={'sucesso':True,'valorSaldo':'12.3'})
+  with self.assertRaises(OSError):await api.run({},on_checkpoint=AsyncMock(side_effect=OSError()))
+  self.assertEqual(api.flow.await_count,1)
+ async def test_protocol_waits_and_session_isolation(self):
+  requests=[];cookies=[]
+  class Headers:
+   def get_all(self,*args):return ['session=isolated; Secure']
+  class Response:
+   headers=Headers()
+   def __init__(self,data):self.data=data
+   def __enter__(self):return self
+   def __exit__(self,*args):pass
+   def read(self):return json.dumps(self.data).encode()
+  def request(req,timeout):
+   requests.append(req)
+   path=req.full_url.split('?')[0]
+   if path.endswith('login-public'):return Response({'userId':'returned-user'})
+   if path.endswith('/sessions'):return Response({'id':json.loads(req.data)['id']})
+   if req.data:return Response({})
+   return Response([{'options':[{'id':'central','title':'Central de cobrança'},{'id':'saldo','title':'Saldo Liquidação'},{'id':'parcela','title':'Valor de Parcela'}],'contentText':'Valor Saldo: R$ 10.00\nTotal de parcelas: 2\nValor da Parcela: R$ 5.00'}])
+  api=ApiSession({'baseUrl':'https://example.invalid/api','code':'test','accountUid':'test'})
+  job={'nome':'Fixture','cpf':'00000000000','telefone':'11999999999'}
+  with patch('digimais_api.urllib.request.urlopen',side_effect=request),patch('digimais_api.asyncio.sleep',new_callable=AsyncMock) as sleep:
+   r=await api.run(job)
+  self.assertEqual(r['status'],'concluida');self.assertEqual(len(requests),16)
+  self.assertEqual([c.args[0] for c in sleep.await_args_list],[8,5,6,8]*2)
+  sessions=[json.loads(r.data)['id'] for r in requests if r.full_url.split('?')[0].endswith('/sessions')]
+  self.assertNotEqual(*sessions)
+  self.assertEqual(requests[0].get_header('Cookie'),'');self.assertEqual(requests[8].get_header('Cookie'),'')
+
+if __name__=='__main__':unittest.main()
+
+class ApiPoolTests(unittest.IsolatedAsyncioTestCase):
+ async def test_twelve_clients_no_requery_when_saving_fails(self):
+  import importlib.util,os,threading
+  with patch.dict(os.environ,{'SUPABASE_URL':'https://example.invalid','SUPABASE_SERVICE_ROLE_KEY':'fake','ROBOT_MODE':'live'}):
+   spec=importlib.util.spec_from_file_location('pilot_worker',Path(__file__).resolve().parents[1]/'vps/worker.py');worker=importlib.util.module_from_spec(spec);spec.loader.exec_module(worker)
+  cap=worker.ApiCapacity();self.assertEqual(cap.target,12)
+  lock=threading.Lock();claimed=set();saved=set();processed=[];failed=False;barrier=asyncio.Event()
+  def request(route,payload=None,method='POST',timeout=30):
+   nonlocal failed
+   with lock:
+    if route.startswith('rpc/claim'):
+     i=payload['p_slot']
+     if i in claimed:return []
+     claimed.add(i);return [{'id':str(i)}]
+    if method=='PATCH':
+     if not failed:failed=True;raise OSError()
+     saved.add(route);return None
+  async def process(job,adapter):
+   processed.append(job['id'])
+   if len(processed)==12:barrier.set()
+   await asyncio.wait_for(barrier.wait(),3)
+   cap.target=1
+   return {'status':'concluida','saldo_liquidacao':1,'valor_parcela':2}
+  real_sleep=asyncio.sleep
+  async def quick(_):await real_sleep(.001)
+  with patch.object(worker,'request',side_effect=request),patch.object(worker,'process_digimais',side_effect=process),patch.object(worker.asyncio,'sleep',side_effect=quick):
+   tasks=[asyncio.create_task(worker.api_loop(i,cap,Slot('api-'+str(i)),{})) for i in range(12)]
+   try:
+    async with asyncio.timeout(5):
+     while len(saved)<12:await real_sleep(.005)
+   finally:
+    for t in tasks:t.cancel()
+    await asyncio.gather(*tasks,return_exceptions=True)
+  self.assertEqual(len(processed),12);self.assertEqual(len(set(processed)),12)
+  low={'total':2048*1024**2,'available':200*1024**2}
+  cap=worker.ApiCapacity();cap.observe(low,40);self.assertEqual(cap.target,11)

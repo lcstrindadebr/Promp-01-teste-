@@ -45,7 +45,7 @@ class ConcurrentDigiTests(unittest.IsolatedAsyncioTestCase):
   path=Path(__file__).resolve().parents[1]/'vps/worker.py'
   with patch.dict(os.environ,{'SUPABASE_URL':'https://example.invalid','SUPABASE_SERVICE_ROLE_KEY':'fake','ROBOT_WORKERS':'1'}):
    spec=importlib.util.spec_from_file_location('worker_serial_test',path);worker=importlib.util.module_from_spec(spec);spec.loader.exec_module(worker)
-   with patch.object(worker,'robot_loop',new=AsyncMock()) as loop,patch.object(worker.RobotCapacity,'watch',new=AsyncMock()),patch('robot_metrics.RobotMetrics.publish_loop',new=AsyncMock()):
+   with patch.object(worker,'api_supervisor',new=AsyncMock()),patch.object(worker,'robot_loop',new=AsyncMock()) as loop,patch.object(worker.RobotCapacity,'watch',new=AsyncMock()),patch('robot_metrics.RobotMetrics.publish_loop',new=AsyncMock()):
     await worker.main_async()
    loop.assert_awaited_once()
    self.assertEqual(len(worker.robot_metrics.slots),1)
