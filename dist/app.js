@@ -22,6 +22,17 @@ function consultationLogRecords(){
  if(!selection)return rows;
  return rows.filter(row=>selection==='unassigned'?row.robot_slot==null:String(row.robot_slot)===selection);
 }
+function downloadConsultationLog(text, filename) {
+ const blob = new Blob([text, '\n'], {type: 'text/plain;charset=utf-8'});
+ const url = URL.createObjectURL(blob);
+ const link = document.createElement('a');
+ link.href = url;
+ link.download = filename + '.txt';
+ document.body.append(link);
+ link.click();
+ link.remove();
+ setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 function createConsultationLog(id, filename, emptyMessage) {
  const output = document.getElementById(id);
  const count = document.getElementById(id + 'Count');
@@ -40,15 +51,7 @@ function createConsultationLog(id, filename, emptyMessage) {
 
  download.onclick = () => {
   if (download.disabled) return;
-  const blob = new Blob([output.textContent, '\n'], {type: 'text/plain;charset=utf-8'});
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename + '.txt';
-  document.body.append(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadConsultationLog(output.textContent, filename);
  };
 
  return (entries, visible = true) => {

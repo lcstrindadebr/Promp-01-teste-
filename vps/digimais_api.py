@@ -162,17 +162,23 @@ class ApiSession:
    status,label=BUSINESS_RESULTS[first['codigo']]
    result.update(status=status,progress=100,stage=label,message=first['motivo_interrupcao'])
    return result
+  balance=result['saldo_liquidacao']
+  outside_hours=first.get('codigo')=='FORA_HORARIO_ATENDIMENTO'
+  if outside_hours or not first.get('sucesso') or balance is None or balance<=0:
+   confirmed_zero=first.get('sucesso') and balance==0
+   reason=(first.get('motivo_interrupcao') or first.get('erro') or
+    ('O atendimento informou saldo de liquidação de R$ 0,00.' if confirmed_zero else 'O atendimento não confirmou um saldo de liquidação positivo.'))
+   result.update(status='interrompida' if confirmed_zero else 'revisao',progress=100,
+    stage='API · parcela não iniciada',message=reason+' A parcela não foi consultada.')
+   result['resultado_parcela']={'sucesso':False,'etapa':'parcela não iniciada',
+    'motivo_interrupcao':reason,'nao_executada':True}
+   return result
   if on_checkpoint:await on_checkpoint(result.copy())
-  if on_progress and first.get('codigo')!='FORA_HORARIO_ATENDIMENTO':await on_progress(50,'API experimental · parcela')
-  if first.get('codigo')=='FORA_HORARIO_ATENDIMENTO':
-   second={'sucesso':False,'etapa':'parcela não iniciada','codigo':'FORA_HORARIO_ATENDIMENTO',
-    'motivo_interrupcao':'Consulta de parcela não iniciada: o provedor informou atendimento fora do horário no fluxo de saldo.',
-    'eventos':[],'todasMensagens':[],'nao_executada':True}
-  else:second=await self.flow(job,'parcela')
+  if on_progress:await on_progress(50,'API experimental · parcela')
+  second=await self.flow(job,'parcela')
   result['resultado_parcela']=second
   result['valor_parcela']=money(second.get('valorParcela'))
   result.update(status='concluida' if first['sucesso'] and second['sucesso'] else 'revisao',progress=100,stage='API experimental · finalizada')
-  if first.get('codigo')=='FORA_HORARIO_ATENDIMENTO':result['stage']='API experimental · interrompida: fora do horário de atendimento'
   if second.get('codigo') in BUSINESS_RESULTS:
    status,label=BUSINESS_RESULTS[second['codigo']]
    result.update(status=status,stage=label,message=second['motivo_interrupcao'])

@@ -36,7 +36,73 @@ function campaignEta(campaign, rows, pending, running, now=Date.now()){
 }
 function queryDescription(c){return serviceLabel(c.servico)+(c.servico==='tjba_margem'?' · '+convenioLabel(c.convenio):'');}
 function resultProgress(r){const p=Math.max(0,Math.min(100,Number(r.progress)||0));return ['Aguardando','Processando'].includes(r.status)?`<div class="progress-line"><progress max="100" value="${p}" aria-label="Progresso da consulta"></progress><small>${p}%</small></div>`:'';}
-function resultActions(r){return `${['Erro','Revisão','Consulta interrompida'].includes(r.status)?`<button data-retry="${escapeHTML(r.id)}">Tentar novamente</button>`:''}${r.servico==='tjba_margem'?`<button data-tjba-history="${escapeHTML(r.id)}">Histórico</button>${typeof amigozAction==='function'?amigozAction(r):''}`:typeof amigozAction==='function'?amigozAction(r):''}<button class="danger" data-delete-job="${escapeHTML(r.id)}">Excluir</button>`;}
+function canOpenConsultationLog(row) {
+ return Boolean(authenticated && currentAccess?.active && currentAccess.role==='admin' &&
+  ['Revisão','Consulta interrompida'].includes(row?.status));
+}
+function consultationLogActions(row) {
+ if (!canOpenConsultationLog(row)) return '';
+ const id=escapeHTML(row.id);
+ return `<button type="button" data-open-consultation-log="${id}">Abrir log</button><button type="button" data-download-consultation-log="${id}">Baixar log TXT</button>`;
+}
+function consultationLogText(row) {
+ const lines=[
+  `${new Date(row.date).toLocaleString('pt-BR')} | CPF: ${row.cpf} | ${serviceLabel(row.servico)}`,
+  `Consulta: ${row.id} | ${row.status} | ${Number(row.progress)||0}%`,
+  row.lote_id && `Lote: ${row.lote_id}`,
+  row.execution_mode==='api' ? `Executor: API ${row.api_slot??'sem identificação'}` :
+   row.robot_slot && `Executor: Robô ${row.robot_slot}`,
+  row.stage, row.message
+ ];
+ function appendResult(label, result) {
+  if (!result) return;
+  lines.push('', label, result.etapa || result.stage, result.status, result.codigo,
+   result.message, result.motivo_interrupcao, result.erro, result.rota, result.recuperacao);
+  if (result.http_status) lines.push(`HTTP: ${result.http_status}`);
+  if (result.diagnostico) lines.push([result.diagnostico.codigo, result.diagnostico.etapa].filter(Boolean).join(' | '));
+  for (const event of Array.isArray(result.eventos) ? result.eventos : []) {
+   lines.push([event.horario,event.etapa,event.status].filter(Boolean).join(' | '));
+  }
+  const messages=Array.isArray(result.todasMensagens) && result.todasMensagens.length ?
+   result.todasMensagens : [result.mensagemCompleta];
+  lines.push(...messages.filter(message=>typeof message==='string'));
+ }
+ appendResult('Saldo',row.resultado_saldo);
+ appendResult('Parcela',row.resultado_parcela);
+ appendResult('Margem ConsigX',row.resultado_tjba);
+ if (row.api_handoff) {
+  lines.push('', row.api_handoff.message, `API ${row.api_handoff.api_slot} | ${new Date(row.api_handoff.date).toLocaleString('pt-BR')}`);
+  appendResult('API · saldo',row.api_handoff.resultado_saldo);
+  appendResult('API · parcela',row.api_handoff.resultado_parcela);
+ }
+ return lines.filter(line=>line==='' || line).join('\n');
+}
+const consultationLogDialog=$('#consultationLogDialog');
+function clearConsultationLogDialog() {
+ $('#consultationLogDialogText').textContent='';
+ delete consultationLogDialog.dataset.jobId;
+ if (consultationLogDialog.open) consultationLogDialog.close();
+}
+consultationLogDialog.addEventListener('close',clearConsultationLogDialog);
+function downloadRowConsultationLog(id) {
+ const row=records.find(record=>record.id===id);
+ if (canOpenConsultationLog(row)) downloadConsultationLog(consultationLogText(row),`log-consulta-${row.id}`);
+}
+$('#consultationLogDialogDownload').onclick=()=>downloadRowConsultationLog(consultationLogDialog.dataset.jobId);
+document.addEventListener('click',event=>{
+ const button=event.target.closest('[data-open-consultation-log],[data-download-consultation-log]');
+ if (!button) return;
+ if (button.dataset.downloadConsultationLog) {
+  downloadRowConsultationLog(button.dataset.downloadConsultationLog);
+  return;
+ }
+ const row=records.find(record=>record.id===button.dataset.openConsultationLog);
+ if (!canOpenConsultationLog(row)) return;
+ consultationLogDialog.dataset.jobId=row.id;
+ $('#consultationLogDialogText').textContent=consultationLogText(row);
+ consultationLogDialog.showModal();
+});
+function resultActions(r){return `${['Erro','Revisão','Consulta interrompida'].includes(r.status)?`<button data-retry="${escapeHTML(r.id)}">Tentar novamente</button>`:''}${r.servico==='tjba_margem'?`<button data-tjba-history="${escapeHTML(r.id)}">Histórico</button>${typeof amigozAction==='function'?amigozAction(r):''}`:typeof amigozAction==='function'?amigozAction(r):''}${consultationLogActions(r)}<button class="danger" data-delete-job="${escapeHTML(r.id)}">Excluir</button>`;}
 setTableHead=function(service,id){const columns=['Cliente','Resultado',...(service==='tjba_margem'?['Empréstimo','Cartão','Vínculo']:['Saldo devedor','Parcela','Consultado em']),'Ações'];$('#'+id).innerHTML='<tr>'+columns.map(x=>`<th>${x}</th>`).join('')+'</tr>';};
 rowsHTML=function(rows){return rows.map(r=>{const margin=r.servico==='tjba_margem';return `<tr><td><strong>${escapeHTML(r.nome)}</strong><span class="cell-sub">${escapeHTML(formatCpf(r.cpf))}</span><span class="cell-sub">${escapeHTML(margin?convenioLabel(r.convenio):'Digi+')}</span></td><td><span class="pill ${r.status==='Concluída'?'ok':['Erro','Revisão','Consulta interrompida'].includes(r.status)?'err':r.status==='Processando'?'run':''}">${escapeHTML(statusLabel(r.status))}</span>${resultProgress(r)}${resultMessage(r)?`<small class="cell-sub">${escapeHTML(resultMessage(r))}</small>`:''}</td>${margin?`<td class="amount">${moneyTjba(r.emprestimo_disponivel)}</td><td class="amount">${moneyTjba(r.cartao_disponivel)}</td><td><strong>${escapeHTML(r.matricula||'—')}</strong><span class="cell-sub">${escapeHTML(r.situacao_atual||'—')}</span><span class="cell-sub">${escapeHTML(r.tipo_servidor||'')}</span></td>`:`<td class="amount">${moneyTjba(r.saldo)}</td><td class="amount">${moneyTjba(r.valorParcela)}<span class="cell-sub">${r.parcelas==null?'':escapeHTML(r.parcelas)+' parcelas'}</span></td><td>${r.consultado_em?new Date(r.consultado_em).toLocaleString('pt-BR'):'—'}</td>`}<td><details class="row-actions" data-actions="${escapeHTML(r.id)}" ${document.querySelector('[data-actions="'+r.id+'"]')?.open?'open':''}><summary>Ações</summary><div>${resultActions(r)}</div></details></td></tr>`;}).join('')||'<tr><td colspan="7" class="empty">Nenhum resultado com esses filtros.</td></tr>';};
 const campaignGroups=[
@@ -166,7 +232,7 @@ creationContent.querySelectorAll('[data-step]').forEach(b=>b.onclick=()=>{creati
 drawCreationStep();moveQueryContext();
 
 const workspaceShowLogin=showLogin;
-showLogin=function(message=''){creationStep=1;$('#campaignConfirmation').innerHTML='';for(const id of ['#campaignSearch','#campaignStatus','#campaignServiceFilter','#campaignClientSearch','#campaignClientStatus'])$(id).value='';drawCreationStep();workspaceShowLogin(message);};
+showLogin=function(message=''){clearConsultationLogDialog();creationStep=1;$('#campaignConfirmation').innerHTML='';for(const id of ['#campaignSearch','#campaignStatus','#campaignServiceFilter','#campaignClientSearch','#campaignClientStatus'])$(id).value='';drawCreationStep();workspaceShowLogin(message);};
 const workspaceServiceChange=$('#serviceSelect').onchange;
 function simplifyMarginForm(){const margin=selectedService()==='tjba_margem';$('#nameLabel').hidden=margin;$('#nome').hidden=margin;$('#phoneLabel').parentElement.hidden=margin;$('#importHint').textContent=margin?'Preencha apenas a coluna cpf. Substitua a linha de exemplo e preserve os zeros à esquerda. As margens serão preenchidas pelo robô.':'Preencha nome, cpf e telefone. Substitua a linha de exemplo; mantenha CPF e telefone como texto. O robô preenche saldo e parcela.';}
 $('#serviceSelect').onchange=()=>{workspaceServiceChange();simplifyMarginForm();};
