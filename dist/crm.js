@@ -366,6 +366,100 @@ $('#crmExportOpportunities').onclick = async () => {
   }
 };
 
+const crmOpportunityExportColumns = [
+  'Telefone','Saldo Digi+','Parcela Digi+','Saque Amigoz','Limite Amigoz','Margem livre',
+  'Margem empréstimo','Margem cartão','Margem benefício','Margem consignado','Margens por vínculo'
+];
+
+async function crmOpportunityExportDetails(cpfs, epoch) {
+  const clients = new Map(), margins = new Map();
+  const unique = [...new Set(cpfs.map(cpf=>String(cpf??'').replace(/\D/g,'')).filter(cpf=>cpf.length===11))];
+  for (let i=0;i<unique.length;i+=100) {
+    if (!authenticated || epoch!==authEpoch) throw Error('Sessão encerrada.');
+    const cpf = 'in.('+unique.slice(i,i+100).join(',')+')';
+    const [batch, firstPage] = await Promise.all([
+      sbRequest(crmPath('crm_cadastros',{cpf,select:'cpf,telefone,resumo_consultas'})),
+      sbRequest(crmPath('crm_margens_vinculo',{
+        cpf,select:'cpf,convenio,matricula,instituicao,produto,valor',
+        order:'cpf,convenio,matricula,instituicao,produto',limit:500,offset:0
+      }))
+    ]);
+    for (const client of batch) clients.set(client.cpf,client);
+    let page=firstPage;
+    for (let offset=0;;offset+=500) {
+      if (!authenticated || epoch!==authEpoch) throw Error('Sessão encerrada.');
+      for (const margin of page) {
+        if (!margins.has(margin.cpf)) margins.set(margin.cpf,[]);
+        margins.get(margin.cpf).push(margin);
+      }
+      if (page.length<500) break;
+      page=await sbRequest(crmPath('crm_margens_vinculo',{
+        cpf,select:'cpf,convenio,matricula,instituicao,produto,valor',
+        order:'cpf,convenio,matricula,instituicao,produto',limit:500,offset:offset+500
+      }));
+    }
+  }
+  return {clients,margins};
+}
+
+function crmOpportunityExportValues(cpf, details, row={}) {
+  const client=details.clients.get(cpf);
+  const signals={...row.sinais_consulta,...Object.fromEntries(Object.entries(client?.resumo_consultas||{})
+    .map(([key,snapshot])=>[key,snapshot.dados]))};
+  const money=value=>value==null || value==='' || !Number.isFinite(Number(value)) ? null : crmMoney.format(Number(value));
+  const join=values=>[...new Set(values.filter(Boolean))].join(' · ');
+  const products={emprestimo:'Margem empréstimo',cartao:'Margem cartão',beneficio:'Margem benefício',consignado:'Margem consignado'};
+  const margins=details.margins.get(cpf)||[];
+  const byProduct={emprestimo:[],cartao:[],beneficio:[],consignado:[]};
+  for (const margin of margins) byProduct[margin.produto]?.push(margin.valor);
+  const free=[];
+  const offers=[];
+  for (const [key,data] of Object.entries(signals)) {
+    if (key.startsWith('amigoz_saque_') && Array.isArray(data)) {
+      offers.push(...data.filter(item=>item&&!item.erro_informado));
+    }
+    if (key.startsWith('amigoz_margem_') && Array.isArray(data)) {
+      for (const item of data) {
+        if (!item) continue;
+        const product={7:'beneficio',15:'consignado'}[item.idProduto??item.tipo_produto];
+        if (product && !margins.some(m=>m.produto===product)) byProduct[product].push(item.margem_atual);
+        free.push(item.margem_atual);
+      }
+    }
+    if (key.startsWith('consigx_margem_') || key.startsWith('margem_importada_')) {
+      for (const product of Object.keys(products)) {
+        const value=data?.['margem_'+product];
+        if (!margins.some(m=>m.produto===product)) byProduct[product].push(value);
+      }
+      free.push(data?.margem_livre,data?.margem_emprestimo,data?.margem_cartao);
+    }
+  }
+  const values={
+    'Telefone':String(client?.telefone??'').replace(/\D/g,''),
+    'Saldo Digi+':signals.digimais?.saldo ?? row.saldo_liquidacao ?? null,
+    'Parcela Digi+':signals.digimais?.parcela ?? null,
+    'Saque Amigoz':join(offers.map(item=>money(item.valor_saque_disponivel))),
+    'Limite Amigoz':join(offers.map(item=>money(item.limite_cartao))),
+    'Margem livre':join([...margins.map(m=>m.valor),...free].map(money)),
+    'Margens por vínculo':join(margins.map(m=>[products[m.produto],m.convenio,m.matricula,m.instituicao,money(m.valor)].filter(Boolean).join(' / ')))
+  };
+  for (const [product,label] of Object.entries(products)) values[label]=join(byProduct[product].map(money));
+  return values;
+}
+
+async function crmUpgradeSavedOpportunityWorkbook(workbookRows, epoch) {
+  const [headers,...rows]=workbookRows;
+  if (!headers || crmOpportunityExportColumns.every(label=>headers.includes(label))) return workbookRows;
+  const cpfIndex=headers.indexOf('CPF');
+  if (cpfIndex<0) return workbookRows;
+  const details=await crmOpportunityExportDetails(rows.map(row=>row[cpfIndex]),epoch);
+  const columns=[...headers,...crmOpportunityExportColumns.filter(label=>!headers.includes(label))];
+  return [columns,...rows.map(row=>{
+    const values=crmOpportunityExportValues(String(row[cpfIndex]??'').replace(/\D/g,''),details);
+    return columns.map((label,i)=>row[i]==null||row[i]==='' ? values[label]??null : row[i]);
+  })];
+}
+
 async function crmDownloadOpportunities({stage,uf,convenio,products},button,status,previewForm) {
   const epoch = authEpoch;
   const openStages = ['novo','contato','simulacao','negociacao'];
@@ -392,15 +486,14 @@ async function crmDownloadOpportunities({stage,uf,convenio,products},button,stat
       after = next;
     }
     if (!rows.length) {status.textContent = 'Nenhuma oportunidade aberta neste filtro.';return;}
+    const details=await crmOpportunityExportDetails(rows.map(row=>row.cpf),epoch);
+    if (!authenticated || epoch!==authEpoch) return;
     let workbookRows = [
-      ['Nome','CPF','Convênio','Produto','Etapa original','Responsável','Próxima ação','Saldo Digi+','Parcela Digi+','Saque Amigoz','Margem livre'],
-      ...rows.map(row => {
-        const signals = row.sinais_consulta || {};
-        const offers = Object.entries(signals).filter(([key,value])=>key.startsWith('amigoz_saque_') && Array.isArray(value))
-          .flatMap(([,items])=>items.filter(item=>item && String(item.elegivel).toLowerCase()==='sim' && !item.erro_informado && item.valor_saque_disponivel>0));
-        return [row.nome,formatCpf(row.cpf),row.convenio,crmProducts[row.produto],crmStages[row.etapa],row.responsavel,row.proxima_acao,
-          signals.digimais?.saldo ?? row.saldo_liquidacao,signals.digimais?.parcela,
-          offers.map(item=>crmMoney.format(item.valor_saque_disponivel)).join(' · '),crmOpportunityMargins(signals).map(value=>crmMoney.format(value)).join(' · ')];
+      ['Nome','CPF','Convênio','Produto','Etapa original','Responsável','Próxima ação',...crmOpportunityExportColumns],
+      ...rows.map(row=>{
+        const values=crmOpportunityExportValues(row.cpf,details,row);
+        return [row.nome,formatCpf(row.cpf),row.convenio,crmProducts[row.produto],crmStages[row.etapa],
+          row.responsavel,row.proxima_acao,...crmOpportunityExportColumns.map(label=>values[label])];
       })
     ];
     if(typeof amigozAppendExport==='function') workbookRows=await amigozAppendExport(workbookRows,rows.map(row=>({cpf:row.cpf,convenio:row.convenio||'',source:row.produto==='margem'?'margin':'auto'})));
@@ -749,7 +842,9 @@ $('#crmExportHistory').onclick = async () => {
           download.disabled=true;
           try {
             const [saved]=await sbRequest(crmPath('crm_exportacoes',{id:'eq.'+batch.id,select:'planilha'}));
-            if (dialog.open && epoch===authEpoch && saved) crmSaveOpportunityWorkbook(saved.planilha);
+            if (!dialog.open || epoch!==authEpoch || !saved) return;
+            const workbookRows=await crmUpgradeSavedOpportunityWorkbook(saved.planilha,epoch);
+            if (dialog.open && epoch===authEpoch) crmSaveOpportunityWorkbook(workbookRows);
           } catch {status.textContent='Não foi possível baixar este lote.';}
           finally {download.disabled=false;}
         };
