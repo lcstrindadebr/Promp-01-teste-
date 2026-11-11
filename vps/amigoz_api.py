@@ -14,12 +14,11 @@ from urllib.parse import urlsplit
 
 
 class AmigozError(Exception):
- def __init__(self,status,code,message,diagnostic=None):
+ def __init__(self,status,code,message):
   super().__init__(message)
   self.status=status
   self.code=code
   self.message=message
-  self.diagnostic=diagnostic
 
 
 def load_catalog():
@@ -121,10 +120,9 @@ class PublicHTTPS(http.client.HTTPSConnection):
    raise
 
 
-def margin_error_diagnostic(response,path,secrets):
+def margin_response_diagnostic(raw,path,status,secrets):
  # Read a bounded body. Keep diagnostics out of persisted customer results.
  try:
-  raw=response.read(8193)
   text=raw[:8192].decode('utf-8',errors='replace')
   try:
    text=json.dumps(margin_result(json.loads(text)),ensure_ascii=False,indent=2)
@@ -137,12 +135,12 @@ def margin_error_diagnostic(response,path,secrets):
   text=re.sub(r'\beyJ[\w-]+\.[\w-]+\.[\w-]+\b','[oculto]',text)
   text=re.sub(r'(?i)(["\x27]?(?:senha[_ ]?servidor|senha|password|access[_ ]?token|refresh[_ ]?token|authorization|cookie|secret|api[_ ]?key)["\x27]?\s*[:=]\s*)(?:"[^"]*"|\x27[^\x27]*\x27|[^\s,;]+)',r'\1[oculto]',text)
   if len(raw)>8192:text+='\n[resposta truncada]'
- except (OSError,http.client.HTTPException):
-  text='Não foi possível ler o corpo da resposta.'
- return {'rota':path,'http_status':response.status,'resposta':text or 'Resposta sem corpo.'}
+ except (ValueError,RecursionError):
+  text='Não foi possível formatar o corpo da resposta.'
+ return {'rota':path,'http_status':status,'resposta':text or 'Resposta sem corpo.'}
 
 
-def request(config,path,payload,token=None):
+def request(config,path,payload,token=None,record_response=None):
  timeout = 60 if path == '/api/consulta-margem' else 30
  conn=PublicHTTPS(endpoint(config['url']),timeout=timeout,context=ssl.create_default_context())
  headers={'Content-Type':'application/json','Accept':'application/json'}
@@ -152,14 +150,20 @@ def request(config,path,payload,token=None):
   conn.request('POST',path,json.dumps(payload),headers)
   response=conn.getresponse()
   if not 200<=response.status<300:
-   diagnostic=None
-   if path=='/api/consulta-margem':
-    diagnostic=margin_error_diagnostic(response,path,(
-     token,config.get('usuario'),config.get('senha'),payload.get('senha_servidor')))
+   if record_response is not None:
+    try:
+     raw=response.read(8193)
+    except (OSError,http.client.HTTPException):
+     raw=b''
+    record_response(margin_response_diagnostic(raw,path,response.status,(
+     token,config.get('usuario'),config.get('senha'),payload.get('senha_servidor'))))
    if response.status in (401,403):
-    raise AmigozError(response.status,'amigoz_denied','A Amigoz recusou a autenticação ou a permissão para esta operação.',diagnostic)
-   raise AmigozError(response.status,'amigoz_upstream','Não foi possível concluir a consulta na Amigoz. Confira o convênio e os dados informados.',diagnostic)
+    raise AmigozError(response.status,'amigoz_denied','A Amigoz recusou a autenticação ou a permissão para esta operação.')
+   raise AmigozError(response.status,'amigoz_upstream','Não foi possível concluir a consulta na Amigoz. Confira o convênio e os dados informados.')
   raw=response.read(MAX_RESPONSE+1)
+  if record_response is not None:
+   record_response(margin_response_diagnostic(raw,path,response.status,(
+    token,config.get('usuario'),config.get('senha'),payload.get('senha_servidor'))))
   if len(raw)>MAX_RESPONSE:
    raise AmigozError(502,'amigoz_response','A resposta da Amigoz excedeu o tamanho permitido.')
   if not raw:
@@ -219,14 +223,15 @@ def session(config,failed=None,force=False):
   LOCK.release()
 
 
-def call(config,path,payload):
+def call(config,path,payload,record_response=None):
  token=session(config)
+ options={'record_response':record_response} if record_response is not None else {}
  try:
-  return request(config,path,payload,token)
+  return request(config,path,payload,token,**options)
  except AmigozError as error:
   if error.status!=401:
    raise
- return request(config,path,payload,session(config,failed=token))
+ return request(config,path,payload,session(config,failed=token),**options)
 
 
 def normalized(value):
@@ -284,12 +289,15 @@ def consultation(config,payload,before_request=None,diagnostics=None):
    result[operation]={'status':'indisponivel','mensagem':'Consulta de margem indisponível para este convênio. Falta o ID da averbadora.'}
    continue
   try:
-   value=call(config,path,body)
+   if operation=='margem' and diagnostics is not None:
+    value=call(config,path,body,record_response=lambda entry:diagnostics.update(margem=entry))
+   else:
+    value=call(config,path,body)
    data=saque_result(value,convenio) if operation=='saque' else margin_result(value)
    result[operation]={'status':'respondido','dados':data}
   except AmigozError as error:
-   if diagnostics is not None and error.diagnostic is not None:
-    diagnostics[operation]=error.diagnostic
+   if operation=='margem' and diagnostics is not None:
+    diagnostics.setdefault(operation,{'rota':path,'resposta':error.message})['codigo']=error.code
    message='Não foi possível consultar a margem. Confira o convênio e os dados informados.' if operation=='margem' else error.message
    result[operation]={'status':'erro','mensagem':message,'http_status':error.status,'codigo':error.code,'operacao':operation}
  return result

@@ -151,7 +151,14 @@ def amigoz_admin(auth,method,path,payload):
      if error.code==429:raise AdminError(429,'daily_limit','Limite diário de consultas atingido.') from None
      if error.code in (401,403):raise AdminError(403,'amigoz_access_denied','Acesso Amigoz não liberado.') from None
      raise
-   diagnostics={}
+   diagnostics=None
+   if payload.get('modo') in ('margem','ambos'):
+    try:
+     access=supabase_call('/rest/v1/rpc/admin_partner_manage',dict(p_actor=actor,p_action='check',p_input={}))
+     if isinstance(access,dict) and access.get('admin') is True:
+      diagnostics={}
+    except Exception:
+     pass  # Diagnostics fail closed. The customer result remains available.
    result=amigoz.consultation(config,payload,before_request=begin,diagnostics=diagnostics)
    if execution:
     operations=[result[key] for key in ('saque','margem') if key in result]
@@ -167,12 +174,7 @@ def amigoz_admin(auth,method,path,payload):
     result['consulta_id']=execution['id']
     result['salvo_no_historico']=saved is True
    if diagnostics:
-    try:
-     supabase_call('/rest/v1/rpc/admin_partner_manage',dict(p_actor=actor,p_action='check',p_input={}))
-    except Exception:
-     pass  # Diagnostics fail closed. The customer result remains available.
-    else:
-     result['diagnostico_admin']=diagnostics
+    result['diagnostico_admin']=diagnostics
    return 200,{'data':result}
   raise AdminError(404,'not_found','Rota não encontrada.')
  except amigoz.AmigozError as error:

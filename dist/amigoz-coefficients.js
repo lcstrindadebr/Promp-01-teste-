@@ -169,9 +169,10 @@ $('#amigozQueryMargin').onclick=async()=>{
   if(epoch!==authEpoch||generation!==amigozGeneration||source!==amigozSource||!authenticated)return;
   const diagnostic=result.diagnostico_admin?.margem;
   if(diagnostic&&amigozIsAdmin()){
-   $('#amigozMarginDiagnosticText').textContent=[`HTTP ${diagnostic.http_status} · ${diagnostic.rota}`,
+   $('#amigozMarginDiagnosticText').textContent=[[diagnostic.http_status && `HTTP ${diagnostic.http_status}`,diagnostic.rota,diagnostic.codigo].filter(Boolean).join(' · '),
     `Convênio ${convenio}`,result.consulta_id&&`Consulta ${result.consulta_id}`,'',diagnostic.resposta].filter(x=>x!==false&&x!=null).join('\n');
    $('#amigozMarginDiagnostic').hidden=false;
+   $('#amigozMarginDiagnostic').open=true;
   }
   if(result.salvo_no_historico===false){$('#amigozQueryMarginStatus').textContent='Consulta realizada, mas não foi salva no banco. Não repita; confira o histórico e o diagnóstico.';return;}
   if(result.margem?.status!=='respondido')throw Error('Não foi possível consultar a margem. Confira o convênio e os dados informados.');
