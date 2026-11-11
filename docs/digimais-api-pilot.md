@@ -8,9 +8,36 @@ Há até 12 clientes simultâneos no conjunto do piloto (não 12 para cada conta
 
 ## Fluxos preservados
 
-Mesmos menus, esperas 8/5/6/8 segundos, paginação 20/20/30 e critérios de `sucesso` dos JSON enviados. Cada fluxo faz oito chamadas HTTP. Não há correção do falso sucesso, espera adaptativa ou nova paginação. Sessões, nomes, CPFs e telefones vêm do trabalho reservado. Limite de transporte: 45 segundos por chamada. Erros de transporte não são repetidos automaticamente. A gravação final pode ser repetida sem consultar o cliente novamente.
+Mesmos menus, esperas 8/5/6/8 segundos, paginação 20/20/30 e critérios de `sucesso` dos JSON enviados. No caminho completo, cada fluxo faz oito chamadas HTTP. Não há correção do falso sucesso, espera adaptativa ou nova paginação. Sessões, nomes, CPFs e telefones vêm do trabalho reservado. Limite de transporte: 45 segundos por chamada. Erros de transporte não são repetidos automaticamente. A gravação final pode ser repetida sem consultar o cliente novamente.
 
 Os objetos `resultado_saldo` e `resultado_parcela` preservam o retorno, incluindo `sucesso`, valores originais e mensagens. O saldo é salvo antes da parcela; falha nessa gravação interrompe a segunda etapa. Ausência de menu/retorno segue para Revisão. A mensagem de encaminhamento para assessoria é exibida no resultado, sem presumir ausência de cliente e sem modificar a lógica de extração. O piloto não emite boletos nem realiza negociações.
+
+## Interrupção por horário e compatibilidade com n8n
+
+Os logs de 11/11/2026 mostram o provedor informando atendimento fora do horário
+às 18h04 locais. O CPF já aparece com pontuação. A ausência do segundo menu
+nesse cenário é uma recusa operacional do atendimento, não uma falha de
+formatação do CPF nem prova de erro HTTP de autenticação.
+
+O executor reconhece o aviso textual retornado pelo provedor em cada leitura de
+mensagens, registra `FORA_HORARIO_ATENDIMENTO`, preserva as mensagens e encerra a
+consulta em Revisão. Se o saldo recebeu esse aviso, a parcela fica explicitamente
+não executada, sem abrir outra sessão. Não há repetição automática nem inferência
+de ausência de cliente. Não existe bloqueio por relógio local: o aviso do próprio
+atendimento é a evidência usada, sem adivinhar feriados ou fuso do fornecedor.
+
+A comparação com o fluxo combinado fornecido identificou dois ajustes:
+renovar cookies recebidos após criação da sessão (mantendo os demais cookies da
+mesma execução) e aceitar listas de mensagens dentro de `body`, além de `items`
+e `data`. Cookies permanecem isolados entre saldo, parcela e clientes; nunca
+aparecem nos logs. O CPF é mascarado somente na mensagem enviada ao atendimento.
+
+Estas correções não alteram as permissões ou habilitam API para parceiros.
+Atualização apenas de código, sem nova migração SQL. Para validar no ambiente
+real, use inicialmente um cliente na conta administradora, durante o horário
+informado pelo provedor, confira saldo e parcela e só depois aumente concorrência.
+Se o segundo menu ainda não vier, examine as mensagens da sessão em vez de
+presumir que as esperas fixas garantem disponibilidade do atendimento.
 
 ## Métricas
 
@@ -25,5 +52,7 @@ Atualize a VPS pelo instalador existente e reinicie o worker/monitor pelo proces
 ## Validação
 
 Testes locais usam respostas simuladas e verificam as 16 requisições, sessões separadas, esperas originais, falso sucesso preservado, encaminhamento à assessoria, checkpoint, 12 execuções simultâneas e retentativa apenas da gravação. O teste SQL transacional valida privilégios, captura do modo, pausa, limite global, limite por conta e bloqueio após retirada do perfil administrador; termina com rollback.
+
+Os testes também cobrem o aviso de horário com menu antigo ainda presente, parada sem executar parcela, cookies rotacionados e resposta encapsulada. Nenhuma chamada real com CPF foi feita nesta correção.
 
 A validação da carga real de 12 consultas e do consumo de CPU/RAM deve ocorrer após a atualização da VPS. O teste anterior de quatro clientes confirmou dois retornos completos, um retorno indeterminado e um encaminhamento à assessoria; não determina custos nem capacidade sustentada.

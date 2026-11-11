@@ -2,7 +2,7 @@ import asyncio,sys,unittest,json
 from pathlib import Path
 from unittest.mock import AsyncMock,patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'vps'))
-from digimais_api import ApiSession,parse_result,money,format_cpf,CpfFormatError
+from digimais_api import ApiSession,parse_result,money,format_cpf,CpfFormatError,messages,assert_service_available,FlowStopped
 from robot_metrics import Slot
 
 class PilotTests(unittest.IsolatedAsyncioTestCase):
@@ -55,6 +55,49 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
   self.assertEqual(result['etapa'],'menu de cobrança')
   self.assertIn('Opção esperada não encontrada',result['motivo_interrupcao'])
   self.assertEqual([e['etapa'] for e in result['eventos'][:-1]],['autenticação','criação da sessão','menu de cobrança'])
+
+ def test_wrapped_messages_and_incoming_text(self):
+  self.assertEqual(messages({'body':{'items':[{'contentText':'fixture'}]}}),[{'contentText':'fixture'}])
+  self.assertEqual(messages(None),[])
+  assert_service_available([{'direction':'I','contentText':'fora do horário de atendimento'}])
+  with self.assertRaises(FlowStopped):assert_service_available([{'direction':'O','contentText':'Estamos fora do horário de atendimento.'}])
+
+ async def test_closed_service_stops_after_saldo_and_rotates_session_cookies(self):
+  requests=[];reads=0
+  class Headers:
+   def __init__(self,cookies):self.cookies=cookies
+   def get_all(self,*args):return self.cookies
+  class Response:
+   def __init__(self,data,cookies=[]):self.data=data;self.headers=Headers(cookies)
+   def __enter__(self):return self
+   def __exit__(self,*args):pass
+   def read(self):return json.dumps(self.data).encode()
+  def request(req,timeout):
+   nonlocal reads
+   requests.append(req);path=req.full_url.split('?')[0]
+   if path.endswith('login-public'):return Response({'userId':'fixture'},['auth=login; Secure','session=before; Secure'])
+   if path.endswith('/sessions'):return Response({'id':'fixture-session'},['session=after; Secure'])
+   if req.data:return Response({})
+   reads+=1
+   if reads==1:return Response({'body':{'items':[{'options':[{'id':'central','title':'Central de cobrança'}]}]}})
+   return Response([{'direction':'O','contentText':'Oi! No momento estamos fora do horário de atendimento. Funcionamos de segunda a sexta, das 9h às 18h, exceto feriados.'},
+    {'options':[{'id':'stale-option','title':'Saldo Liquidação'}]}])
+  api=ApiSession({'baseUrl':'https://example.invalid','code':'private','accountUid':'fixture'})
+  progress=AsyncMock();checkpoint=AsyncMock()
+  with patch('digimais_api.urllib.request.urlopen',side_effect=request),patch('digimais_api.asyncio.sleep',new_callable=AsyncMock):
+   result=await api.run({'nome':'Fixture','cpf':'00000000191','telefone':'11999999999'},on_progress=progress,on_checkpoint=checkpoint)
+  self.assertEqual(len(requests),6)
+  self.assertEqual(result['status'],'revisao')
+  self.assertEqual(result['resultado_saldo']['codigo'],'FORA_HORARIO_ATENDIMENTO')
+  self.assertEqual(result['resultado_saldo']['etapa'],'seleção de saldo')
+  self.assertTrue(result['resultado_parcela']['nao_executada'])
+  self.assertIsNone(result['valor_parcela'])
+  self.assertIn('fora do horário',result['stage'])
+  self.assertNotIn('Opção esperada não encontrada',result['message'])
+  self.assertIn('session=after',requests[2].get_header('Cookie'))
+  self.assertIn('auth=login',requests[2].get_header('Cookie'))
+  self.assertNotIn('session=before',requests[2].get_header('Cookie'))
+  self.assertEqual(progress.await_count,1);checkpoint.assert_awaited_once()
 
  async def test_sequential_checkpoint_and_referral(self):
   api=ApiSession({});events=[]

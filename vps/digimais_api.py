@@ -2,6 +2,8 @@
 import asyncio,json,re,uuid,urllib.request,urllib.parse,urllib.error
 from robot_failures import diagnose
 from datetime import datetime,timezone
+from http.cookies import SimpleCookie
+import unicodedata
 
 
 class CpfFormatError(ValueError):
@@ -16,14 +18,32 @@ def format_cpf(value):
  return f'{digits[:3]}.{digits[3:6]}.{digits[6:9]}-{digits[9:]}'
 
 
+class FlowStopped(Exception):
+ def __init__(self,code,reason):
+  self.code=code;self.reason=reason
+  super().__init__(reason)
+
+
+def assert_service_available(items):
+ for item in items:
+  if item.get('direction')=='I':continue
+  text=item.get('contentText') or item.get('content') or item.get('text') or ''
+  text=''.join(c for c in unicodedata.normalize('NFKD',text.lower()) if not unicodedata.combining(c))
+  if re.search(r'fora do horario(?: de atendimento)?|fora (?:do nosso|de nosso) horario',text):
+   raise FlowStopped('FORA_HORARIO_ATENDIMENTO','Atendimento DigiMais indisponível: fora do horário de atendimento informado pelo provedor.')
+
+
 def money(value):
  if value is None:return None
  return float(value.replace('.','').replace(',','.')) if ',' in value else float(value)
 
 
 def messages(raw):
- if isinstance(raw,list):return raw
- return raw['items'] if isinstance(raw.get('items'),list) else raw['data'] if isinstance(raw.get('data'),list) else [raw]
+ if isinstance(raw,list):return [item for item in raw if isinstance(item,dict)]
+ if not isinstance(raw,dict):return []
+ for key in ('items','data','body'):
+  if isinstance(raw.get(key),(list,dict)):return messages(raw[key])
+ return [raw]
 
 
 def parse_result(items,kind):
@@ -47,6 +67,7 @@ class ApiSession:
    nonlocal stage
    stage=value;events.append({'horario':datetime.now(timezone.utc).isoformat(),'etapa':value,'status':status})
   async def call(path,body=None,limit=None):
+   nonlocal cookie
    def send():
     query={'code':cfg['code']}
     if limit:query.update(limit=limit,offset=0)
@@ -55,7 +76,16 @@ class ApiSession:
      headers={'Content-Type':'application/json','Accept':'application/json','Cookie':cookie})
     with urllib.request.urlopen(req,timeout=45) as res:
      return json.load(res),res.headers.get_all('Set-Cookie',[])
-   return await asyncio.to_thread(send)
+   data,set_cookies=await asyncio.to_thread(send)
+   jar=SimpleCookie();jar.load(cookie)
+   for header in set_cookies:
+    incoming=SimpleCookie();incoming.load(header)
+    for name,morsel in incoming.items():
+     if morsel['max-age']=='0':
+      if name in jar:del jar[name]
+     else:jar[name]=morsel.value
+   cookie='; '.join(m.OutputString() for m in jar.values())
+   return data,set_cookies
   async def message(text,option=None):
    await call('/messages',{'customData':{'options':[option],'buttons':None,'contextData':None} if option else None,
     'id':str(uuid.uuid4()),'contentText':text,'contentType':'text/plain','contentUrl':None,'messageType':'text',
@@ -72,23 +102,23 @@ class ApiSession:
    login,cookies=await call('/auth/login-public',{'userData':None,'userAccountUid':cfg['accountUid'],
     'userFullName':job['nome'],'userId':user,'userRole':'public','userName':job['telefone'],'userPhotoUrl':None,'userCustomData':{}})
    if not login.get('userId'):raise RuntimeError('Login sem usuário')
-   user=login['userId'];cookie='; '.join(c.split(';')[0].strip() for c in cookies)
+   user=login['userId']
    mark('criação da sessão')
    sess,_=await call('/sessions',{'id':session,'fromId':user,'from':job['telefone'],'fromName':job['nome'],
     'to':cfg['accountUid'],'context':{'uid':job['telefone'],'name':job['nome'],'setCustomData':{}}})
    session=sess.get('id') or session
    mark('menu de cobrança')
    await asyncio.sleep(8)
-   raw,_=await call('/sessions/'+session+'/messages',limit=20);items=messages(raw)
+   raw,_=await call('/sessions/'+session+'/messages',limit=20);items=messages(raw);assert_service_available(items)
    selected=option(lambda t:'cobran' in t);await message(selected['id'],selected)
    mark('envio do CPF')
    await asyncio.sleep(5);await message(format_cpf(job['cpf']))
    await asyncio.sleep(6)
-   raw,_=await call('/sessions/'+session+'/messages',limit=20);items=messages(raw)
    mark('seleção de '+kind)
+   raw,_=await call('/sessions/'+session+'/messages',limit=20);items=messages(raw);assert_service_available(items)
    selected=option((lambda t:'iquid' in t or 'saldo' in t) if kind=='saldo' else (lambda t:'parcela' in t or ('valor' in t and 'saldo' not in t)))
    await message(selected['id'],selected);mark('retorno de '+kind);await asyncio.sleep(8)
-   raw,_=await call('/sessions/'+session+'/messages',limit=30);items=messages(raw)
+   raw,_=await call('/sessions/'+session+'/messages',limit=30);items=messages(raw);assert_service_available(items)
    result=parse_result(items,kind)
    reason=None if result['sucesso'] else 'O atendimento não retornou uma mensagem de '+kind+' reconhecida.'
    if result['sucesso'] and result.get('valorSaldo' if kind=='saldo' else 'valorParcela') is None:
@@ -99,12 +129,13 @@ class ApiSession:
   except Exception as error:
    # Persist only classified errors, never exception text, URLs or cookies.
    diagnostic=diagnose(error,'digimais_api')
-   reason=('CPF inválido: informe 11 dígitos' if isinstance(error,CpfFormatError) else
+   reason=(error.reason if isinstance(error,FlowStopped) else
+    'CPF inválido: informe 11 dígitos' if isinstance(error,CpfFormatError) else
     'Resposta JSON inválida do atendimento' if isinstance(error,json.JSONDecodeError) else
     'Opção esperada não encontrada no menu de '+kind if isinstance(error,ValueError) else
     'Autenticação retornou resposta sem usuário' if isinstance(error,RuntimeError) else diagnostic['codigo'])
    mark(stage,'interrompida')
-   return {'sucesso':False,'etapa':stage,'motivo_interrupcao':reason,'eventos':events,'erro':('HTTP '+str(error.code)) if isinstance(error,urllib.error.HTTPError) else ('Opção esperada não encontrada' if isinstance(error,ValueError) else 'Falha na comunicação com o atendimento'),
+   return {'sucesso':False,'etapa':stage,'motivo_interrupcao':reason,'codigo':error.code if isinstance(error,FlowStopped) else diagnostic['codigo'],'eventos':events,'erro':error.reason if isinstance(error,FlowStopped) else ('HTTP '+str(error.code)) if isinstance(error,urllib.error.HTTPError) else ('Opção esperada não encontrada' if isinstance(error,ValueError) else 'Falha na comunicação com o atendimento'),
     'http_status':error.code if isinstance(error,urllib.error.HTTPError) else None,
     'todasMensagens':[m.get('contentText','') for m in items]}
 
@@ -113,12 +144,18 @@ class ApiSession:
   first=await self.flow(job,'saldo')
   result={'resultado_saldo':first,'saldo_liquidacao':money(first.get('valorSaldo')),
    'total_parcelas':int(first['totalParcelas']) if first.get('totalParcelas') else None,
-   'status':'processando','progress':50,'stage':'API experimental · parcela'}
+   'status':'processando','progress':50,'stage':'API experimental · fora do horário' if first.get('codigo')=='FORA_HORARIO_ATENDIMENTO' else 'API experimental · parcela'}
   if on_checkpoint:await on_checkpoint(result.copy())
-  if on_progress:await on_progress(50,'API experimental · parcela')
-  second=await self.flow(job,'parcela');result['resultado_parcela']=second
+  if on_progress and first.get('codigo')!='FORA_HORARIO_ATENDIMENTO':await on_progress(50,'API experimental · parcela')
+  if first.get('codigo')=='FORA_HORARIO_ATENDIMENTO':
+   second={'sucesso':False,'etapa':'parcela não iniciada','codigo':'FORA_HORARIO_ATENDIMENTO',
+    'motivo_interrupcao':'Consulta de parcela não iniciada: o provedor informou atendimento fora do horário no fluxo de saldo.',
+    'eventos':[],'todasMensagens':[],'nao_executada':True}
+  else:second=await self.flow(job,'parcela')
+  result['resultado_parcela']=second
   result['valor_parcela']=money(second.get('valorParcela'))
   result.update(status='concluida' if first['sucesso'] and second['sucesso'] else 'revisao',progress=100,stage='API experimental · finalizada')
+  if first.get('codigo')=='FORA_HORARIO_ATENDIMENTO':result['stage']='API experimental · interrompida: fora do horário de atendimento'
   result['message']='Fluxos API executados. Confira os valores retornados.'
   texts=first.get('todasMensagens',[])+second.get('todasMensagens',[])
   referral=next((t for t in texts if 'assessoria de cobrança' in t.lower()),None)
