@@ -445,3 +445,45 @@ button.crm-danger:hover:not(:disabled) { color: #782020; border-color: #b75858; 
 .crm-export-batch {display: grid; gap: .3rem;}
 .crm-export-batch button {justify-self: start;}
 .crm-client-actions {display:flex; flex-wrap:wrap; gap:.35rem;}
+
+.digi-pilot-switch {
+ position: relative;
+ isolation: isolate;
+ display: grid;
+ grid-template-columns: 1fr 1fr;
+ width: min(100%, 16rem);
+ padding: 4px;
+ border: 1px solid #b9c8c2;
+ border-radius: 999px;
+ background: #e8eeeb;
+ color: #233d34;
+ text-align: center;
+ font-weight: 650;
+}
+.digi-pilot-switch::before {
+ content: "";
+ position: absolute;
+ z-index: -1;
+ inset: 4px auto 4px 4px;
+ width: calc(50% - 4px);
+ border-radius: inherit;
+ background: #17654d;
+ transition: transform 150ms ease;
+}
+.digi-pilot-switch[data-api="true"]::before { transform: translateX(100%); }
+.digi-pilot-switch span { padding: 9px 0; pointer-events: none; }
+.digi-pilot-switch[data-api="false"] span:first-child,
+.digi-pilot-switch[data-api="true"] span:nth-child(2) { color: #fff; }
+.digi-pilot-switch input {
+ position: absolute;
+ inset: 0;
+ width: 100%;
+ height: 100%;
+ margin: 0;
+ opacity: 0;
+ cursor: pointer;
+}
+.digi-pilot-switch:focus-within { outline: 2px solid #17654d; outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+ .digi-pilot-switch::before { transition: none; }
+}

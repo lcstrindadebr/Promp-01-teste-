@@ -5,7 +5,7 @@ let campaignPage=1,campaignPageKey='';
 function orderedClients(rows){return [...rows].sort((a,b)=>Number(a.queue_order??Number.MAX_SAFE_INTEGER)-Number(b.queue_order??Number.MAX_SAFE_INTEGER)||new Date(a.created_at||a.date)-new Date(b.created_at||b.date)||String(a.id).localeCompare(String(b.id)));}
 const originalCampaignRecords=campaignRecords;
 campaignRecords=function(id){return orderedClients(originalCampaignRecords(id));};
-function campaignPhase(c,rows){return c.paused?'paused':rows.some(r=>['Aguardando','Processando'].includes(r.status))?'active':'done';}
+function campaignPhase(c,rows){return c.paused?(rows.some(r=>r.status==='Processando')?'active':'paused'):rows.some(r=>['Aguardando','Processando'].includes(r.status))?'active':'done';}
 function campaignPhaseLabel(c,rows){const running=rows.filter(r=>r.status==='Processando').length;return c.paused?(running?'Pausando · consultas em andamento terminando':'Pausada'):campaignPhase(c,rows)==='done'?'Finalizada':running?'Em andamento':'Na fila';}
 function campaignEta(campaign, rows, pending, running, now=Date.now()){
  if(!pending)return rows.length?'Campanha finalizada.':'';
@@ -88,7 +88,7 @@ renderCampaigns=function(){
  const running=rows.filter(r=>r.status==='Processando');$('#campaignLive').textContent=c.auto_paused?'Pausa automática após 10 erros ou pedidos de revisão consecutivos. '+(running.length?'As consultas em andamento vão terminar. ':'')+'Retome a campanha após conferir o log.':running.length?running.map(r=>'Consultando: '+r.nome+' · '+r.cpf).join(' | '):c.paused?'Campanha pausada. Retome para continuar pelos clientes pendentes.':n.waiting?'Aguardando sua vez na fila. Campanhas anteriores são processadas primeiro.':'Processamento finalizado. Confira os resultados ou repita apenas erros e revisões.';
  const eta=campaignEta(c,rows,n.waiting,running.length);
  if($('#campaignEta').textContent!==eta)$('#campaignEta').textContent=eta;
- $('#pauseCampaign').disabled=changingCampaign||(!n.waiting&&!c.paused);$('#pauseCampaign').textContent=c.paused?'Retomar campanha':'Pausar campanha';
+ $('#pauseCampaign').disabled=changingCampaign||(c.paused&&running.length>0)||(!n.waiting&&!running.length&&!c.paused);$('#pauseCampaign').textContent=c.paused?(running.length?'Pausando…':'Retomar campanha'):'Pausar campanha';
  const search=$('#campaignClientSearch').value.trim().toLowerCase(),filter=$('#campaignClientStatus').value;
  const key=JSON.stringify([c.id,search,filter]);
  if(key!==campaignPageKey){campaignPage=1;campaignPageKey=key;}

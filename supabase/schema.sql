@@ -4654,7 +4654,7 @@ begin
  where j.execution_mode='api' and j.status='aguardando' and not l.paused and not p.paused
  and apoiarcred_private.is_admin(j.user_id)
  and (select count(*) from public.consulta_jobs r where r.user_id=j.user_id and r.execution_mode='api' and r.status='processando')<p.max_concurrency
- order by j.queue_order for update of j skip locked limit 1) returning *;
+ order by j.queue_order for update of j skip locked for share of l skip locked limit 1) returning *;
 end $$;
 revoke all on function public.claim_consulta_job_for_api(integer) from public,anon,authenticated;
 grant execute on function public.claim_consulta_job_for_api(integer) to service_role;

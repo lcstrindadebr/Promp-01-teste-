@@ -27,6 +27,14 @@ do $$declare i integer;j public.consulta_jobs;begin
  if exists(select 1 from public.claim_consulta_job_for_api(1)) then raise exception 'Slot duplicated';end if;
  if (select count(*) from public.consulta_jobs where lote_id=(select lot from pilot_fixture) and status='processando')<>12 then raise exception 'Wrong cap';end if;
 end$$;
+-- A campaign pause preserves active jobs and blocks new reservations.
+select public.set_campaign_paused((select lot from pilot_fixture),'digimais_saldo_parcela',true);
+update public.consulta_jobs set status='concluida' where lote_id=(select lot from pilot_fixture) and api_slot=1;
+do $$begin
+ if exists(select 1 from public.claim_consulta_job_for_api(1)) then raise exception 'Paused campaign claimed';end if;
+ if (select count(*) from public.consulta_jobs where lote_id=(select lot from pilot_fixture) and status='processando')<>11 then raise exception 'Pause interrupted active jobs';end if;
+end$$;
+select public.set_campaign_paused((select lot from pilot_fixture),'digimais_saldo_parcela',false);
 -- Existing reservations finish; lower owner limit blocks additional claims.
 select public.manage_digimais_pilot('api',false,1);
 update public.consulta_jobs set status='concluida' where lote_id=(select lot from pilot_fixture) and api_slot=1;
