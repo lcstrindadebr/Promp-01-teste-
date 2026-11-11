@@ -2,7 +2,7 @@
 const amigozEstimateRates = [3, 3.25, 3.5, 3.75, 3.98, 4.5];
 const amigozEstimateHeaders = [
   ...amigozEstimateRates.map(rate => 'Saque líquido estimado · '+rate.toFixed(2).replace('.', ',')+'% a.m.'),
-  'Base da simulação', 'Margem agregada', 'Prazo da simulação', 'Situação da estimativa', 'Versão dos coeficientes'
+  'Base da simulação', 'Margem agregada', 'Prazo da simulação', 'Situação da estimativa', 'Versão dos coeficientes', 'Estimativas por tabela'
 ];
 let amigozContext = null;
 let amigozSource = null;
@@ -227,7 +227,8 @@ async function amigozExportEstimates(inputs) {
     if(results.some(result=>!coefficientTablesValidated(result)))throw Error('Atualize o cálculo Amigoz no banco antes de exportar estimativas.');
     for (const result of results) rows.push([
       ...amigozEstimateRates.map(rate => result.tabelas.find(table => Number(table.taxa) === rate)?.troco ?? ''),
-      result.base ?? '', result.margem_adicional ?? '', result.prazo ?? '', result.motivo || '', result.version_id ?? ''
+      result.base ?? '', result.margem_adicional ?? '', result.prazo ?? '', result.motivo || '', result.version_id ?? '',
+      result.tabelas.map(table=>[table.nome_tabela||Number(table.taxa).toLocaleString('pt-BR')+'% a.m.',table.troco==null?'Quitação pendente':brl(table.troco)].join(': ')).join(' · ')
     ]);
   }
   return rows;
