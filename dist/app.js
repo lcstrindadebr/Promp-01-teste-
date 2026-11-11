@@ -22,15 +22,52 @@ function consultationLogRecords(){
  if(!selection)return rows;
  return rows.filter(row=>selection==='unassigned'?row.robot_slot==null:String(row.robot_slot)===selection);
 }
+function createConsultationLog(id, filename, emptyMessage) {
+ const output = document.getElementById(id);
+ const count = document.getElementById(id + 'Count');
+ const copy = document.getElementById(id + 'Copy');
+ const download = document.getElementById(id + 'Download');
+
+ copy.onclick = async () => {
+  if (copy.disabled) return;
+  try {
+   await navigator.clipboard.writeText(output.textContent);
+   toast('Log copiado.');
+  } catch {
+   toast('Não foi possível copiar. Use Baixar TXT ou selecione o texto.');
+  }
+ };
+
+ download.onclick = () => {
+  if (download.disabled) return;
+  const blob = new Blob([output.textContent, '\n'], {type: 'text/plain;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename + '.txt';
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+ };
+
+ return (entries, visible = true) => {
+  const total = entries.length;
+  count.textContent = visible ? `${total} ${total === 1 ? 'registro' : 'registros'}` : '';
+  copy.disabled = download.disabled = !visible || !total;
+  output.textContent = visible ? entries.join('\n\n────────────────────\n\n') || emptyMessage : '';
+ };
+}
+const showRobotLog = createConsultationLog('consultationLogs', 'log-consultas-robos', 'Nenhuma consulta encerrada para este filtro.');
 function renderLogs(){
  // Only the signed-in user's loaded records are available here; cleared on logout.
- $('#consultationLogs').textContent=consultationLogRecords().map(r=>{
+ showRobotLog(consultationLogRecords().map(r=>{
   const lines=[`${new Date(r.date).toLocaleString('pt-BR')} | ${r.robot_slot?'Robô '+r.robot_slot:'Sem robô identificado'} | ${serviceLabel(r.servico)} | CPF: ${r.cpf} | ${statusLabel(r.status)} | ${Number(r.progress)||0}%`,r.stage,r.message];
   for(const [key,label] of [['resultado_saldo','Saldo'],['resultado_parcela','Parcela']]){
    const result=r[key];if(result)lines.push(`${label}: ${result.stage||result.status||''}${result.message?' | '+result.message:''}`);
   }
   return lines.filter(Boolean).join('\n');
- }).join('\n\n')||($('#consultationLogRobot').value?'Nenhuma consulta para este filtro.':'Nenhuma consulta registrada.');
+ }));
 }
 $('#consultationLogRobot').onchange=()=>renderLogs();
 function campaignRecords(id){return records.filter(r=>r.lote_id===id)}
