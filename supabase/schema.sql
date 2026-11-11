@@ -4803,6 +4803,9 @@ begin
  select array_agg(distinct convenio) into agreements from (
   select convenio from public.crm_vinculos where user_id=uid and cpf=cpf_value
   union select convenio from public.crm_margens_vinculo where user_id=uid and cpf=cpf_value
+  union select c.convenio from public.crm_classificacoes c
+  join public.crm_catalogo_importacao a on a.uf=c.uf and a.codigo=c.convenio
+  where c.user_id=uid and c.cpf=cpf_value
  ) links;
  if agreement is null then
   if coalesce(cardinality(agreements),0)=1 then agreement=agreements[1];
