@@ -7,7 +7,7 @@ const statusNames={aguardando:'Aguardando',processando:'Processando',concluida:'
 function showLogin(message=''){
  authenticated=false;session=null;currentAccess=null;accessRefreshing=false;accessCheckedAt=0;authEpoch++;if(typeof resetPartnerSettings==='function')resetPartnerSettings();if(typeof resetApiSettings==='function')resetApiSettings();if(typeof resetWebhooks==='function')resetWebhooks();if(typeof resetTjbaSettings==='function')resetTjbaSettings();importGeneration++;readingImport=false;importError='';if(typeof resetAmigoz==='function')resetAmigoz();if(typeof resetMonitoring==='function')resetMonitoring();cloudSnapshot=null;cloudRows.clear();cloudLoadAgain=false;cloudSyncErrorAt=0;records=[];pending=[];campaigns=[];activeCampaign=null;retryingCampaign=false;$('#campaignName').value='';navigate("home");
  $('#consultationLogPanel').open=false;$('#consultationLogRobot').value='';sessionStorage.removeItem(storageKey);$('#appShell').hidden=true;$('#loginPage').hidden=false;
- $('#loginError').textContent=message;$('#preview').classList.add('hide');$('#file').value='';$('#import').disabled=true;render();
+ $('#loginStatus').textContent='';$('#loginError').textContent=message;$('#preview').classList.add('hide');$('#file').value='';$('#import').disabled=true;render();
 }
 function saveSession(data){session={...data,expires_at:data.expires_at||Math.floor(Date.now()/1000)+data.expires_in};sessionStorage.setItem(storageKey,JSON.stringify(session))}
 async function raw(path,options={}){
@@ -138,23 +138,62 @@ async function openPanel(){
  try{await refreshMyAccess(true);if(epoch!==authEpoch)return;if(!currentAccess?.active)throw Error('Conta sem acesso ativo. Solicite liberação ao administrador.');}
  catch(e){if(epoch===authEpoch)showLogin(e.message);return;}
  $('#loginPage').hidden=true;$('#appShell').hidden=false;$('#accountEmail').textContent=session.user.email;
- $('#authState').textContent='Conectado como '+session.user.email;$('#password').value='';$('#loginError').textContent='';loadCloud();
+ $('#authState').textContent='Conectado como '+session.user.email;$('#password').value='';setPasswordVisible(false);$('#loginStatus').textContent='';$('#loginError').textContent='';loadCloud();
  if(typeof applyAccessUi==='function')applyAccessUi();
  if(typeof loadAmigozSettings==='function')loadAmigozSettings();if(typeof loadTjbaSettings==='function')loadTjbaSettings();
 }
 
+function setPasswordVisible(visible){
+ const password=$('#password');
+ const toggle=$('#togglePassword');
+ password.type=visible?'text':'password';
+ toggle.textContent=visible?'Ocultar':'Mostrar';
+ toggle.setAttribute('aria-label',visible?'Ocultar senha':'Mostrar senha');
+}
+
+$('#togglePassword').onclick=()=>setPasswordVisible($('#password').type==='password');
+
 $('#login').onsubmit=async e=>{
- e.preventDefault();const button=$('#loginSubmit');button.disabled=true;$('#loginError').textContent='Entrando…';
- try{const data=await raw('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email:$('#email').value.trim(),password:$('#password').value})});authEpoch++;saveSession(data);await openPanel()}catch(e){showLogin(e.status===400?'E-mail ou senha inválidos. Confira também a confirmação da conta.':e.message)}finally{button.disabled=false}
+ e.preventDefault();
+ const button=$('#loginSubmit');
+ if(button.disabled)return;
+ button.disabled=true;
+ $('#loginError').textContent='';
+ $('#loginStatus').textContent='Entrando…';
+ try{
+  const data=await raw('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email:$('#email').value.trim(),password:$('#password').value})});
+  authEpoch++;
+  saveSession(data);
+  await openPanel();
+ }catch(e){
+  showLogin(e.status===400?'E-mail ou senha inválidos. Confira também a confirmação da conta.':e.message);
+ }finally{
+  $('#loginStatus').textContent='';
+  button.disabled=false;
+ }
 };
-$('#logout').onclick=async()=>{
- const token=session?.access_token;showLogin();$('#password').value='';
+
+async function signOut(){
+ const token=session?.access_token;
+ showLogin();
+ $('#password').value='';
+ setPasswordVisible(false);
+ $('#email').focus();
  if(token)try{await raw('/auth/v1/logout',{method:'POST',headers:{Authorization:'Bearer '+token}})}catch{/* The local session is already cleared. */}
-};
+}
+
+$('#logout').onclick=signOut;
+$('#topLogout').onclick=signOut;
+
 async function restoreSession(){
- try{const stored=sessionStorage.getItem(storageKey);if(!stored)return;session=JSON.parse(stored);$('#loginError').textContent='Verificando sessão…';await refreshSession();
+ const stored=sessionStorage.getItem(storageKey);
+ if(!stored)return;
+ const button=$('#loginSubmit');
+ button.disabled=true;
+ $('#loginStatus').textContent='Verificando sessão…';
+ try{session=JSON.parse(stored);await refreshSession();
  const user=await raw('/auth/v1/user',{headers:{Authorization:'Bearer '+session.access_token}});session.user=user;saveSession(session);await openPanel();
- }catch{showLogin('Entre novamente para acessar o sistema.')}
+ }catch{showLogin('Entre novamente para acessar o sistema.')}finally{button.disabled=false;$('#loginStatus').textContent='';}
 }
 // Discard credentials from versions that did not distinguish Supabase projects.
 sessionStorage.removeItem('sb-session');
