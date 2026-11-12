@@ -12,6 +12,28 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');const {setup,re
  t.get('#digiPilotPaused').checked=true;t.get('#digiPilotMax').value=50;
  await t.get('#digiPilotForm').onsubmit({preventDefault(){}});
  assert.deepEqual(JSON.parse(t.calls.at(-1)[1].body),{p_mode:'api',p_paused:true,p_max:50});
+ let releaseDetails;
+ t.handler(()=>new Promise(resolve=>{releaseDetails=resolve;}));
+ t.get('#settings-digimais-api').hidden=false;
+ vm.runInContext(`currentPage='settings';records=[
+  {id:'job-1',execution_mode:'api',status:'Revisão',date:'2026-11-12T04:00:00Z',cpf:'000.000.000-00',message:'Resumo da primeira consulta'},
+  {id:'job-2',execution_mode:'api',status:'Aguardando',date:'2026-11-12T04:01:00Z',cpf:'000.000.000-00',api_handoff:{api_slot:50,message:'Encaminhamento'}}
+ ];`,t.ctx);
+ const before=t.calls.length;
+ const loading=vm.runInContext('renderDigiApiLogs()',t.ctx);
+ await new Promise(setImmediate);
+ assert.equal(t.calls.length,before+1);
+ assert.match(t.calls.at(-1)[0],/id=in\.\(job-2%2Cjob-1\)/);
+ assert.match(t.get('#digiApiLogContent').textContent,/Resumo da primeira consulta/);
+ assert.match(t.get('#digiApiLogContent').textContent,/Encaminhada ao robô/);
+ vm.runInContext('records=records.map(row=>({...row}));renderDigiApiLogs()',t.ctx);
+ assert.equal(t.calls.length,before+1,'A atualização da fila não reinicia a busca em andamento');
+ t.handler(async()=>response({message:'Falha de conexão'},503));
+ releaseDetails(response([{id:'job-1',message:'Detalhe da consulta'}]));
+ await loading;
+ await new Promise(setImmediate);
+ assert.match(t.get('#digiApiLogContent').textContent,/Resumo da primeira consulta/);
+ assert.match(t.get('#digiApiLogContentCount').textContent,/Detalhes indisponíveis/);
  vm.runInContext('resetApiSettings()',t.ctx);assert.equal(vm.runInContext('digiPilot.hidden',t.ctx),true);
  assert.equal(vm.runInContext('digiPilotEpoch',t.ctx),-1);
  console.log('PASS: admin pilot visibility, load, save, pause and logout reset');
