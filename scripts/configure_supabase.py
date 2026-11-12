@@ -1,5 +1,5 @@
 """Validate and persist server/public Supabase settings without exposing secrets."""
-import argparse, base64, json, os, re, sys, tempfile
+import argparse, base64, json, os, re, sys, tempfile, subprocess
 from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
@@ -65,11 +65,36 @@ def configure(app,url,public,secret,check=probe):
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--app',required=True,type=Path)
-    parser.add_argument('--check-runtime',action='store_true');parser.add_argument('--show-url',action='store_true');parser.add_argument('--capture-public',action='store_true');parser.add_argument('--render-only',action='store_true');args=parser.parse_args();app=args.app
+    parser.add_argument('--check-services',action='store_true');parser.add_argument('--show-current',action='store_true');parser.add_argument('--check-runtime',action='store_true');parser.add_argument('--show-url',action='store_true');parser.add_argument('--capture-public',action='store_true');parser.add_argument('--render-only',action='store_true');args=parser.parse_args();app=args.app
+    if args.check_services:
+        env=dict(line.split('=',1) for line in (app/'.env').read_text().splitlines() if '=' in line and not line.startswith('#'))
+        for service in ('apoiarcred-robo','apoiarcred-api','apoiarcred-webhooks','apoiarcred-monitor'):
+            if subprocess.run(['systemctl','is-active','--quiet',service]).returncode:
+                continue
+            pid=subprocess.check_output(['systemctl','show','--property=MainPID','--value',service],text=True).strip()
+            if not pid.isdigit() or int(pid) == 0:
+                raise ValueError('Processo indisponível para '+service)
+            entries=Path('/proc',pid,'environ').read_bytes().split(b'\0')
+            runtime=dict(entry.split(b'=',1) for entry in entries if b'=' in entry)
+            for key in ('SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY'):
+                if runtime.get(key.encode()) != env[key].encode():
+                    raise ValueError('Conexão do processo diverge da configuração em '+service)
+        return
+    if args.show_current:
+        env=dict(line.split('=',1) for line in (app/'.env').read_text().splitlines() if '=' in line and not line.startswith('#'))
+        config=json.loads((app/'supabase-public.json').read_text()) if (app/'supabase-public.json').exists() else public_from_js(app/'dist/supabase-config.js')
+        browser=public_from_js(app/'dist/supabase-config.js')
+        for label,url in [('Servidor (API, robôs, monitor e webhooks)',env.get('SUPABASE_URL','')),('Painel salvo',config.get('url','')),('Painel publicado',browser.get('url',''))]:
+            safe=url if re.fullmatch(r'https://[a-z0-9]{20}\.supabase\.co',url) else '(URL ausente ou inválida)'
+            print(label+' — '+safe)
+        if env.get('SUPABASE_URL') != config.get('url') or browser != config:
+            print('Há divergência entre as configurações. A troca atualizará os três arquivos.')
+        return
     if args.check_runtime:
         env=dict(line.split('=',1) for line in (app/'.env').read_text().splitlines() if '=' in line and not line.startswith('#'))
         config=json.loads((app/'supabase-public.json').read_text())
         if env['SUPABASE_URL']!=config['url']:raise ValueError('A URL do painel e do robô não coincide. Use Trocar conexão no menu.')
+        if public_from_js(app/'dist/supabase-config.js') != config:raise ValueError('O painel publicado diverge da configuração salva.')
         validate(config['url'],config['key'],env['SUPABASE_SERVICE_ROLE_KEY'])
         probe(config['url'],config['key'],env['SUPABASE_SERVICE_ROLE_KEY']);return
     if args.show_url:
