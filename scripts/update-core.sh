@@ -25,19 +25,13 @@ if [[ ! -f "$APP/supabase-public.json" ]]; then
 fi
 STAGE='validação do banco'
 python3 "$REPO/scripts/configure_supabase.py" --app "$APP" --check-runtime
-STAGE='aguardar consultas em andamento'
-python3 "$REPO/scripts/drain_queue.py" --app "$APP"
-trap 'python3 "$REPO/scripts/drain_queue.py" --app "$APP" --release || true' EXIT
+STAGE='interrupção e devolução das consultas à fila'
+python3 "$REPO/scripts/stop-consultas.py" --app "$APP"
 STAGE='aplicação da atualização'  
 BACKUP=$(mktemp -d /var/tmp/apoiarcred-update.XXXXXX)
 chmod 700 "$BACKUP"
 cp -a "$APP/dist" "$APP/vps" "$BACKUP/"
 printf 'Backup do código anterior: %s\n' "$BACKUP"
-WAS_ACTIVE=0
-if systemctl is-active --quiet apoiarcred-robo; then
-    WAS_ACTIVE=1
-    systemctl stop apoiarcred-robo
-fi
 cp -a dist/. "$APP/dist/"
 cp -a vps/. "$APP/vps/"
 python3 "$REPO/scripts/configure_supabase.py" --app "$APP" --render-only
@@ -59,19 +53,16 @@ systemctl enable apoiarcred-webhooks
 systemctl restart apoiarcred-webhooks
 systemctl is-active --quiet apoiarcred-webhooks
 systemctl enable apoiarcred-api
-systemctl restart apoiarcred-api
-systemctl is-active --quiet apoiarcred-api
 systemctl enable apoiarcred-monitor
 systemctl restart apoiarcred-monitor
 systemctl is-active --quiet apoiarcred-monitor
 nginx -t
 systemctl reload nginx
 python3 "$REPO/scripts/drain_queue.py" --app "$APP" --release
-# Não ligar um worker que estava parado manualmente.
-if (( WAS_ACTIVE )); then
-    systemctl start apoiarcred-robo
-    systemctl is-active --quiet apoiarcred-robo
-fi
+STAGE='retomada das consultas'
+systemctl start apoiarcred-robo apoiarcred-api
+systemctl is-active --quiet apoiarcred-robo
+systemctl is-active --quiet apoiarcred-api
 printf '\nAtualizado para o commit %s. .env, modo do robô e SSL preservados.\n' "$(git rev-parse --short HEAD)"
 printf 'Atualizados: painel, robô, dependências e serviço. Menu e scripts vêm do mesmo repositório.\n'
 
