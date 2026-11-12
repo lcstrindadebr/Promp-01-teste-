@@ -79,7 +79,7 @@ class ApiSession:
   def mark(value,status='iniciada'):
    nonlocal stage
    stage=value;events.append({'horario':datetime.now(timezone.utc).isoformat(),'etapa':value,'status':status})
-  async def call(path,body=None,limit=None):
+  async def request_once(path,body=None,limit=None):
    nonlocal cookie
    def send():
     query={'code':cfg['code']}
@@ -99,6 +99,35 @@ class ApiSession:
      else:jar[name]=morsel.value
    cookie='; '.join(m.OutputString() for m in jar.values())
    return data,set_cookies
+  async def call(path,body=None,limit=None,validate=None):
+   for attempt,delay in enumerate((0,4,2),1):
+    if delay:
+     events.append({'horario':datetime.now(timezone.utc).isoformat(),'etapa':stage,'status':'nova tentativa','tentativa':attempt,'espera_segundos':delay})
+     await asyncio.sleep(delay)
+    try:
+     data,cookies=await request_once(path,body,limit)
+     if validate:validate(data)
+     return data,cookies
+    except (FlowStopped,CpfFormatError):
+     raise
+    except Exception:
+     if attempt==3:
+      raise FlowStopped('TENTATIVAS_ESGOTADAS','Falha na etapa '+stage+' após 3 tentativas da mesma chamada.')
+  def validate_login(data):
+   if not isinstance(data,dict) or not data.get('userId'):
+    raise ValueError('Login sem usuário')
+  def validate_menu(raw,predicate):
+   nonlocal items
+   items=messages(raw)
+   assert_service_available(items,after_cpf=stage!='menu de cobrança')
+   option(predicate)
+  def validate_result(raw):
+   nonlocal items
+   items=messages(raw)
+   assert_service_available(items,after_cpf=True)
+   result=parse_result(items,kind)
+   if not result['sucesso'] or result.get('valorSaldo' if kind=='saldo' else 'valorParcela') is None:
+    raise ValueError('Resultado ainda indisponível')
   async def message(text,option=None):
    await call('/messages',{'customData':{'options':[option],'buttons':None,'contextData':None} if option else None,
     'id':str(uuid.uuid4()),'contentText':text,'contentType':'text/plain','contentUrl':None,'messageType':'text',
@@ -113,7 +142,7 @@ class ApiSession:
   try:
    mark('autenticação')
    login,cookies=await call('/auth/login-public',{'userData':None,'userAccountUid':cfg['accountUid'],
-    'userFullName':job['nome'],'userId':user,'userRole':'public','userName':job['telefone'],'userPhotoUrl':None,'userCustomData':{}})
+    'userFullName':job['nome'],'userId':user,'userRole':'public','userName':job['telefone'],'userPhotoUrl':None,'userCustomData':{}},validate=validate_login)
    if not login.get('userId'):raise RuntimeError('Login sem usuário')
    user=login['userId']
    mark('criação da sessão')
@@ -122,16 +151,16 @@ class ApiSession:
    session=sess.get('id') or session
    mark('menu de cobrança')
    await asyncio.sleep(8)
-   raw,_=await call('/sessions/'+session+'/messages',limit=20);items=messages(raw);assert_service_available(items)
+   raw,_=await call('/sessions/'+session+'/messages',limit=20,validate=lambda raw:validate_menu(raw,lambda t:'cobran' in t));items=messages(raw);assert_service_available(items)
    selected=option(lambda t:'cobran' in t);await message(selected['id'],selected)
    mark('envio do CPF')
    await asyncio.sleep(5);await message(format_cpf(job['cpf']))
    await asyncio.sleep(6)
    mark('seleção de '+kind)
-   raw,_=await call('/sessions/'+session+'/messages',limit=20);items=messages(raw);assert_service_available(items,after_cpf=True)
+   raw,_=await call('/sessions/'+session+'/messages',limit=20,validate=lambda raw:validate_menu(raw,(lambda t:'iquid' in t or 'saldo' in t) if kind=='saldo' else (lambda t:'parcela' in t or ('valor' in t and 'saldo' not in t))));items=messages(raw);assert_service_available(items,after_cpf=True)
    selected=option((lambda t:'iquid' in t or 'saldo' in t) if kind=='saldo' else (lambda t:'parcela' in t or ('valor' in t and 'saldo' not in t)))
    await message(selected['id'],selected);mark('retorno de '+kind);await asyncio.sleep(8)
-   raw,_=await call('/sessions/'+session+'/messages',limit=30);items=messages(raw);assert_service_available(items,after_cpf=True)
+   raw,_=await call('/sessions/'+session+'/messages',limit=30,validate=validate_result);items=messages(raw);assert_service_available(items,after_cpf=True)
    result=parse_result(items,kind)
    reason=None if result['sucesso'] else 'O atendimento não retornou uma mensagem de '+kind+' reconhecida.'
    if result['sucesso'] and result.get('valorSaldo' if kind=='saldo' else 'valorParcela') is None:
