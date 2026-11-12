@@ -4596,7 +4596,7 @@ create table apoiarcred_private.digimais_preferences(
  user_id uuid primary key references auth.users(id) on delete cascade,
  mode text not null default 'robot' check(mode in ('robot','api')),
  paused boolean not null default false,
- max_concurrency integer not null default 12 check(max_concurrency between 1 and 12)
+ max_concurrency integer not null default 12 check(max_concurrency between 1 and 50)
 );
 alter table apoiarcred_private.digimais_preferences enable row level security;
 revoke all on apoiarcred_private.digimais_preferences from public,anon,authenticated;
@@ -4606,7 +4606,7 @@ alter table apoiarcred_private.digimais_api_config enable row level security;
 revoke all on apoiarcred_private.digimais_api_config from public,anon,authenticated;
 grant all on apoiarcred_private.digimais_api_config to service_role;
 alter table public.consulta_jobs add column execution_mode text not null default 'robot' check(execution_mode in ('robot','api'));
-alter table public.consulta_jobs add column api_slot integer check(api_slot between 1 and 12);
+alter table public.consulta_jobs add column api_slot integer check(api_slot between 1 and 50);
 alter table public.consulta_jobs add column if not exists api_handoff jsonb;
 create index consulta_jobs_api_queue on public.consulta_jobs(execution_mode,queue_order) where status='aguardando';
 create unique index consulta_jobs_api_running_slot on public.consulta_jobs(api_slot) where status='processando' and execution_mode='api';
@@ -4615,7 +4615,7 @@ declare uid uuid=auth.uid(); result jsonb;
 begin
  if not apoiarcred_private.is_admin(uid) then raise insufficient_privilege;end if;
  if p_mode is not null then
-  if p_mode not in ('robot','api') or p_paused is null or p_max is null or p_max not between 1 and 12 then raise exception 'Configuração inválida';end if;
+  if p_mode not in ('robot','api') or p_paused is null or p_max is null or p_max not between 1 and 50 then raise exception 'Configuração inválida';end if;
   if p_mode='api' and not exists(select 1 from apoiarcred_private.digimais_api_config) then raise exception 'API ainda não configurada na VPS/banco';end if;
   insert into apoiarcred_private.digimais_preferences(user_id,mode,paused,max_concurrency) values(uid,p_mode,p_paused,p_max)
   on conflict(user_id) do update set mode=excluded.mode,paused=excluded.paused,max_concurrency=excluded.max_concurrency;
@@ -4650,12 +4650,12 @@ revoke all on function public.get_digimais_api_config() from public,anon,authent
 grant execute on function public.get_digimais_api_config() to service_role;
 create function public.claim_consulta_job_for_api(p_slot integer) returns setof public.consulta_jobs language plpgsql security invoker set search_path='' as $$
 begin
- if p_slot is null or p_slot not between 1 and 12 then raise exception 'Executor API inválido';end if;
+ if p_slot is null or p_slot not between 1 and 50 then raise exception 'Executor API inválido';end if;
  perform 1 from apoiarcred_private.queue_maintenance where id for share;
  if exists(select 1 from apoiarcred_private.queue_maintenance where id and paused_until>clock_timestamp()) then return;end if;
  if not pg_try_advisory_xact_lock(763212,1) then return;end if;
  if exists(select 1 from public.consulta_jobs where execution_mode='api' and status='processando' and api_slot=p_slot) then return;end if;
- if (select count(*) from public.consulta_jobs where execution_mode='api' and status='processando')>=12 then return;end if;
+ if (select count(*) from public.consulta_jobs where execution_mode='api' and status='processando')>=50 then return;end if;
  return query update public.consulta_jobs set status='processando',locked_at=now(),attempts=attempts+1,api_slot=p_slot,robot_slot=null
  where id=(select j.id from public.consulta_jobs j join public.consulta_lotes l on l.id=j.lote_id
  join apoiarcred_private.digimais_preferences p on p.user_id=j.user_id

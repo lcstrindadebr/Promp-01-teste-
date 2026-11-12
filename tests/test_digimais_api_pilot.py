@@ -180,11 +180,11 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
 if __name__=='__main__':unittest.main()
 
 class ApiPoolTests(unittest.IsolatedAsyncioTestCase):
- async def test_twelve_clients_no_requery_when_saving_fails(self):
+ async def test_fifty_clients_no_requery_when_saving_fails(self):
   import importlib.util,os,threading
   with patch.dict(os.environ,{'SUPABASE_URL':'https://example.invalid','SUPABASE_SERVICE_ROLE_KEY':'fake','ROBOT_MODE':'live'}):
    spec=importlib.util.spec_from_file_location('pilot_worker',Path(__file__).resolve().parents[1]/'vps/worker.py');worker=importlib.util.module_from_spec(spec);spec.loader.exec_module(worker)
-  cap=worker.ApiCapacity();self.assertEqual(cap.target,12)
+  cap=worker.ApiCapacity();self.assertEqual(cap.target,50)
   lock=threading.Lock();claimed=set();saved=set();processed=[];failed=False;barrier=asyncio.Event()
   def request(route,payload=None,method='POST',timeout=30):
    nonlocal failed
@@ -192,26 +192,26 @@ class ApiPoolTests(unittest.IsolatedAsyncioTestCase):
     if route.startswith('rpc/claim'):
      i=payload['p_slot']
      if i in claimed:return []
-     claimed.add(i);return [{'id':str(i)}]
+     claimed.add(i);return [{'id':str(i),'attempts':1}]
     if method=='PATCH':
      if not failed:failed=True;raise OSError()
      saved.add(route);return None
   async def process(job,adapter):
    processed.append(job['id'])
-   if len(processed)==12:barrier.set()
+   if len(processed)==50:barrier.set()
    await asyncio.wait_for(barrier.wait(),3)
    cap.target=1
    return {'status':'concluida','saldo_liquidacao':1,'valor_parcela':2}
   real_sleep=asyncio.sleep
   async def quick(_):await real_sleep(.001)
   with patch.object(worker,'request',side_effect=request),patch.object(worker,'process_digimais',side_effect=process),patch.object(worker.asyncio,'sleep',side_effect=quick):
-   tasks=[asyncio.create_task(worker.api_loop(i,cap,Slot('api-'+str(i)),{})) for i in range(12)]
+   tasks=[asyncio.create_task(worker.api_loop(i,cap,Slot('api-'+str(i)),{})) for i in range(50)]
    try:
     async with asyncio.timeout(5):
-     while len(saved)<12:await real_sleep(.005)
+     while len(saved)<50:await real_sleep(.005)
    finally:
     for t in tasks:t.cancel()
     await asyncio.gather(*tasks,return_exceptions=True)
-  self.assertEqual(len(processed),12);self.assertEqual(len(set(processed)),12)
+  self.assertEqual(len(processed),50);self.assertEqual(len(set(processed)),50)
   low={'total':2048*1024**2,'available':200*1024**2}
-  cap=worker.ApiCapacity();cap.observe(low,40);self.assertEqual(cap.target,11)
+  cap=worker.ApiCapacity();cap.observe(low,40);self.assertEqual(cap.target,49)

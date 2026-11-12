@@ -1,10 +1,10 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 function setup(stored){
- const nodes=new Map();function element(){return {value:'',textContent:'',innerHTML:'',hidden:false,disabled:false,dataset:{},style:{},classList:{add(){},remove(){},toggle(){}},querySelector(){return element()}}}
+ const nodes=new Map();function element(){return {value:'',textContent:'',innerHTML:'',hidden:false,disabled:false,dataset:{},style:{},classList:{add(){},remove(){},toggle(){}},querySelector(){return element()},closest(){return element()},after(){},addEventListener(){}}}
  const get=s=>{if(!nodes.has(s))nodes.set(s,element());return nodes.get(s)};get('#appShell').hidden=true;
  const data=new Map(stored||[]),storage={getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)};
  const calls=[];let handler=async()=>({ok:true,status:200,text:async()=>JSON.stringify([])});
- const ctx={document:{querySelector:get,querySelectorAll:()=>[]},window:{SUPABASE_CONFIG:{url:'https://test.supabase.co',key:'sb_publishable_test'}},sessionStorage:storage,setTimeout:()=>{},setInterval:()=>{},AbortSignal:{timeout:()=>undefined},fetch:async(u,o)=>{calls.push([u,o]);if(u.endsWith('/rpc/my_access'))return {ok:true,status:200,text:async()=>JSON.stringify({role:'admin',active:true,services:[{id:'digimais_saldo_parcela',enabled:true},{id:'tjba_margem',enabled:true}]})};return handler(u,o)},console};vm.createContext(ctx);
+ const ctx={document:{createElement:element,addEventListener(){},getElementById:id=>get('#'+id),querySelector:get,querySelectorAll:()=>[]},window:{SUPABASE_CONFIG:{url:'https://test.supabase.co',key:'sb_publishable_test'}},sessionStorage:storage,setTimeout:()=>{},setInterval:()=>{},AbortSignal:{timeout:()=>undefined},fetch:async(u,o)=>{calls.push([u,o]);if(u.endsWith('/rpc/my_access'))return {ok:true,status:200,text:async()=>JSON.stringify({role:'admin',active:true,services:[{id:'digimais_saldo_parcela',enabled:true},{id:'tjba_margem',enabled:true}]})};return handler(u,o)},console};vm.createContext(ctx);
  vm.runInContext(fs.readFileSync('dist/app.js','utf8'),ctx);vm.runInContext(fs.readFileSync('dist/supabase.js','utf8'),ctx);
  return {ctx,get,calls,handler:f=>handler=f};
 }

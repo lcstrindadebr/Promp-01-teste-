@@ -4,6 +4,7 @@ from collections import deque
 from datetime import datetime,timezone
 from pathlib import Path
 
+DIGIMAIS_API_MAX_CONCURRENCY=50
 STATE_PATH=Path('/run/apoiarcred-robots/state.json')
 
 def stamp():return datetime.now(timezone.utc).isoformat()
@@ -44,7 +45,7 @@ class Slot:
 class RobotMetrics:
  def __init__(self,workers,path=STATE_PATH):
   self.path=Path(path);self.started_at=stamp();self.slots=[Slot(f'robo-{index+1}') for index in range(workers)]
- def payload(self):return dict(updated_at=stamp(),started_at=self.started_at,slots=[s.snapshot() for s in self.slots],api_slots=[s.snapshot() for s in getattr(self,'api_slots',[])],api_capacity=getattr(getattr(self,'api_capacity',None),'target',0),api_maximum=12)
+ def payload(self):return dict(updated_at=stamp(),started_at=self.started_at,slots=[s.snapshot() for s in self.slots],api_slots=[s.snapshot() for s in getattr(self,'api_slots',[])],api_capacity=getattr(getattr(self,'api_capacity',None),'target',0),api_maximum=DIGIMAIS_API_MAX_CONCURRENCY)
  def write(self,data):
   self.path.parent.mkdir(parents=True,exist_ok=True)
   temporary=self.path.with_suffix('.tmp')

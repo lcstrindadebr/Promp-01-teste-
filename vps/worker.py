@@ -3,6 +3,7 @@ import asyncio,json,os,time,urllib.request,urllib.error
 from datetime import datetime,timezone
 from collections import defaultdict
 from robot_failures import diagnose, label
+from robot_metrics import DIGIMAIS_API_MAX_CONCURRENCY
 URL=os.environ['SUPABASE_URL'].rstrip('/')
 KEY=os.environ['SUPABASE_SERVICE_ROLE_KEY']
 MODE=os.environ.get('ROBOT_MODE','disabled')
@@ -236,7 +237,7 @@ class RobotCapacity:
    await asyncio.sleep(5)
 
 class ApiCapacity(RobotCapacity):
- def __init__(self,maximum=12):
+ def __init__(self,maximum=DIGIMAIS_API_MAX_CONCURRENCY):
   super().__init__(maximum)
   self.target=maximum
 
@@ -301,8 +302,8 @@ async def api_supervisor():
    if not config:await asyncio.sleep(30);continue
    break
   except Exception:await asyncio.sleep(30)
- capacity=ApiCapacity(12)
- slots=[Slot(f'api-{i+1}') for i in range(12)]
+ capacity=ApiCapacity()
+ slots=[Slot(f'api-{i+1}') for i in range(capacity.maximum)]
  robot_metrics.api_slots=slots;robot_metrics.api_capacity=capacity
  tasks=[asyncio.create_task(api_loop(i,capacity,slot,config)) for i,slot in enumerate(slots)]
  tasks.append(asyncio.create_task(capacity.watch()))
