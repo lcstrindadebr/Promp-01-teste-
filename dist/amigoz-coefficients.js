@@ -107,13 +107,16 @@ async function loadCoefficientContext() {
 const amigozMarginDialog=$('#amigozMarginDiagnostic');
 const amigozMarginLogButton=$('#amigozOpenMarginDiagnostic');
 const amigozMarginLogText=$('#amigozMarginDiagnosticText');
+function canViewAmigozMarginDiagnostic() {
+ return Boolean(authenticated && currentAccess?.active && currentAccess.role === 'admin');
+}
 function clearAmigozMarginDiagnostic() {
  if(amigozMarginDialog.open)amigozMarginDialog.close();
  amigozMarginLogButton.hidden=true;
  amigozMarginLogText.textContent='';
 }
 function showAmigozMarginDiagnostic(diagnostic,convenio,consultaId) {
- if(!amigozIsAdmin())return;
+ if(!canViewAmigozMarginDiagnostic())return;
  const http=diagnostic?.http_status ? 'HTTP '+diagnostic.http_status : '';
  const metadata=[http,diagnostic?.rota,diagnostic?.codigo].filter(Boolean).join(' · ');
  amigozMarginLogText.textContent=[
@@ -123,14 +126,14 @@ function showAmigozMarginDiagnostic(diagnostic,convenio,consultaId) {
  amigozMarginLogButton.hidden=false;
 }
 amigozMarginLogButton.onclick=()=>{
- if(!amigozIsAdmin()){clearAmigozMarginDiagnostic();return;}
+ if(!canViewAmigozMarginDiagnostic()){clearAmigozMarginDiagnostic();return;}
  if(!amigozMarginLogButton.hidden&&!amigozMarginDialog.open)amigozMarginDialog.showModal();
 };
 $('#amigozCloseMarginDiagnostic').onclick=()=>amigozMarginDialog.close();
 const amigozMarginPreviousAccess=applyAccessUi;
 applyAccessUi=function(){
  amigozMarginPreviousAccess();
- if(!amigozIsAdmin())clearAmigozMarginDiagnostic();
+ if(!canViewAmigozMarginDiagnostic())clearAmigozMarginDiagnostic();
 };
 
 async function openAmigozClient(cpf, convenio='', jobId=null, name='', margin=false) {
