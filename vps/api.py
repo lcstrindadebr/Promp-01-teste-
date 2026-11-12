@@ -40,6 +40,21 @@ def session_actor(auth):
  if not actor:raise AdminError(401,'invalid_session','Sessão inválida.')
  return actor
 
+def minio_admin(auth,method,path,payload):
+ import minio_settings
+
+ actor=session_actor(auth)
+ try:
+  supabase_call('/rest/v1/rpc/admin_partner_manage',dict(p_actor=actor,p_action='check',p_input={}))
+ except urllib.error.HTTPError as error:
+  if error.code in (401,403):raise AdminError(403,'admin_required','Apenas administradores podem configurar o MinIO.') from error
+  raise
+ try:
+  return 200,{'data':minio_settings.handle_settings(method,path,payload)}
+ except minio_settings.SettingsError as error:
+  raise AdminError(error.status,'minio_settings',str(error)) from None
+
+
 def partner_admin(auth,method,path,payload):
  actor=session_actor(auth)
  def manage(action,data=None):return supabase_call('/rest/v1/rpc/admin_partner_manage',dict(p_actor=actor,p_action=action,p_input=data or {}))
@@ -239,7 +254,8 @@ class Handler(BaseHTTPRequestHandler):
   if key is not None and (not 1<=len(key)<=128 or not re.fullmatch(r'[A-Za-z0-9_.:-]+',key)):return self.error(400,'invalid_idempotency_key','Use chave de 1 a 128 caracteres: letras, números, ponto, dois-pontos, hífen ou sublinhado.')
   try:
    if admin:
-    handler=amigoz_admin if target.path.startswith('/api/admin/amigoz/') else partner_admin
+    if target.path in ('/api/admin/minio','/api/admin/minio/test'):handler=minio_admin
+    else:handler=amigoz_admin if target.path.startswith('/api/admin/amigoz/') else partner_admin
     status,body=handler(auth,self.command,target.path,payload);body['request_id']=self.request_id;return self.send_json(status,body)
    result=rpc(dict(p_hash=hashlib.sha256(token.encode()).hexdigest(),p_method=self.command,p_route=target.path[len('/api/v1'):],p_payload=payload,p_key=key))
    status=int(result['status']);body=result['body'];body['request_id']=self.request_id

@@ -55,7 +55,7 @@ function applyAccessUi(){
  const admin=currentAccess.role==='admin'&&currentAccess.active,rules=currentAccess.services||[];
  const canCampaign=admin||currentAccess.active&&rules.some(r=>r.enabled&&r.allow_campaign);
  document.querySelector('[data-consultation="campaigns"]').hidden=!canCampaign;
- for(const id of ['robots','partners']){$('#settings-tab-'+id).hidden=!admin;if(!admin&&!$('#settings-'+id).hidden)switchSettings('account');}
+ for(const id of ['robots','partners','minio']){$('#settings-tab-'+id).hidden=!admin;if(!admin&&!$('#settings-'+id).hidden)switchSettings('account');}
  const integrationsAllowed=hasIntegrationAccess();
  $('#settings-tab-integrations').hidden=!integrationsAllowed;
  $('#settings-account .technical-settings').hidden=!admin;
@@ -102,7 +102,7 @@ $('#partnerAccessType').onchange=()=>{
  if($('#partnerAccessType').value==='trial'&&$('#partnerQuotaMode').value==='legacy')$('#partnerQuotaMode').value='limited';
  syncPartnerQuotaFields();
 };$('#partnerTrialUntil').oninput=syncPartnerQuotaFields;$('#partnerQuotaMode').onchange=syncPartnerQuotaFields;
-function resetPartnerSettings(){quotaBanner.hidden=true;partnersList=[];$('#partnerList').innerHTML='';$('#partnerAdminStatus').textContent='';clearPartnerForm();$('#settings-tab-partners').hidden=true;quotaBox.hidden=true;}
+function resetPartnerSettings(){if(typeof resetMinioSettings==='function')resetMinioSettings();quotaBanner.hidden=true;partnersList=[];$('#partnerList').innerHTML='';$('#partnerAdminStatus').textContent='';clearPartnerForm();$('#settings-tab-partners').hidden=true;quotaBox.hidden=true;}
 function clearPartnerForm(){
  $('#partnerEditId').value='';$('#partnerName').value='';$('#partnerEmail').value='';$('#partnerEmail').disabled=false;$('#partnerPassword').value='';$('#partnerPassword').required=true;$('#partnerPasswordField').hidden=false;$('#partnerActive').checked=true;$('#partnerIntegrations').checked=false;$('#partnerAmigoz').checked=false;
  for(const [id] of partnerServices){for(const name of ['Enabled','Individual','Campaign'])$('#partner'+name+'-'+id).checked=false;$('#partnerLimit-'+id).value=0;}
@@ -116,7 +116,7 @@ async function loadPartners(){
  $('#partnerAdminStatus').textContent='';
  }catch(e){if(epoch===authEpoch)$('#partnerAdminStatus').textContent=e.message;}
 }
-const partnerSwitchSettings=switchSettings;switchSettings=function(id){if(id==='partners'&&currentAccess?.role!=='admin'||id==='integrations'&&!hasIntegrationAccess())return;partnerSwitchSettings(id);if(id==='partners')loadPartners();};
+const partnerSwitchSettings=switchSettings;switchSettings=function(id){if(id==='minio'&&!minioAdmin()||id==='partners'&&currentAccess?.role!=='admin'||id==='integrations'&&!hasIntegrationAccess())return;partnerSwitchSettings(id);if(id==='partners')loadPartners();if(id==='minio')requestMinio('load');};
 $('#newPartner').onclick=clearPartnerForm;$('#cancelPartnerEdit').onclick=clearPartnerForm;$('#reloadPartners').onclick=loadPartners;
 $('#partnerList').onclick=e=>{const id=e.target.dataset.editPartner,p=partnersList.find(p=>p.user_id===id);if(!p)return;clearPartnerForm();$('#partnerEditId').value=id;$('#partnerName').value=p.name;$('#partnerEmail').value=p.email;$('#partnerEmail').disabled=true;$('#partnerPassword').required=false;$('#partnerPasswordField').hidden=true;$('#partnerActive').checked=p.active;$('#partnerIntegrations').checked=p.allow_integrations===true;$('#partnerAmigoz').checked=p.allow_amigoz===true;
  for(const r of p.access.services){$('#partnerEnabled-'+r.id).checked=r.enabled;$('#partnerIndividual-'+r.id).checked=r.allow_individual;$('#partnerCampaign-'+r.id).checked=r.allow_campaign;$('#partnerLimit-'+r.id).value=r.daily_limit;}
