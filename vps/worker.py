@@ -128,11 +128,37 @@ async def run_with_recovery(process, job, session, name):
  recovered['message']=' '.join(filter(None,[recovered.get('message'),previous]))
  return recovered
 
-async def robot_loop(index, capacity, sessions):
+async def dispatch_robot_jobs(capacity, waiting):
+ """Reserve ConsigX work before offering Digi+ to the remaining idle robots."""
+ while True:
+  # Each robot registers only after finishing and saving its previous job.
+  batch=sorted(waiting.items())
+  consigx_active=any(slot.service=='consigx' and slot.state in ('consulting','saving')
+                     for slot in robot_metrics.slots)
+  for service,route in (('tjba','rpc/claim_tjba_job_for_robot'),
+                        ('digimais','rpc/claim_consulta_job_for_robot')):
+   candidates=reversed(batch) if service=='digimais' and consigx_active else batch
+   for index,(future,retry_after) in candidates:
+    if future.done() or index>=capacity.target or time.monotonic()<retry_after.get(service,0):
+     continue
+    try:
+     jobs=await asyncio.to_thread(request,route,{'p_slot':index+1})
+    except Exception as error:
+     if not future.done():future.set_exception(error)
+     continue
+    if jobs and not future.done():
+     future.set_result((service,jobs[0]))
+     if service=='tjba':
+      consigx_active=True
+  for _,(future,_) in batch:
+   if not future.done():
+    future.set_result(None)
+  await asyncio.sleep(3)
+
+async def robot_loop(index, capacity, sessions, waiting):
  from robot import DigiSession
  adapter=sessions[index]
  digi=DigiSession()
- last_queue='tjba' if index % 2 == 0 else 'digimais'
  retry_after={}
  slot=robot_metrics.slots[index]
  adapter.telemetry=slot;digi.telemetry=slot
@@ -148,22 +174,19 @@ async def robot_loop(index, capacity, sessions):
      continue
     if slot.state=='resource_paused':
      slot.state='idle'
-    queues=['digimais','tjba'] if last_queue=='tjba' else ['tjba','digimais']
-    jobs=[]
-    for queue_name in queues:
-     if index >= capacity.target:
-      break
-     if time.monotonic()<retry_after.get(queue_name,0):continue
-     route='rpc/claim_tjba_job_for_robot' if queue_name=='tjba' else 'rpc/claim_consulta_job_for_robot'
-     payload={'p_slot':index+1}
-     jobs=await asyncio.to_thread(request,route,payload)
-     if jobs:last_queue=queue_name;break
-    if not jobs:
+    assignment=asyncio.get_running_loop().create_future()
+    waiting[index]=(assignment,retry_after)
+    try:
+     selected=await assignment
+    finally:
+     waiting.pop(index,None)
+    if selected is None:
      if index >= capacity.target:
       continue
-     if slot and slot.state=='queue_error':slot.state='idle'
-     await adapter.close_idle();await digi.close_idle();await asyncio.sleep(3);continue
-    job=jobs[0]
+     if slot.state=='queue_error':slot.state='idle'
+     await adapter.close_idle();await digi.close_idle()
+     continue
+    service,job=selected
     if slot:slot.begin('consigx' if job.get('servico')=='tjba_margem' else 'digimais')
     try:
      if job.get('servico')=='tjba_margem':
@@ -178,7 +201,7 @@ async def robot_loop(index, capacity, sessions):
      await digi.close()
     diagnostic=result_diagnostic(result)
     if diagnostic and diagnostic.get('transitorio'):
-     retry_after[last_queue]=time.monotonic()+30
+     retry_after[service]=time.monotonic()+30
     if slot:slot.saving(result)
     save_started=time.monotonic()
     result['consultado_em']=datetime.now(timezone.utc).isoformat()
@@ -329,7 +352,9 @@ async def main_async():
   adapter.login_locks=login_locks
  print(f'Até {maximum} robôs para Digi+ e ConsigX, com ajuste automático de capacidade.',flush=True)
  background=[asyncio.create_task(robot_metrics.publish_loop()),asyncio.create_task(capacity.watch()),asyncio.create_task(api_supervisor())]
- tasks=[asyncio.create_task(robot_loop(index,capacity,sessions)) for index in range(maximum)]
+ waiting={}
+ tasks=[asyncio.create_task(robot_loop(index,capacity,sessions,waiting)) for index in range(maximum)]
+ background.append(asyncio.create_task(dispatch_robot_jobs(capacity,waiting)))
  try:
   await asyncio.gather(*tasks,*background)
  finally:
