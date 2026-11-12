@@ -189,6 +189,16 @@ renderCampaigns=function(){
   .replace(/<button data-retry="[^"]+">Tentar novamente<\/button>/g,'<span class="cell-sub">Use “Repetir consultas com falha” da campanha.</span>')
   .replace(/<tr><td>/g,()=>'<tr><td><span class="row-number">'+visible[index++].rank+'</span>');
 };
+const refreshCampaignsButton=$('#refreshCampaigns');
+if(refreshCampaignsButton)refreshCampaignsButton.onclick=async()=>{
+ refreshCampaignsButton.disabled=true;
+ refreshCampaignsButton.textContent='Atualizando…';
+ try{await loadCloud();}
+ finally{
+  refreshCampaignsButton.disabled=false;
+  refreshCampaignsButton.textContent='Atualizar';
+ }
+};
 $('#campaignPrevPage').onclick=()=>{campaignPage--;renderCampaigns();};
 $('#campaignNextPage').onclick=()=>{campaignPage++;renderCampaigns();};
 $('#pauseCampaign').onclick=async()=>{const c=campaigns.find(c=>c.id===activeCampaign);if(!c||changingCampaign)return;changingCampaign=true;renderCampaigns();try{await sbRequest('/rest/v1/rpc/set_campaign_paused',{method:'POST',body:JSON.stringify({p_campaign_id:c.id,p_service:c.servico||'digimais_saldo_parcela',p_paused:!c.paused})});toast(c.paused?'Campanha retomada.':'Pausa solicitada. Consultas já iniciadas vão terminar.');await loadCloud();}catch(e){toast(e.message)}finally{changingCampaign=false;renderCampaigns();}};
