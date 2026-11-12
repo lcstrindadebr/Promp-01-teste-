@@ -244,12 +244,12 @@ class ApiCapacity(RobotCapacity):
 def digimais_api_handoff(job, result, finished_at):
  balance = result.get('resultado_saldo') or {}
  installment = result.get('resultado_parcela') or {}
- if not any(part.get('codigo') == 'FORA_HORARIO_ATENDIMENTO' for part in (balance, installment)):
+ if not any(part.get('codigo') in ('FORA_HORARIO_ATENDIMENTO', 'TENTATIVAS_ESGOTADAS') for part in (balance, installment)):
   return None
- message = 'Fora do horário de atendimento · encaminhada ao robô'
+ message = 'API indisponível após tentativas ou fora do horário · encaminhada ao robô'
  return {
   'execution_mode': 'robot', 'status': 'aguardando', 'progress': 0,
-  'stage': 'Aguardando robô · API fora do horário', 'message': message,
+  'stage': 'Aguardando robô · falha na API', 'message': message,
   'locked_at': None, 'consultado_em': None, 'robot_slot': None, 'api_slot': None,
   'saldo_liquidacao': None, 'total_parcelas': None, 'valor_parcela': None,
   'resultado_saldo': None, 'resultado_parcela': None,
