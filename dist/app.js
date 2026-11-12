@@ -89,6 +89,14 @@ function renderCampaigns(renderRows=true){
  $('#retryCampaign').disabled=retryingCampaign||!(n.errors+n.review+n.interrupted);$('#retryCampaign').textContent=`Nova tentativa: consultas com falha (${n.errors+n.review+n.interrupted})`;
  if(renderRows)$('#campaignRows').innerHTML=rowsHTML(rows).replace(/<button data-retry="[^"]+">Tentar novamente<\/button>/g,'Use o botão da campanha');
 }
+const individualPageSize=50;
+let individualPage=1;
+const individualPager=document.createElement('div');
+individualPager.className='actions';
+individualPager.innerHTML='<button type="button" id="individualPrevious">Anterior</button><span id="individualPageStatus" role="status"></span><button type="button" id="individualNext">Próxima</button>';
+$('#rows').closest('table').after(individualPager);
+$('#individualPrevious').onclick=()=>{individualPage--;render();};
+$('#individualNext').onclick=()=>{individualPage++;render();};
 function render(){
  if(typeof refreshAmigoz==='function')refreshAmigoz();
  if(typeof setTableHead==='function')setTableHead(selectedService(),'individualHead');
@@ -99,7 +107,15 @@ function render(){
  $('#done').textContent=rows.filter(r=>r.status==='Concluída').length;
  $('#errors').textContent=rows.filter(r=>['Erro','Revisão','Consulta interrompida'].includes(r.status)).length;
  $('.modeNotice').textContent='Preencha os dados para consultar uma pessoa. Para uma lista de clientes, use Campanhas.';
- $('#rows').innerHTML=rowsHTML(rows.filter(r=>(!filter||r.status===filter||(filter.startsWith('tjba:')&&r.tjba_status===filter.slice(5)))&&matchesLeadSearch(r,q)));
+ const filtered=rows.filter(r=>(!filter||r.status===filter||(filter.startsWith('tjba:')&&r.tjba_status===filter.slice(5)))&&matchesLeadSearch(r,q));
+ const pages=Math.max(1,Math.ceil(filtered.length/individualPageSize));
+ individualPage=Math.min(pages,Math.max(1,individualPage));
+ const offset=(individualPage-1)*individualPageSize;
+ $('#rows').innerHTML=rowsHTML(filtered.slice(offset,offset+individualPageSize));
+ individualPager.hidden=pages===1;
+ $('#individualPrevious').disabled=individualPage===1;
+ $('#individualNext').disabled=individualPage===pages;
+ $('#individualPageStatus').textContent='Página '+individualPage+' de '+pages+' · '+filtered.length+' consultas';
 }
 
 const digits=s=>String(s).replace(/\D/g,'');
@@ -242,13 +258,14 @@ $('#retryCampaign').onclick=async()=>{
 };
 
 $('#rows').onclick=async e=>{const id=e.target.dataset.retry;if(!id)return;const r=records.find(r=>r.id===id);if(!r)return;e.target.disabled=true;try{await add([{nome:r.nome,cpf:digits(r.cpf),telefone:r.telefone}],r.servico||'digimais_saldo_parcela',r.convenio||'tjba')}catch(err){toast(err.message)}finally{if(e.target.isConnected)e.target.disabled=false}};
-$('#search').oninput=render;$('#filter').onchange=render;
+$('#search').oninput=$('#filter').onchange=()=>{individualPage=1;render();};
 function navigate(page){
  currentPage=page;$('#consultationTabs').hidden=!['home','campaigns'].includes(page);document.querySelectorAll('[data-consultation]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.consultation===page)));if(typeof tickMonitoring==='function')tickMonitoring();$('#serviceContext').classList.toggle('hide',!['home','campaigns'].includes(page));
  $('#pageBreadcrumb').textContent=({opportunities:'Oportunidades',clients:'Clientes',home:'Consulta individual',campaigns:'Campanhas',settings:'Configurações'})[page];
  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page||(b.dataset.page==='home'&&page==='campaigns')));
  $('#opportunities').classList.toggle('hide',page!=='opportunities');
  $('#clients').classList.toggle('hide',page!=='clients');if(typeof syncCrmPage==='function')syncCrmPage(page);
+ if(['home','campaigns'].includes(page)&&typeof cloudSyncVisible==='function'&&cloudSyncVisible())loadCloud();
  $('#home').classList.toggle('hide',page!=='home');$('#campaigns').classList.toggle('hide',page!=='campaigns');$('#settings').classList.toggle('hide',page!=='settings');$('#results').classList.toggle('hide',page!=='home');
 }
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>navigate(b.dataset.page));

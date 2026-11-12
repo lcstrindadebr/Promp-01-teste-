@@ -50,20 +50,33 @@ const digiApiLog=document.createElement('section');digiApiLog.className='card';d
 digiApiLog.innerHTML='<h2>Log DigiMais · API</h2><p>Tentativas encerradas da API, incluindo consultas encaminhadas ao robô. Veja as etapas e os motivos de interrupção nos 50 registros carregados mais recentes do filtro.</p><label class="field" for="digiApiLogSlot">Executor API</label><select id="digiApiLogSlot"><option value="">Todos</option>'+Array.from({length:12},(_,i)=>'<option value="'+(i+1)+'">API '+(i+1)+'</option>').join('')+'<option value="unassigned">Ainda sem executor</option></select><div class="log-actions"><span id="digiApiLogContentCount" class="muted"></span><button id="digiApiLogContentCopy" type="button" disabled>Copiar</button><button id="digiApiLogContentDownload" type="button" disabled>Baixar TXT</button></div><pre class="log-code" tabindex="0" aria-label="Registros de consulta"><code id="digiApiLogContent"></code></pre>';
 $('#settings-digimais-api').append(digiApiLog);
 const showDigiApiLog = createConsultationLog('digiApiLogContent', 'log-digimais-api', 'Nenhuma consulta via API para este filtro.');
-function renderDigiApiLogs(){
+let digiLogRequest=0,digiLogRows=[];
+async function renderDigiApiLogs(){
  const allowed=authenticated&&currentAccess?.active&&currentAccess.role==='admin';
  digiApiLog.hidden=!allowed;
  $('#settings-tab-digimais-api').hidden=!allowed;
  if(!allowed&&!$('#settings-digimais-api').hidden)switchSettings('account');
- if(!allowed){showDigiApiLog([], false);return;}
+ if(!allowed||currentPage!=='settings'||$('#settings-digimais-api').hidden){
+  digiLogRequest++;digiLogRows=[];showDigiApiLog([],false);return;
+ }
  const slot=$('#digiApiLogSlot').value;
- const rows=records.flatMap(r=>{
-  if(r.api_handoff){
-   return [{...r,...r.api_handoff,status:'Encaminhada ao robô',progress:100,stage:''}];
-  }
-  return r.execution_mode==='api'&&consultationWasPerformed(r)?[r]:[];
- }).filter(r=>!slot||(slot==='unassigned'?r.api_slot==null:String(r.api_slot)===slot))
-  .sort((a,b)=>Date.parse(b.date)-Date.parse(a.date)).slice(0,50);
+ const selected=records.filter(r=>{
+  if(!r.api_handoff&&!(r.execution_mode==='api'&&consultationWasPerformed(r)))return false;
+  const executor=r.api_handoff?.api_slot??r.api_slot;
+  return !slot||(slot==='unassigned'?executor==null:String(executor)===slot);
+ }).sort((a,b)=>Date.parse(b.api_handoff?.date||b.date)-Date.parse(a.api_handoff?.date||a.date)).slice(0,50);
+ if(selected.length&&selected.length===digiLogRows.length&&selected.every((row,index)=>row===digiLogRows[index]))return;
+ digiLogRows=selected;
+ const request=++digiLogRequest,epoch=authEpoch;
+ showDigiApiLog([],false);
+ $('#digiApiLogContent').textContent='Carregando logs…';
+ const loaded=await Promise.allSettled(selected.map(loadConsultationLogDetail));
+ if(request!==digiLogRequest||epoch!==authEpoch||!amigozIsAdmin()||currentPage!=='settings'||$('#settings-digimais-api').hidden)return;
+ const rows=loaded.map((entry,index)=>{
+  const row=entry.status==='fulfilled'?entry.value:selected[index];
+  return row.api_handoff?{...row,...row.api_handoff,status:'Encaminhada ao robô',progress:100,stage:''}:row;
+ });
+ if(loaded.some(entry=>entry.status==='rejected'))digiLogRows=[];
  showDigiApiLog(rows.map(r=>{
   const lines=[`${new Date(r.date).toLocaleString('pt-BR')} | ${r.api_slot?'API '+r.api_slot:'Ainda sem executor'} | CPF: ${r.cpf} | ${statusLabel(r.status)} | ${Number(r.progress)||0}%`,r.lote_id?'Campanha: '+r.lote_id:'Consulta individual',r.stage,r.message];
   for(const [key,label,value] of [['resultado_saldo','Saldo','valorSaldo'],['resultado_parcela','Parcela','valorParcela']]){
@@ -82,6 +95,9 @@ function renderDigiApiLogs(){
  }));
 }
 $('#digiApiLogSlot').onchange=renderDigiApiLogs;
+const digiLogSwitchSettings=switchSettings;
+switchSettings=function(id){digiLogSwitchSettings(id);renderDigiApiLogs();if(id==='digimais-api'&&cloudSyncVisible())loadCloud();};
+$('#consultationLogPanel').addEventListener('toggle',()=>{if($('#consultationLogPanel').open&&cloudSyncVisible())loadCloud();});
 const digiApiPreviousLogs=renderLogs;renderLogs=function(){digiApiPreviousLogs();renderDigiApiLogs();};
 const digiApiPreviousAccess=applyAccessUi;applyAccessUi=function(){digiApiPreviousAccess();renderDigiApiLogs();};
 const digiApiPreviousReset=resetApiSettings;resetApiSettings=function(){digiApiPreviousReset();digiApiLog.hidden=true;$('#settings-tab-digimais-api').hidden=true;showDigiApiLog([], false);$('#digiApiLogSlot').value='';};

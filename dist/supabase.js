@@ -5,7 +5,7 @@ let currentAccess=null,accessRefreshing=false,accessCheckedAt=0;
 let session=null,authenticated=false,refreshing=null,loadingCloud=false,authEpoch=0;
 const statusNames={aguardando:'Aguardando',processando:'Processando',concluida:'Concluída',nao_localizado:'Não é cliente',nao_cliente:'Não é cliente',ja_vendeu:'Já vendeu',nao_encontrado:'Não encontrado',erro:'Erro',revisao:'Revisão',interrompida:'Consulta interrompida'};
 function showLogin(message=''){
- authenticated=false;session=null;currentAccess=null;accessRefreshing=false;accessCheckedAt=0;authEpoch++;if(typeof resetPartnerSettings==='function')resetPartnerSettings();if(typeof resetApiSettings==='function')resetApiSettings();if(typeof resetWebhooks==='function')resetWebhooks();if(typeof resetTjbaSettings==='function')resetTjbaSettings();importGeneration++;readingImport=false;importError='';if(typeof resetAmigoz==='function')resetAmigoz();if(typeof resetMonitoring==='function')resetMonitoring();records=[];pending=[];campaigns=[];activeCampaign=null;retryingCampaign=false;$('#campaignName').value='';navigate("home");
+ authenticated=false;session=null;currentAccess=null;accessRefreshing=false;accessCheckedAt=0;authEpoch++;if(typeof resetPartnerSettings==='function')resetPartnerSettings();if(typeof resetApiSettings==='function')resetApiSettings();if(typeof resetWebhooks==='function')resetWebhooks();if(typeof resetTjbaSettings==='function')resetTjbaSettings();importGeneration++;readingImport=false;importError='';if(typeof resetAmigoz==='function')resetAmigoz();if(typeof resetMonitoring==='function')resetMonitoring();cloudSnapshot=null;cloudRows.clear();cloudLoadAgain=false;cloudSyncErrorAt=0;records=[];pending=[];campaigns=[];activeCampaign=null;retryingCampaign=false;$('#campaignName').value='';navigate("home");
  $('#consultationLogPanel').open=false;$('#consultationLogRobot').value='';sessionStorage.removeItem(storageKey);$('#appShell').hidden=true;$('#loginPage').hidden=false;
  $('#loginError').textContent=message;$('#preview').classList.add('hide');$('#file').value='';$('#import').disabled=true;render();
 }
@@ -40,9 +40,83 @@ async function retryCampaign(id){
  if(!authenticated)throw Error('Entre na sua conta.');
  return await sbRequest('/rest/v1/rpc/'+(campaigns.find(c=>c.id===id)?.servico==='tjba_margem'?'retry_tjba_campaign':'retry_consulta_campaign'),{method:'POST',body:JSON.stringify({p_campaign_id:id})});
 }
-async function loadCloud(){
- if(!authenticated||loadingCloud)return;loadingCloud=true;const epoch=authEpoch;
- try{const [digiData,digiLots,tjbaData,tjbaLots]=await Promise.all([fetchAll('/rest/v1/consulta_jobs?select=*&order=created_at.desc,id.desc'),fetchAll('/rest/v1/consulta_lotes?select=id,nome,tipo,servico,paused,auto_paused,created_at&tipo=eq.campanha&order=created_at.desc,id.desc'),fetchAll('/rest/v1/tjba_jobs?select=*&order=created_at.desc,id.desc'),fetchAll('/rest/v1/tjba_lotes?select=id,nome,tipo,servico,convenio,paused,auto_paused,created_at&tipo=eq.campanha&order=created_at.desc,id.desc')]);const data=[...digiData,...tjbaData].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)),lots=[...digiLots,...tjbaLots].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));if(epoch!==authEpoch)return;if(!campaigns.length&&lots.length&&!$('#campaignName').value&&!pending.length)$('#newCampaignPanel').open=false;campaigns=lots;records=data.map(r=>({...r,cpf:formatCpf(r.cpf),nome:r.nome==='CPF '+r.cpf?'CPF '+formatCpf(r.cpf):r.nome,date:r.consultado_em||r.created_at,status:statusNames[r.status]||r.status,saldo:r.saldo_liquidacao==null?null:Number(r.saldo_liquidacao),parcelas:r.total_parcelas,valorParcela:r.valor_parcela==null?null:Number(r.valor_parcela)}));render()}catch(e){if(authenticated)toast(e.message)}finally{loadingCloud=false}
+let cloudSnapshot=null;
+const cloudRows=new Map();
+const consultationLogDetails=new WeakMap();
+let cloudLoadPromise=null,cloudLoadAgain=false,cloudSyncErrorAt=0;
+
+async function loadConsultationLogDetail(row){
+ if(consultationLogDetails.has(row))return consultationLogDetails.get(row);
+ const source=row.servico==='tjba_margem'?'tjba_jobs':'consulta_jobs';
+ const columns=source==='tjba_jobs'?'message,resultado_tjba':'message,resultado_saldo,resultado_parcela,api_handoff';
+ const request=sbRequest('/rest/v1/'+source+'?select='+columns+'&id=eq.'+encodeURIComponent(row.id))
+  .then(rows=>({...row,...rows[0]})).catch(error=>{consultationLogDetails.delete(row);throw error;});
+ consultationLogDetails.set(row,request);
+ return request;
+}
+function cloudSyncVisible(){
+ return authenticated&&document.visibilityState!=='hidden'&&(
+  ['home','campaigns'].includes(currentPage)||
+  (currentPage==='settings'&&(!$('#settings-digimais-api')?.hidden||$('#consultationLogPanel')?.open))
+ );
+}
+function normalizeCloudRow(r){
+ return {...r,cpf:formatCpf(r.cpf),nome:r.nome==='CPF '+r.cpf?'CPF '+formatCpf(r.cpf):r.nome,
+  date:r.consultado_em||r.created_at,status:statusNames[r.status]||r.status,
+  saldo:r.saldo_liquidacao==null?null:Number(r.saldo_liquidacao),parcelas:r.total_parcelas,
+  valorParcela:r.valor_parcela==null?null:Number(r.valor_parcela)};
+}
+async function syncCloudPages(epoch){
+ const since=cloudSnapshot,buffer=[];
+ let until=null,after=null;
+ do{
+  if(epoch!==authEpoch||!authenticated||document.visibilityState==='hidden')return;
+  const page=await sbRequest('/rest/v1/rpc/painel_consultas_sync',{
+   method:'POST',body:JSON.stringify({p_since:since,p_until:until,p_after:after})
+  });
+  if(epoch!==authEpoch||!authenticated||document.visibilityState==='hidden')return;
+  until=page.snapshot;
+  buffer.push(...page.rows);
+  if(page.next&&after&&page.next<=after)throw Error('A paginação da sincronização não avançou.');
+  after=page.next;
+ }while(after);
+ cloudSnapshot=until;
+ if(!buffer.length&&since!==null)return;
+ for(const entry of buffer){
+  if(entry.excluido||(!entry.origem.endsWith('_jobs')&&entry.dados.tipo!=='campanha')){
+   cloudRows.delete(entry.chave);
+   continue;
+  }
+  cloudRows.set(entry.chave,{kind:entry.origem.endsWith('_jobs')?'job':'campaign',
+   row:entry.origem.endsWith('_jobs')?normalizeCloudRow(entry.dados):entry.dados});
+ }
+ const newest=(a,b)=>b.created_at.localeCompare(a.created_at)||b.id.localeCompare(a.id);
+ const entries=[...cloudRows.values()];
+ const nextCampaigns=entries.filter(e=>e.kind==='campaign').map(e=>e.row).sort(newest);
+ if(!campaigns.length&&nextCampaigns.length&&!$('#campaignName').value&&!pending.length)$('#newCampaignPanel').open=false;
+ campaigns=nextCampaigns;
+ records=entries.filter(e=>e.kind==='job').map(e=>e.row).sort(newest);
+ render();
+}
+function loadCloud(){
+ if(!authenticated||document.visibilityState==='hidden')return Promise.resolve();
+ if(cloudLoadPromise){cloudLoadAgain=true;return cloudLoadPromise;}
+ const epoch=authEpoch;
+ loadingCloud=true;
+ cloudLoadPromise=(async()=>{
+  do{
+   cloudLoadAgain=false;
+   await syncCloudPages(epoch);
+  }while(cloudLoadAgain&&epoch===authEpoch&&authenticated&&document.visibilityState!=='hidden');
+ })().catch(error=>{
+  if(epoch===authEpoch&&authenticated&&Date.now()-cloudSyncErrorAt>30000){
+   cloudSyncErrorAt=Date.now();toast(error.message);
+  }
+ }).finally(()=>{
+  cloudLoadPromise=null;loadingCloud=false;
+  if(epoch!==authEpoch&&authenticated&&document.visibilityState!=='hidden')loadCloud();
+ });
+ return cloudLoadPromise;
 }
 async function add(items,service=selectedService(),convenio=null){
  if(!authenticated)throw Error('Entre na sua conta.');if(items.length!==1)throw Error('Use Campanhas para importar consultas em lote.');convenio=convenio||(typeof selectedConvenio==='function'?selectedConvenio():'tjba');
@@ -84,6 +158,8 @@ async function restoreSession(){
 }
 // Discard credentials from versions that did not distinguish Supabase projects.
 sessionStorage.removeItem('sb-session');
-restoreSession();setInterval(loadCloud,2000);
+restoreSession();
+setInterval(()=>{if(cloudSyncVisible()&&!loadingCloud)loadCloud();},5000);
+document.addEventListener('visibilitychange',()=>{if(cloudSyncVisible())loadCloud();});
 
 setInterval(()=>{if(authenticated&&document.visibilityState!=='hidden')refreshMyAccess().catch(()=>{});},15000);

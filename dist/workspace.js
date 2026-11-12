@@ -84,23 +84,34 @@ function clearConsultationLogDialog() {
  if (consultationLogDialog.open) consultationLogDialog.close();
 }
 consultationLogDialog.addEventListener('close',clearConsultationLogDialog);
-function downloadRowConsultationLog(id) {
+async function downloadRowConsultationLog(id) {
  const row=records.find(record=>record.id===id);
- if (canOpenConsultationLog(row)) downloadConsultationLog(consultationLogText(row),`log-consulta-${row.id}`);
+ if(!canOpenConsultationLog(row))return;
+ const epoch=authEpoch;
+ try{
+  const detail=await loadConsultationLogDetail(row);
+  if(epoch===authEpoch&&canOpenConsultationLog(row))downloadConsultationLog(consultationLogText(detail),`log-consulta-${row.id}`);
+ }catch{if(epoch===authEpoch)toast('Não foi possível carregar o log.');}
 }
 $('#consultationLogDialogDownload').onclick=()=>downloadRowConsultationLog(consultationLogDialog.dataset.jobId);
-document.addEventListener('click',event=>{
+document.addEventListener('click',async event=>{
  const button=event.target.closest('[data-open-consultation-log],[data-download-consultation-log]');
- if (!button) return;
- if (button.dataset.downloadConsultationLog) {
-  downloadRowConsultationLog(button.dataset.downloadConsultationLog);
+ if(!button)return;
+ if(button.dataset.downloadConsultationLog){
+  await downloadRowConsultationLog(button.dataset.downloadConsultationLog);
   return;
  }
  const row=records.find(record=>record.id===button.dataset.openConsultationLog);
- if (!canOpenConsultationLog(row)) return;
+ if(!canOpenConsultationLog(row))return;
+ const epoch=authEpoch,output=$('#consultationLogDialogText');
  consultationLogDialog.dataset.jobId=row.id;
- $('#consultationLogDialogText').textContent=consultationLogText(row);
- consultationLogDialog.showModal();
+ output.textContent='Carregando log…';
+ if(!consultationLogDialog.open)consultationLogDialog.showModal();
+ const current=()=>epoch===authEpoch&&consultationLogDialog.open&&consultationLogDialog.dataset.jobId===row.id&&canOpenConsultationLog(row);
+ try{
+  const detail=await loadConsultationLogDetail(row);
+  if(current())output.textContent=consultationLogText(detail);
+ }catch{if(current())output.textContent='Não foi possível carregar o log. Tente abrir novamente.';}
 });
 function resultActions(r){return `${['Erro','Revisão','Consulta interrompida'].includes(r.status)?`<button data-retry="${escapeHTML(r.id)}">Tentar novamente</button>`:''}${r.servico==='tjba_margem'?`<button data-tjba-history="${escapeHTML(r.id)}">Histórico</button>${typeof amigozAction==='function'?amigozAction(r):''}`:typeof amigozAction==='function'?amigozAction(r):''}${consultationLogActions(r)}<button class="danger" data-delete-job="${escapeHTML(r.id)}">Excluir</button>`;}
 setTableHead=function(service,id){const columns=['Cliente','Resultado',...(service==='tjba_margem'?['Empréstimo','Cartão','Vínculo']:['Saldo devedor','Parcela','Consultado em']),'Ações'];$('#'+id).innerHTML='<tr>'+columns.map(x=>`<th>${x}</th>`).join('')+'</tr>';};

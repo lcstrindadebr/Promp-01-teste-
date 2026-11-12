@@ -116,19 +116,32 @@ const moneyTjba=v=>v==null?'—':Number(v).toLocaleString('pt-BR',{style:'curren
 const originalRowsHTML=rowsHTML;
 rowsHTML=function(rows){
  const service=rows[0]?.servico||selectedService();if(service!=='tjba_margem')return originalRowsHTML(rows);
- return rows.map(r=>{const running=['Aguardando','Processando'].includes(r.status),label=running?statusLabel(r.status):tjbaStatusLabels[r.tjba_status]||r.status;return `<tr><td><b>${escapeHTML(r.nome)}</b><br><span class="muted">${escapeHTML(r.cpf)}</span><br><small>${escapeHTML(convenioLabel(r.convenio))}</small></td><td>${escapeHTML(r.matricula)||'—'}</td><td>${escapeHTML(r.tipo_servidor)||'—'}</td><td>${escapeHTML(r.situacao_atual)||'—'}</td><td>${moneyTjba(r.emprestimo_disponivel)}</td><td>${moneyTjba(r.cartao_disponivel)}</td><td><span class="pill ${r.status==='Concluída'?'ok':['Erro','Revisão'].includes(r.status)?'err':''}">${escapeHTML(label)}</span><div class="progress-line"><progress max="100" value="${Math.max(0,Math.min(100,Number(r.progress)||0))}" aria-label="Progresso da consulta"></progress><small>${Math.max(0,Math.min(100,Number(r.progress)||0))}%</small></div></td><td>${new Date(r.date).toLocaleString('pt-BR')}</td><td>${r.status==='Não encontrado'?'CPF não encontrado no convênio.':['Revisão','Erro'].includes(r.status)?'Consulte o log em Configurações.':escapeHTML(r.resultado_tjba?.motivo_situacao)||'—'}</td><td>${['Erro','Revisão'].includes(r.status)?`<button data-retry="${escapeHTML(r.id)}">Tentar novamente</button>`:''}<button data-tjba-history="${escapeHTML(r.id)}">Histórico</button><button class="danger" data-delete-job="${escapeHTML(r.id)}">Excluir</button></td></tr>`;}).join('')||'<tr><td colspan="10" class="empty">Nenhuma consulta TJBA encontrada.</td></tr>';
+ return rows.map(r=>{const running=['Aguardando','Processando'].includes(r.status),label=running?statusLabel(r.status):tjbaStatusLabels[r.tjba_status]||r.status;return `<tr><td><b>${escapeHTML(r.nome)}</b><br><span class="muted">${escapeHTML(r.cpf)}</span><br><small>${escapeHTML(convenioLabel(r.convenio))}</small></td><td>${escapeHTML(r.matricula)||'—'}</td><td>${escapeHTML(r.tipo_servidor)||'—'}</td><td>${escapeHTML(r.situacao_atual)||'—'}</td><td>${moneyTjba(r.emprestimo_disponivel)}</td><td>${moneyTjba(r.cartao_disponivel)}</td><td><span class="pill ${r.status==='Concluída'?'ok':['Erro','Revisão'].includes(r.status)?'err':''}">${escapeHTML(label)}</span><div class="progress-line"><progress max="100" value="${Math.max(0,Math.min(100,Number(r.progress)||0))}" aria-label="Progresso da consulta"></progress><small>${Math.max(0,Math.min(100,Number(r.progress)||0))}%</small></div></td><td>${new Date(r.date).toLocaleString('pt-BR')}</td><td>${r.status==='Não encontrado'?'CPF não encontrado no convênio.':['Revisão','Erro'].includes(r.status)?'Consulte o log em Configurações.':escapeHTML(r.motivo_situacao)||'—'}</td><td>${['Erro','Revisão'].includes(r.status)?`<button data-retry="${escapeHTML(r.id)}">Tentar novamente</button>`:''}<button data-tjba-history="${escapeHTML(r.id)}">Histórico</button><button class="danger" data-delete-job="${escapeHTML(r.id)}">Excluir</button></td></tr>`;}).join('')||'<tr><td colspan="10" class="empty">Nenhuma consulta TJBA encontrada.</td></tr>';
 };
 const originalExportResults=exportResults;
 exportResults=async function(items,filename='consultas.csv'){
  if((items[0]?.servico||selectedService())!=='tjba_margem')return originalExportResults(items,filename);
  const safe=v=>'"'+String(v??'').replace(/^[=+@\-]/,"'$&").replaceAll('"','""')+'"';
- let rows=[['nome','cpf','telefone','provedor','convenio','matricula','tipo_servidor','situacao_atual','emprestimo_disponivel','cartao_disponivel','status','data','observacoes'],...items.map(r=>[r.nome,r.cpf,r.telefone,'ConsigX',convenioLabel(r.convenio),r.matricula,r.tipo_servidor,r.situacao_atual,r.emprestimo_disponivel,r.cartao_disponivel,tjbaStatusLabels[r.tjba_status]||statusLabel(r.status),r.date,r.status==='Não encontrado'?'CPF não encontrado.':['Erro','Revisão'].includes(r.status)?'Solicita revisão.':r.resultado_tjba?.motivo_situacao||''])];
+ let rows=[['nome','cpf','telefone','provedor','convenio','matricula','tipo_servidor','situacao_atual','emprestimo_disponivel','cartao_disponivel','status','data','observacoes'],...items.map(r=>[r.nome,r.cpf,r.telefone,'ConsigX',convenioLabel(r.convenio),r.matricula,r.tipo_servidor,r.situacao_atual,r.emprestimo_disponivel,r.cartao_disponivel,tjbaStatusLabels[r.tjba_status]||statusLabel(r.status),r.date,r.status==='Não encontrado'?'CPF não encontrado.':['Erro','Revisão'].includes(r.status)?'Solicita revisão.':r.motivo_situacao||''])];
  if(typeof amigozAppendExport==='function') rows=await amigozAppendExport(rows,items.map(row=>({cpf:row.cpf,convenio:row.convenio||'',matricula:row.matricula||undefined,source:'margin'})));
  if(typeof amigozCsvCells==='function') rows=[rows[0],...rows.slice(1).map(amigozCsvCells)];
  download(filename,rows.map(r=>r.map(safe).join(';')).join('\r\n'));
 };
 const originalRenderLogs=renderLogs;
-renderLogs=function(){originalRenderLogs();const reviews=consultationLogRecords().filter(r=>r.servico==='tjba_margem'&&r.resultado_tjba?.vinculos?.length);if(reviews.length)$('#consultationLogs').textContent+='\n\nVínculos TJBA para conferência:\n'+reviews.map(r=>r.cpf+'\n'+JSON.stringify(r.resultado_tjba.vinculos,null,2)).join('\n');};
+let tjbaLogRefresh=0;
+renderLogs=async function(){
+ originalRenderLogs();
+ const request=++tjbaLogRefresh;
+ if(!authenticated||currentPage!=='settings'||!$('#consultationLogPanel').open)return;
+ const epoch=authEpoch;
+ const candidates=consultationLogRecords().filter(row=>row.servico==='tjba_margem')
+  .sort((a,b)=>Date.parse(b.date)-Date.parse(a.date)).slice(0,50);
+ const results=await Promise.allSettled(candidates.map(loadConsultationLogDetail));
+ if(request!==tjbaLogRefresh||epoch!==authEpoch||!$('#consultationLogPanel').open)return;
+ const reviews=results.flatMap(entry=>entry.status==='fulfilled'&&entry.value.resultado_tjba?.vinculos?.length?[entry.value]:[]);
+ if(reviews.length)$('#consultationLogs').textContent+='\n\nVínculos TJBA recentes para conferência:\n'+reviews.map(row=>row.cpf+'\n'+JSON.stringify(row.resultado_tjba.vinculos,null,2)).join('\n');
+};
+$('#consultationLogPanel').addEventListener('toggle',()=>{if($('#consultationLogPanel').open)renderLogs();});
 function updateServiceCopy(){
  const tjba=selectedService()==='tjba_margem';
  $('#serviceAvailability').textContent=tjba?'Homologação':'Disponível';
