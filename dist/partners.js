@@ -135,3 +135,47 @@ $('#partnerForm').onsubmit=async e=>{
  finally{$('#partnerPassword').value='';partnerSaving=false;$('#savePartner').disabled=false;}
 };
 applyAccessUi();
+
+const partnerDigiCard=document.createElement('section');
+partnerDigiCard.className='card';
+partnerDigiCard.innerHTML=`<h2>Consulta Digi+ pela API</h2><form id="partnerDigiForm"><label class="field" for="partnerDigiUser">Parceiro</label><select id="partnerDigiUser" required></select><label class="portal-enable"><input id="partnerDigiEnabled" type="checkbox"> Liberar consultas pela API Digi+</label><label class="field" for="partnerDigiMax">Consultas simultâneas permitidas</label><input id="partnerDigiMax" type="number" min="1" max="50" step="1" value="1" required><p>Usuários atuais e novos começam sem liberação. A configuração vale para consultas individuais e campanhas, respeitando as permissões do serviço. Ao revogar, as consultas em andamento terminam e as próximas usam o robô. O limite total da VPS é compartilhado entre as contas.</p><button id="partnerDigiSave" class="primary" disabled>Salvar liberação</button></form><p id="partnerDigiStatus" role="status"></p>`;
+$('#settings-partners').append(partnerDigiCard);
+let partnerDigiUsers=[],partnerDigiBusy=false;
+function renderPartnerDigiSelection(){
+ const user=partnerDigiUsers.find(row=>row.user_id===$('#partnerDigiUser').value);
+ $('#partnerDigiEnabled').checked=user?.enabled===true;
+ $('#partnerDigiMax').value=user?.max_concurrency||1;
+ $('#partnerDigiSave').disabled=!user||partnerDigiBusy;
+}
+async function loadPartnerDigiAccess(){
+ if(!authenticated||!currentAccess?.active||currentAccess.role!=='admin')return;
+ const epoch=authEpoch;
+ $('#partnerDigiSave').disabled=true;
+ try{
+  const rows=await sbRequest('/rest/v1/rpc/admin_digimais_access',{method:'POST',body:'{}'});
+  if(epoch!==authEpoch)return;
+  partnerDigiUsers=rows;
+  const selected=$('#partnerDigiUser').value;
+  $('#partnerDigiUser').innerHTML=rows.map(row=>'<option value="'+escapeHTML(row.user_id)+'">'+escapeHTML(row.name+' · '+row.email+(row.enabled?' · API liberada':' · API desativada'))+'</option>').join('');
+  if(rows.some(row=>row.user_id===selected))$('#partnerDigiUser').value=selected;
+  renderPartnerDigiSelection();
+ }catch(error){if(epoch===authEpoch)$('#partnerDigiStatus').textContent=error.message||'Não foi possível carregar as liberações.';}
+}
+$('#partnerDigiUser').onchange=renderPartnerDigiSelection;
+$('#partnerDigiForm').onsubmit=async event=>{
+ event.preventDefault();
+ if(partnerDigiBusy||currentAccess?.role!=='admin')return;
+ const user=$('#partnerDigiUser').value,max=Number($('#partnerDigiMax').value);
+ if(!user||!Number.isInteger(max)||max<1||max>50)return;
+ const epoch=authEpoch;
+ partnerDigiBusy=true;$('#partnerDigiSave').disabled=true;
+ try{
+  await sbRequest('/rest/v1/rpc/admin_digimais_access',{method:'POST',body:JSON.stringify({p_user:user,p_enabled:$('#partnerDigiEnabled').checked,p_max:max})});
+  if(epoch!==authEpoch)return;
+  $('#partnerDigiStatus').textContent='Liberação salva.';
+  await loadPartnerDigiAccess();
+ }catch(error){if(epoch===authEpoch)$('#partnerDigiStatus').textContent=error.message||'Não foi possível salvar.';}
+ finally{partnerDigiBusy=false;if(epoch===authEpoch)renderPartnerDigiSelection();}
+};
+const partnerDigiLoadPartners=loadPartners;
+loadPartners=async function(){await partnerDigiLoadPartners();await loadPartnerDigiAccess();};
