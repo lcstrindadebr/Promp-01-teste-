@@ -1,3 +1,48 @@
+
+// Mantém cada CPF no mesmo lote e IDs estáveis para retentativas na mesma janela.
+async function crmConfirmImportBatches(payload, requestId, filename, onProgress) {
+  const groups = new Map();
+  for (const row of payload.p_rows) {
+    if (!groups.has(row.cpf)) groups.set(row.cpf, []);
+    groups.get(row.cpf).push(row);
+  }
+  const batches = [];
+  let batch = [];
+  for (const rows of groups.values()) {
+    if (batch.length && batch.length + rows.length > 100) {
+      batches.push(batch);
+      batch = [];
+    }
+    batch.push(...rows);
+  }
+  if (batch.length) batches.push(batch);
+  const total = {clientes:0, clientes_novos:0, clientes_atualizados:0, consultas:0};
+  let completed = 0;
+  for (let index = 0; index < batches.length; index++) {
+    const bytes = new Uint8Array(await crypto.subtle.digest(
+      'SHA-256', new TextEncoder().encode(requestId + ':' + index)
+    ));
+    bytes[6] = (bytes[6] & 15) | 80;
+    bytes[8] = (bytes[8] & 63) | 128;
+    const hex = [...bytes.slice(0,16)].map(value=>value.toString(16).padStart(2,'0')).join('');
+    const id = [hex.slice(0,8),hex.slice(8,12),hex.slice(12,16),hex.slice(16,20),hex.slice(20)].join('-');
+    onProgress(completed, payload.p_rows.length);
+    try {
+      const result = await crmRpc('crm_confirm_import', {
+        ...payload, p_rows:batches[index], p_request_id:id,
+        p_arquivo:filename
+      });
+      for (const key of Object.keys(total)) total[key] += Number(result[key] || 0);
+    } catch (error) {
+      throw Error(completed + ' de ' + payload.p_rows.length +
+        ' registros confirmados nesta tentativa. Mantenha esta janela aberta e clique em Confirmar importação para retomar. ' +
+        (error.name === 'TimeoutError' ? 'O servidor excedeu o tempo de resposta.' : error.message));
+    }
+    completed += batches[index].length;
+  }
+  onProgress(completed, payload.p_rows.length);
+  return total;
+}
 const crmStates = {
   AC:'Acre', AL:'Alagoas', AP:'Amapá', AM:'Amazonas', BA:'Bahia', CE:'Ceará',
   DF:'Distrito Federal', ES:'Espírito Santo', GO:'Goiás', MA:'Maranhão',
@@ -395,7 +440,9 @@ async function crmOpenClientImport(amigozCampaign=false) {
       status.textContent='Etapa 3 de 4 · Salvando clientes e agendando consultas…';
       const result = amigozCampaign
         ? await crmRpc('crm_criar_campanha_amigoz',{...payload,p_id:requestId,p_nome:campaignName,p_arquivo:file.files[0]?.name})
-        : await crmRpc('crm_confirm_import', {...payload,p_request_id:requestId,p_arquivo:file.files[0]?.name});
+        : await crmConfirmImportBatches(payload, requestId, file.files[0]?.name, (done,total)=>{
+            status.textContent='Etapa 3 de 4 · '+done.toLocaleString('pt-BR')+' de '+total.toLocaleString('pt-BR')+' registros confirmados. Mantenha esta janela aberta.';
+          });
       if (authEpoch !== epoch) return;
       if(amigozCampaign){dialog.close();toast('Campanha Amigoz criada · '+result.consultas+' leads na fila.');refreshAmigozCampaignList();return;}
       importProgress(3);
