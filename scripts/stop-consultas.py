@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import time
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 SERVICES = ("apoiarcred-robo", "apoiarcred-api")
@@ -65,12 +66,19 @@ def requeue(request):
     for table, payload in PAYLOADS.items():
         try:
             # Existing rows only: no INSERT, retry RPC, quota charge or completed result changes.
-            request(table + "?status=eq.processando", payload)
-            if request(table + "?status=eq.processando&select=id&limit=1"):
-                raise RuntimeError("Ainda existem execuções em processamento.")
-            print(table + ": consultas em processamento devolvidas à fila.", flush=True)
-        except Exception:
-            failures.append(table)
+            while True:
+                rows = request(table + "?status=eq.processando&select=id&order=id&limit=50")
+                if not rows:
+                    break
+                ids = ",".join(row["id"] for row in rows)
+                request(table + "?status=eq.processando&id=in.(" + ids + ")", payload)
+                if request(table + "?status=eq.processando&id=in.(" + ids + ")&select=id&limit=1"):
+                    raise RuntimeError("O lote ainda contém consultas em processamento.")
+            print(table + ": fila verificada e consultas devolvidas.", flush=True)
+        except HTTPError as error:
+            failures.append(f"{table} (HTTP {error.code})")
+        except Exception as error:
+            failures.append(f"{table} ({type(error).__name__})")
     if failures:
         raise RuntimeError("Falha ao devolver/verificar: " + ", ".join(failures)
                            + ". Serviços continuam parados. Corrija a conexão e repita a opção 6.")
