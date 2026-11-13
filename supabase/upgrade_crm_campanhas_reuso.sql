@@ -94,7 +94,7 @@ begin
   if not escolhido.fazer_margem and not escolhido.fazer_saque then continue;end if;
   modo:=case when escolhido.fazer_margem and escolhido.fazer_saque then 'ambos' when escolhido.fazer_margem then 'margem' else 'saque' end;
   perform public.authorize_amigoz(uid,true);
-  insert into public.crm_cadastros(user_id,cpf,nome,telefone) values(uid,escolhido.cpf,escolhido.nome,escolhido.telefone) on conflict(user_id,cpf) do nothing;
+  insert into public.crm_cadastros(user_id,cpf,nome,telefone,ultima_atividade) values(uid,escolhido.cpf,escolhido.nome,escolhido.telefone,now()) on conflict(user_id,cpf) do nothing;
   insert into public.amigoz_jobs(user_id,cpf,nome,telefone,convenio,uf,modo,import_id)
   values(uid,escolhido.cpf,escolhido.nome,escolhido.telefone,p_convenio,uf_alvo,modo,p_id);
   leads:=leads+1;
