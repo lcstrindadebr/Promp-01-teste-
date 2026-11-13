@@ -172,14 +172,15 @@ const crmPlannedServices = {
   digimais_saldo:'Saldo e parcela · Digi+'
 };
 
-async function crmOpenClientImport() {
+async function crmOpenClientImport(amigozCampaign=false) {
   const epoch = authEpoch;
-  const {dialog, form} = crmDialog('Importar base de clientes');
+  const {dialog, form} = crmDialog(amigozCampaign?'Nova campanha Amigoz':'Importar base de clientes');
   dialog.classList.add('crm-import-dialog');
   const heading = dialog.querySelector('h2');
   heading.id = 'crmImportTitle';
   dialog.setAttribute('aria-labelledby', heading.id);
   form.innerHTML = `
+    ${amigozCampaign?'<label>Nome da campanha<input name="nomeCampanha" required maxlength="160"></label>':''}
     <p class="crm-import-intro">Escolha o convênio e marque as consultas para iniciar automaticamente após importar. Sem opções marcadas, a planilha atualiza o cadastro sem iniciar consultas.</p>
     <ol class="crm-import-steps" aria-label="Etapas da importação">
       <li>Estado</li><li>Convênio</li><li>Consultas e planilha</li>
@@ -243,6 +244,7 @@ async function crmOpenClientImport() {
   status.textContent = 'Carregando convênios cadastrados…';
   try {
     catalog = await crmGetImportCatalog();
+    if(amigozCampaign)catalog=catalog.map(row=>({...row,servicos:row.servicos.filter(service=>['amigoz_margem','amigoz_saque'].includes(service))})).filter(row=>row.servicos.length);
     if (!dialog.open || authEpoch !== epoch) return;
     const states = [...new Set(catalog.map(row => row.uf))];
     states.sort((a,b) => (crmStates[a] || a).localeCompare(crmStates[b] || b,'pt-BR'));
@@ -287,7 +289,7 @@ async function crmOpenClientImport() {
     file.closest('.crm-import-file').hidden = !selectedAgreement();
     const selected = [...serviceList.querySelectorAll('input:checked')].map(input => input.value);
     submit.disabled = saving || file.disabled || !rows.length;
-    submit.textContent = previewFingerprint ? 'Confirmar importação' : 'Conferir importação';
+    submit.textContent = previewFingerprint ? (amigozCampaign?'Criar campanha':'Confirmar importação') : 'Conferir importação';
     const step = !uf.value ? 0 : !convenio.value.trim() ? 1 : 2;
     steps.forEach((item,index)=>{
       if(index===step) item.setAttribute('aria-current','step');
@@ -361,8 +363,10 @@ async function crmOpenClientImport() {
     status.textContent = 'Salvando clientes e agendando consultas…';
     try {
       const selected = [...serviceList.querySelectorAll('input:checked')].map(input => input.value);
+      if(amigozCampaign&&!selected.length){status.textContent='Selecione margem ou saque complementar.';return;}
+      const campaignName=form.elements.nomeCampanha?.value.trim();
       const payload = {p_uf:uf.value,p_convenio:convenio.value,p_rows:rows,p_servicos:selected};
-      const fingerprint = JSON.stringify(payload);
+      const fingerprint = JSON.stringify([payload,campaignName]);
       if(previewFingerprint!==fingerprint){
         importProgress(1);
         status.textContent='Etapa 2 de 4 · Validando os registros no servidor…';
@@ -389,8 +393,11 @@ async function crmOpenClientImport() {
       submitted = fingerprint;
       importProgress(2);
       status.textContent='Etapa 3 de 4 · Salvando clientes e agendando consultas…';
-      const result = await crmRpc('crm_confirm_import', {...payload,p_request_id:requestId,p_arquivo:file.files[0]?.name});
+      const result = amigozCampaign
+        ? await crmRpc('crm_criar_campanha_amigoz',{...payload,p_id:requestId,p_nome:campaignName,p_arquivo:file.files[0]?.name})
+        : await crmRpc('crm_confirm_import', {...payload,p_request_id:requestId,p_arquivo:file.files[0]?.name});
       if (authEpoch !== epoch) return;
+      if(amigozCampaign){dialog.close();toast('Campanha Amigoz criada · '+result.consultas+' leads na fila.');refreshAmigozCampaignList();return;}
       importProgress(3);
       status.textContent='Etapa 4 de 4 · Atualizando a lista de clientes…';
       closeCrmHistory();
@@ -421,7 +428,7 @@ async function crmGetImportCatalog() {
   return crmImportCatalog;
 }
 
-$('#crmImportClients').onclick = crmOpenClientImport;
+$('#crmImportClients').onclick = ()=>crmOpenClientImport();
 
 function crmAddPlannedActions(item, client, agreement, planned) {
   const buttons = crmElement('div','crm-planned-actions');

@@ -132,6 +132,7 @@ $('#reuseForm').onsubmit=async event=>{
    p_nome:$('#reuseName').value,p_modalidades:modes.filter(([,id])=>$(id).checked).map(([mode])=>mode),p_incluir:selection});
   if(!current())return;
   preview=null;$('#reuseRows').replaceChildren();$('#reuseTotals').textContent='';
+  refreshAmigozCampaignList();
   status(result.leads+' leads · '+result.consultas+' consultas enfileiradas.');
   await history();
  }catch(error){if(current())status(error.message);}
