@@ -118,7 +118,7 @@ setTableHead=function(service,id){const columns=['Cliente','Resultado',...(servi
 rowsHTML=function(rows){return rows.map(r=>{const margin=r.servico==='tjba_margem';return `<tr><td><strong>${escapeHTML(r.nome)}</strong><span class="cell-sub">${escapeHTML(formatCpf(r.cpf))}</span><span class="cell-sub">${escapeHTML(margin?convenioLabel(r.convenio):'Digi+')}</span></td><td><span class="pill ${r.status==='Concluída'?'ok':['Erro','Revisão','Consulta interrompida'].includes(r.status)?'err':r.status==='Processando'?'run':''}">${escapeHTML(statusLabel(r.status))}</span>${resultProgress(r)}${resultMessage(r)?`<small class="cell-sub">${escapeHTML(resultMessage(r))}</small>`:''}</td>${margin?`<td class="amount">${moneyTjba(r.emprestimo_disponivel)}</td><td class="amount">${moneyTjba(r.cartao_disponivel)}</td><td><strong>${escapeHTML(r.matricula||'—')}</strong><span class="cell-sub">${escapeHTML(r.situacao_atual||'—')}</span><span class="cell-sub">${escapeHTML(r.tipo_servidor||'')}</span></td>`:`<td class="amount">${moneyTjba(r.saldo)}</td><td class="amount">${moneyTjba(r.valorParcela)}<span class="cell-sub">${r.parcelas==null?'':escapeHTML(r.parcelas)+' parcelas'}</span></td><td>${r.consultado_em?new Date(r.consultado_em).toLocaleString('pt-BR'):'—'}</td>`}<td><details class="row-actions" data-actions="${escapeHTML(r.id)}" ${document.querySelector('[data-actions="'+r.id+'"]')?.open?'open':''}><summary>Ações</summary><div>${resultActions(r)}</div></details></td></tr>`;}).join('')||'<tr><td colspan="7" class="empty">Nenhum resultado com esses filtros.</td></tr>';};
 const campaignGroups=[
  ['digimais_saldo_parcela','Digi+ · Saldo e parcela'],
- ['tjba_margem','ConsigX · Margem']
+ ['tjba_margem','ConsigX · Margem'],['amigoz','Amigoz']
 ];
 const campaignPhases=[['active','Em andamento'],['paused','Pausadas'],['done','Concluídas']];
 function renderCampaignList(){
@@ -144,6 +144,7 @@ function renderCampaignList(){
    <progress max="100" value="${pct}" aria-label="Progresso da campanha"></progress>
    <small>${processed} de ${totals.total} processados · ${totals.errors+totals.review+totals.interrupted} para revisar</small></button>`);
  }
+ if(typeof amigozCampaignCards==='function')amigozCampaignCards(groups,{query,phase,service});
  const sections=campaignGroups.map(([type,title])=>{
   const states=campaignPhases.map(([state,label])=>{
    const cards=groups.get(type+':'+state);
@@ -193,7 +194,7 @@ const refreshCampaignsButton=$('#refreshCampaigns');
 if(refreshCampaignsButton)refreshCampaignsButton.onclick=async()=>{
  refreshCampaignsButton.disabled=true;
  refreshCampaignsButton.textContent='Atualizando…';
- try{await loadCloud();}
+ try{await Promise.all([loadCloud(),typeof refreshAmigozCampaignList==='function'?refreshAmigozCampaignList():null]);}
  finally{
   refreshCampaignsButton.disabled=false;
   refreshCampaignsButton.textContent='Atualizar';
