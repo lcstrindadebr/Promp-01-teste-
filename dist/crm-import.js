@@ -9,7 +9,7 @@ const crmStates = {
 
 async function crmReadClientFile(file, uf, convenio, convenioNome = convenio, services = null) {
   if (!/\.(csv|tsv|xlsx|xls)$/i.test(file.name)) throw Error('Envie um arquivo CSV, TSV, XLSX ou XLS.');
-  if (file.size > 2_000_000) throw Error('O arquivo deve ter até 2 MB.');
+  if (file.size > 8_000_000) throw Error('O arquivo deve ter até 8 MB.');
   let rows, date1904 = false;
   if (/\.xlsx?$/i.test(file.name)) {
     const book = XLSX.read(await file.arrayBuffer(), {type:'array', sheetRows:10002, cellFormula:false, cellHTML:false});
@@ -18,13 +18,13 @@ async function crmReadClientFile(file, uf, convenio, convenioNome = convenio, se
     if (!sheet) throw Error('A planilha está vazia.');
     rows = XLSX.utils.sheet_to_json(sheet, {header:1, raw:true, defval:'', blankrows:false});
     const range = sheet['!fullref'] || sheet['!ref'];
-    if (range && XLSX.utils.decode_range(range).e.r > 10000) throw Error('Envie até 10.000 clientes por arquivo.');
+    if (range && XLSX.utils.decode_range(range).e.r > 20000) throw Error('Envie até 20.000 clientes por arquivo.');
   } else {
     const data = (await file.text()).replace(/^\uFEFF/,'').replace(/^sep=[;,]\r?\n/i,'');
     if (data.includes('\uFFFD')) throw Error('Salve o CSV com codificação UTF-8.');
     rows = csvParse(data);
   }
-  if (rows.length < 2 || rows.length > 10001) throw Error('O arquivo deve ter um cabeçalho e entre 1 e 10.000 clientes.');
+  if (rows.length < 2 || rows.length > 20001) throw Error('O arquivo deve ter um cabeçalho e entre 1 e 20.000 clientes.');
   const headers = rows.shift().map(value => importHeader(String(value)));
   if (!headers.includes('cpf') || new Set(headers).size !== headers.length) throw Error('Inclua uma coluna CPF e use cabeçalhos únicos.');
   const normalize = value => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
@@ -194,7 +194,7 @@ async function crmOpenClientImport() {
       </fieldset>
       <div class="crm-import-file" hidden>
         <label>Planilha de clientes<input name="arquivo" type="file" accept=".csv,.tsv,.xlsx,.xls" required disabled></label>
-        <small>CPF obrigatório. O modelo do convênio indica os campos disponíveis. Até 2 MB e 10.000 clientes.</small>
+        <small>CPF obrigatório. O modelo do convênio indica os campos disponíveis. Até 8 MB e 20.000 clientes.</small>
         <p data-agreement-info></p>
         <div class="crm-import-downloads">
           <button type="button" data-model>Baixar modelo Excel</button>
@@ -205,6 +205,7 @@ async function crmOpenClientImport() {
     <div data-preview></div>
     <div data-errors></div>
     <button type="button" data-history>Histórico de importações</button>
+    <progress class="crm-import-progress" max="4" value="0" aria-label="Etapas da importação" style="width:100%" hidden></progress>
     <p role="status" class="crm-import-status"></p>
     <footer><button type="button" data-cancel>Cancelar</button><button type="submit" class="primary" disabled>Importar clientes</button></footer>`;
   const uf = form.elements.uf, convenio = form.elements.convenio;
@@ -217,6 +218,8 @@ async function crmOpenClientImport() {
   const previewPanel=form.querySelector('[data-preview]');
   const errorPanel=form.querySelector('[data-errors]');
   form.querySelector('[data-history]').onclick=crmOpenImportHistory;
+  const progress=form.querySelector('progress');
+  function importProgress(step){progress.hidden=false;progress.value=step;}
   function showErrors(errors){
     errorPanel.replaceChildren();
     if(!errors?.length)return;
@@ -331,14 +334,17 @@ async function crmOpenClientImport() {
     const request = ++generation;
     previewFingerprint=null;previewPanel.replaceChildren();showErrors([]);
     rows = [];
+    progress.hidden=true;
     refresh();
     if (!file.files.length) { status.textContent = ''; return; }
-    status.textContent = 'Validando a planilha…';
+    importProgress(0);
+    status.textContent = 'Etapa 1 de 4 · Validando a planilha…';
     try {
       const agreement = selectedAgreement();
       const parsed = await crmReadClientFile(file.files[0], agreement.uf, agreement.codigo, agreement.nome, agreement.servicos);
       if (request !== generation) return;
       rows = parsed;
+      importProgress(1);
       status.textContent = rows.length.toLocaleString('pt-BR') + ' clientes prontos para cadastrar.';
     } catch (error) {
       if (request === generation) {status.textContent=error.message;showErrors(error.rows);}
@@ -358,6 +364,8 @@ async function crmOpenClientImport() {
       const payload = {p_uf:uf.value,p_convenio:convenio.value,p_rows:rows,p_servicos:selected};
       const fingerprint = JSON.stringify(payload);
       if(previewFingerprint!==fingerprint){
+        importProgress(1);
+        status.textContent='Etapa 2 de 4 · Validando os registros no servidor…';
         const preview=await crmRpc('crm_preview_import',payload);
         if(authEpoch!==epoch || !dialog.open)return;
         if(!preview.valido){
@@ -373,19 +381,26 @@ async function crmOpenClientImport() {
         for(const item of preview.oportunidades||[])previewPanel.append(crmElement('p','',
           (crmProducts[item.produto]||item.produto)+' · '+item.criadas+' novas · '+item.atualizadas+' atualizadas'));
         previewFingerprint=fingerprint;
+        importProgress(2);
         status.textContent='Revise os dados e confirme a importação.';
         return;
       }
       if (submitted && submitted !== fingerprint) requestId = crypto.randomUUID();
       submitted = fingerprint;
+      importProgress(2);
+      status.textContent='Etapa 3 de 4 · Salvando clientes e agendando consultas…';
       const result = await crmRpc('crm_confirm_import', {...payload,p_request_id:requestId,p_arquivo:file.files[0]?.name});
       if (authEpoch !== epoch) return;
-      dialog.close();
+      importProgress(3);
+      status.textContent='Etapa 4 de 4 · Atualizando a lista de clientes…';
       closeCrmHistory();
       $('#crmSearch').reset();
       crmFilters = {p_query:'',p_uf:'',p_convenio:'',p_servico:''};
       crmCursors = [''];
       await Promise.all([loadCrmClients(0),loadCrmFilterOptions()]);
+      if(authEpoch!==epoch)return;
+      importProgress(4);
+      dialog.close();
       if (currentPage === 'clients' && authEpoch === epoch) toast((result.clientes_novos==null ? result.clientes + ' clientes processados. ' : result.clientes_novos + ' novos · ' + result.clientes_atualizados + ' atualizados. ') + (result.consultas ? result.consultas + ' consultas na fila. Acompanhe em Ver histórico.' : 'Nenhuma consulta selecionada.'));
     } catch (error) {
       if (authEpoch === epoch) status.textContent = error.message || 'Não foi possível importar a base.';
