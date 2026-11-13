@@ -647,11 +647,11 @@ async function crmDownloadOpportunities(filters,button,status,previewForm) {
     const details=await crmOpportunityExportDetails(rows.map(row=>row.cpf),epoch);
     if (!authenticated || epoch!==authEpoch) return;
     let workbookRows = [
-      ['Nome','CPF','Convênio','Produto','Etapa original','Responsável','Próxima ação',...crmOpportunityExportColumns],
+      ['Nome','CPF','Convênio','Produto','Etapa original','Responsável','Próxima ação','Cliente exportado',...crmOpportunityExportColumns],
       ...rows.map(row=>{
         const values=crmOpportunityExportValues(row.cpf,details,row);
         return [row.nome,formatCpf(row.cpf),crmExportAgreement(row,details,convenio).label,crmProducts[row.produto],row.etapa_nome||crmStages[row.etapa],
-          row.responsavel,row.proxima_acao,...crmOpportunityExportColumns.map(label=>values[label])];
+          row.responsavel,row.proxima_acao,row.cliente_exportado?'Sim':'Não',...crmOpportunityExportColumns.map(label=>values[label])];
       })
     ];
     if(typeof amigozAppendExport==='function') workbookRows=await amigozAppendExport(workbookRows,rows.map(row=>({cpf:row.cpf,convenio:crmExportAgreement(row,details,convenio).code,source:row.produto==='margem'?'margin':'auto'})));
@@ -949,6 +949,7 @@ function crmOpportunityCard(row,settings,request){
   for(const field of settings.fields.filter(x=>x.visible)){
     const value=row.campos?.[field.id];if(value!=null&&value!=='')card.append(crmElement('p','crm-card-detail',field.label+': '+(field.type==='boolean'?(value?'Sim':'Não'):value)));
   }
+  if(row.cliente_exportado)card.append(crmElement('span','crm-card-tag','Já exportado'));
   const finance=crmElement('div','crm-card-finance','Buscando resultado financeiro…');card.append(finance);
   crmCardFinance(row,finance,request);
   const label=crmElement('label','','Mover para');const select=document.createElement('select');crmStageOptions(select,row.etapa);label.append(select);

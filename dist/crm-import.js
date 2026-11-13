@@ -386,7 +386,7 @@ async function crmOpenClientImport() {
       crmFilters = {p_query:'',p_uf:'',p_convenio:'',p_servico:''};
       crmCursors = [''];
       await Promise.all([loadCrmClients(0),loadCrmFilterOptions()]);
-      if (currentPage === 'clients' && authEpoch === epoch) toast(result.clientes + ' clientes cadastrados. ' + (result.consultas ? result.consultas + ' consultas na fila. Acompanhe em Ver histórico.' : 'Nenhuma consulta selecionada.'));
+      if (currentPage === 'clients' && authEpoch === epoch) toast((result.clientes_novos==null ? result.clientes + ' clientes processados. ' : result.clientes_novos + ' novos · ' + result.clientes_atualizados + ' atualizados. ') + (result.consultas ? result.consultas + ' consultas na fila. Acompanhe em Ver histórico.' : 'Nenhuma consulta selecionada.'));
     } catch (error) {
       if (authEpoch === epoch) status.textContent = error.message || 'Não foi possível importar a base.';
     } finally {
