@@ -42,12 +42,15 @@ def public_catalog():
  fields=('id','nome','uf','averbadora','matricula_obrigatoria','senha_servidor','produtos')
  return [{key:row[key] for key in fields} for row in CATALOG.values()]
 LOCK = threading.Lock()
+CONFIG_LOCK = threading.Lock()
 SESSION = None
 MAX_RESPONSE = 1024 * 1024
 
 
 def credentials_path():
- return Path(os.environ.get('STATE_DIRECTORY','/var/lib/apoiarcred-amigoz'))/'credentials.json'
+ directories=os.environ.get('STATE_DIRECTORY','/var/lib/apoiarcred-amigoz').split(os.pathsep)
+ directory=next((entry for entry in directories if Path(entry).name=='apoiarcred-amigoz'),directories[0])
+ return Path(directory)/'credentials.json'
 
 
 def configuration():
@@ -69,7 +72,7 @@ def endpoint(value):
   parsed=urlsplit(value)
   if (parsed.scheme!='https' or not parsed.hostname or parsed.username is not None or
       parsed.password is not None or parsed.port not in (None,443) or
-      parsed.query or parsed.fragment or parsed.path not in ('','/') or
+      parsed.query or parsed.fragment or parsed.path not in ('','/','/api','/api/') or
       not re.fullmatch(r'[a-zA-Z0-9.-]+',parsed.hostname) or '.' not in parsed.hostname):
    raise ValueError()
   return parsed.hostname.lower()
@@ -78,8 +81,7 @@ def endpoint(value):
 
 
 def save_configuration(payload):
- global SESSION
- with LOCK:
+ with CONFIG_LOCK:
   previous=configuration() or {}
   url='https://'+endpoint(payload.get('url'))
   user=payload.get('usuario')
@@ -94,17 +96,24 @@ def save_configuration(payload):
    raise AmigozError(422,'invalid_amigoz_password','Informe a senha da Amigoz para este usuário e endereço.')
   config={'url':url,'usuario':user,'senha':password,'corban_id':corban}
   path=credentials_path()
-  with tempfile.NamedTemporaryFile(mode='w',dir=path.parent,delete=False) as file:
-   temp=Path(file.name)
-   try:
-    json.dump(config,file)
-    file.flush()
-    os.fsync(file.fileno())
-    temp.replace(path)
-   finally:
-    temp.unlink(missing_ok=True)
-  SESSION=None
-  return public_configuration(config)
+  try:
+   return persist_configuration(path,config)
+  except OSError:
+   raise AmigozError(503,'amigoz_config_storage','A VPS não conseguiu gravar as credenciais Amigoz. Confira o diretório de estado da API.') from None
+
+
+def persist_configuration(path,config):
+ file=tempfile.NamedTemporaryFile(mode='w',dir=path.parent,delete=False)
+ temp=Path(file.name)
+ try:
+  with file:
+   json.dump(config,file)
+   file.flush()
+   os.fsync(file.fileno())
+  temp.replace(path)
+ finally:
+  temp.unlink(missing_ok=True)
+ return public_configuration(config)
 
 
 class PublicHTTPS(http.client.HTTPSConnection):

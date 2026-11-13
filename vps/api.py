@@ -118,6 +118,8 @@ def partner_admin(auth,method,path,payload):
    raise
  raise AdminError(404,'not_found','Rota não encontrada.')
 
+AMIGOZ_REQUESTS=threading.BoundedSemaphore(3)
+
 def amigoz_admin(auth,method,path,payload):
  import amigoz_api as amigoz
  actor=session_actor(auth)
@@ -256,7 +258,13 @@ class Handler(BaseHTTPRequestHandler):
    if admin:
     if target.path in ('/api/admin/minio','/api/admin/minio/test'):handler=minio_admin
     else:handler=amigoz_admin if target.path.startswith('/api/admin/amigoz/') else partner_admin
-    status,body=handler(auth,self.command,target.path,payload);body['request_id']=self.request_id;return self.send_json(status,body)
+    limited=handler is amigoz_admin and target.path.rsplit('/',1)[-1] in ('consultar','testar')
+    if limited and not AMIGOZ_REQUESTS.acquire(blocking=False):
+     return self.error(503,'amigoz_busy','A Amigoz está ocupada. Os outros serviços continuam disponíveis.')
+    try:status,body=handler(auth,self.command,target.path,payload)
+    finally:
+     if limited:AMIGOZ_REQUESTS.release()
+    body['request_id']=self.request_id;return self.send_json(status,body)
    result=rpc(dict(p_hash=hashlib.sha256(token.encode()).hexdigest(),p_method=self.command,p_route=target.path[len('/api/v1'):],p_payload=payload,p_key=key))
    status=int(result['status']);body=result['body'];body['request_id']=self.request_id
    format_cpf_field(body)
@@ -280,7 +288,11 @@ class Handler(BaseHTTPRequestHandler):
   else:self.do_OPTIONS()
 
 if __name__=='__main__':
- import amigoz_queue
- queue_stop=amigoz_queue.start(supabase_call)
+ queue_stop=threading.Event()
+ try:
+  import amigoz_queue
+  queue_stop=amigoz_queue.start(supabase_call)
+ except Exception as error:
+  print(f'Amigoz | executor indisponível ({type(error).__name__}).',flush=True)
  try:Server(('127.0.0.1',8877),Handler).serve_forever()
  finally:queue_stop.set()
