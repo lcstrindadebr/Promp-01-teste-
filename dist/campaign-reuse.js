@@ -28,7 +28,7 @@ async function history(){
  if(!current())return;
  $('#reuseHistory').replaceChildren(...rows.map(row=>{
   const item=document.createElement('li');
-  item.textContent=row.nome+' · '+row.resposta.leads+' leads · '+row.pendentes+' pendentes · '+row.atencao+' com falha ou em revisão';
+  item.textContent=row.nome+' · '+row.resposta.leads+' leads · '+row.pendentes+' pendentes · '+row.atencao+' com falha ou em revisão · '+(row.concluidas??0)+' concluídos'+(row.ultimo_http?' · último erro Amigoz HTTP '+row.ultimo_http:'');
   return item;
  }));
 }
