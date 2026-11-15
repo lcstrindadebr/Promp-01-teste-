@@ -40,6 +40,49 @@ def session_actor(auth):
  if not actor:raise AdminError(401,'invalid_session','Sessão inválida.')
  return actor
 
+def tenant_users(auth, method, path, payload):
+ actor=session_actor(auth)
+ def manage(action, data=None):
+  try:
+   return supabase_call('/rest/v1/rpc/tenant_manage_users',
+    dict(actor=actor, operation=action, input=data or {}))
+  except urllib.error.HTTPError as error:
+   if error.code==403:
+    raise AdminError(403,'tenant_access','Ação indisponível para este usuário.') from None
+   if error.code in (400,409,422):
+    raise AdminError(422,'tenant_user','Confira os dados, as permissões e os administradores ativos.') from None
+   raise
+ base='/api/admin/tenant/users'
+ if method=='GET' and path==base:
+  return 200,{'data':manage('list')}
+ if method!='POST':
+  raise AdminError(404,'not_found','Rota não encontrada.')
+ match=re.fullmatch(base+r'/([a-f0-9-]{36})',path)
+ data={key:payload.get(key) for key in ('name','active','role','daily_limit','services')}
+ if match:
+  return 200,{'data':manage('update',dict(data,id=match.group(1)))}
+ if path!=base:
+  raise AdminError(404,'not_found','Rota não encontrada.')
+ manage('check')
+ email=payload.get('email')
+ password=payload.get('password')
+ if not isinstance(email,str) or len(email)>254 or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email) or not isinstance(password,str) or not 8<=len(password)<=256:
+  raise AdminError(422,'invalid_credentials','Informe e-mail válido e senha de 8 a 256 caracteres.')
+ try:
+  created=supabase_call('/auth/v1/admin/users',dict(email=email.lower(),password=password,email_confirm=True))
+ except urllib.error.HTTPError as error:
+  if error.code in (400,422):
+   raise AdminError(422,'account_not_created','Confira o endereço de e-mail e a senha inicial.') from None
+  raise
+ user_id=created.get('user',created)['id']
+ try:
+  result=manage('create',dict(data,id=user_id))
+ except AdminError as error:
+  if error.status in (403,422):
+   supabase_call('/auth/v1/admin/users/'+user_id,method='DELETE')
+  raise
+ return 201,{'data':result}
+
 def minio_admin(auth,method,path,payload):
  import minio_settings
 
@@ -257,6 +300,7 @@ class Handler(BaseHTTPRequestHandler):
   try:
    if admin:
     if target.path in ('/api/admin/minio','/api/admin/minio/test'):handler=minio_admin
+    elif target.path.startswith('/api/admin/tenant/'):handler=tenant_users
     else:handler=amigoz_admin if target.path.startswith('/api/admin/amigoz/') else partner_admin
     limited=handler is amigoz_admin and target.path.rsplit('/',1)[-1] in ('consultar','testar')
     if limited and not AMIGOZ_REQUESTS.acquire(blocking=False):
