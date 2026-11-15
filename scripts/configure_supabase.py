@@ -1,5 +1,5 @@
 """Validate and persist server/public Supabase settings without exposing secrets."""
-import argparse, base64, json, os, re, sys, tempfile, subprocess
+import argparse, base64, json, os, re, socket, ssl, sys, tempfile, subprocess, time
 from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
@@ -18,6 +18,46 @@ def validate(url, public, secret):
     for key in (public,secret):
         if not re.fullmatch(r'[A-Za-z0-9_.=-]+',key):raise ValueError('Formato de chave inválido.')
 
+class ProbeError(Exception):
+    """A failed preflight check with a safe message for the installer."""
+
+def check_endpoint(url, path, headers):
+    endpoint = path.split('?', 1)[0]
+    for attempt in range(2):
+        try:
+            with urlopen(Request(url + path, headers=headers), timeout=20) as response:
+                response.read()
+            return
+        except HTTPError as error:
+            status = error.code
+            error.close()
+            hint = {
+                400: 'Confira as colunas exigidas pelo MVP.',
+                401: 'Confira se a chave pertence ao projeto configurado.',
+                403: 'Confira a chave e as permissões do projeto.',
+                404: 'Confira o schema do MVP e a exposição da tabela na API.',
+                429: 'O Supabase limitou as requisições. Tente novamente mais tarde.',
+            }.get(status, 'Confira os logs do Supabase para esse horário.')
+            failure = f'HTTP {status}. {hint}'
+            retry = status in (500, 502, 503, 504, 520, 522, 524)
+        except (URLError, OSError) as error:
+            reason = error.reason if isinstance(error, URLError) else error
+            retry = isinstance(reason, TimeoutError) or (
+                isinstance(reason, socket.gaierror) and reason.errno == socket.EAI_AGAIN
+            )
+            if isinstance(reason, TimeoutError):
+                failure = 'Tempo limite de 20 segundos ao consultar o Supabase.'
+            elif isinstance(reason, socket.gaierror):
+                failure = 'Falha de DNS na VPS ao resolver o domínio do Supabase.'
+            elif isinstance(reason, ssl.SSLError):
+                failure = 'Falha TLS na conexão da VPS com o Supabase.'
+            else:
+                failure = 'Falha de conexão da VPS com o Supabase.'
+        if not retry or attempt == 1:
+            raise ProbeError(f'{endpoint}: {failure}')
+        print(f'{endpoint}: falha temporária. Repetindo a validação uma vez.', file=sys.stderr)
+        time.sleep(2)
+
 def probe(url, public, secret):
     # Both keys must belong to the same project, and the MVP tables must exist.
     checks=[('/auth/v1/settings',{'apikey':public}),
@@ -30,7 +70,7 @@ def probe(url, public, secret):
             ('/rest/v1/tjba_lotes?select=id,user_id,nome,tipo,servico&limit=0',{'apikey':secret})]
     for path,headers in checks:
         if role(secret)=='service_role' and path.startswith('/rest/'):headers['Authorization']='Bearer '+secret
-        with urlopen(Request(url+path,headers=headers),timeout=20) as response:response.read()
+        check_endpoint(url,path,headers)
 
 def atomic(path,content,mode):
     fd,name=tempfile.mkstemp(prefix='.config-',dir=path.parent)
@@ -112,5 +152,5 @@ def main():
 
 if __name__=='__main__':
     try:main()
-    except (HTTPError,URLError,TimeoutError):print('Não foi possível validar URL/chaves ou tabelas do MVP no Supabase. Nenhuma configuração foi alterada.',file=sys.stderr);sys.exit(1)
+    except ProbeError as e:print(f'Falha ao validar o Supabase em {e} Nenhuma configuração de conexão foi alterada.',file=sys.stderr);sys.exit(1)
     except Exception as e:print('Falha ao configurar Supabase: '+str(e) if isinstance(e,ValueError) else 'Falha ao salvar a configuração. Confira permissões e espaço em disco.',file=sys.stderr);sys.exit(1)
