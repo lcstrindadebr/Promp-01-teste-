@@ -3910,9 +3910,9 @@
         "tags": [
           "Clientes"
         ],
-        "summary": "Buscar perfil consolidado pelo CPF",
+        "summary": "Buscar cliente por CPF ou telefone",
         "operationId": "findCrmCliente",
-        "description": "Permissão necessária: crm:read ou read. CPF no corpo. Retorna o cadastro mesmo sem registros de consulta.",
+        "description": "Permissão necessária: crm:read ou read. Envie CPF ou telefone com DDD. O perfil inclui os IDs em data.oportunidades[].id. Telefone compartilhado retorna 409.",
         "security": [
           {
             "bearerAuth": []
@@ -4068,18 +4068,35 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "cpf": {
-                    "type": "string"
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "cpf"
+                    ],
+                    "properties": {
+                      "cpf": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "telefone"
+                    ],
+                    "properties": {
+                      "telefone": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
                   }
-                },
-                "required": [
-                  "cpf"
                 ]
               },
               "example": {
-                "cpf": "000.000.000-00"
+                "telefone": "+55 (71) 99999-0000"
               }
             }
           }
