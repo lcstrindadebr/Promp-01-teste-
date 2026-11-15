@@ -5,7 +5,7 @@ let currentAccess=null,accessRefreshing=false,accessCheckedAt=0;
 let session=null,authenticated=false,refreshing=null,loadingCloud=false,authEpoch=0;
 const statusNames={aguardando:'Aguardando',processando:'Processando',concluida:'Concluída',nao_localizado:'Não é cliente',nao_cliente:'Não é cliente',ja_vendeu:'Já vendeu',nao_encontrado:'Não encontrado',erro:'Erro',revisao:'Revisão',interrompida:'Consulta interrompida'};
 function showLogin(message=''){
- authenticated=false;session=null;currentAccess=null;accessRefreshing=false;accessCheckedAt=0;authEpoch++;if(typeof resetPartnerSettings==='function')resetPartnerSettings();if(typeof resetApiSettings==='function')resetApiSettings();if(typeof resetWebhooks==='function')resetWebhooks();if(typeof resetTjbaSettings==='function')resetTjbaSettings();importGeneration++;readingImport=false;importError='';if(typeof resetAmigoz==='function')resetAmigoz();if(typeof resetMonitoring==='function')resetMonitoring();cloudSnapshot=null;cloudRows.clear();cloudLoadAgain=false;cloudSyncErrorAt=0;records=[];pending=[];campaigns=[];activeCampaign=null;retryingCampaign=false;$('#campaignName').value='';navigate("home");
+ authenticated=false;session=null;currentAccess=null;accessRefreshing=false;accessCheckedAt=0;authEpoch++;if(typeof resetPartnerSettings==='function')resetPartnerSettings();if(typeof resetApiSettings==='function')resetApiSettings();if(typeof resetWebhooks==='function')resetWebhooks();if(typeof resetTjbaSettings==='function')resetTjbaSettings();importGeneration++;readingImport=false;importError='';if(typeof resetAmigoz==='function')resetAmigoz();if(typeof resetMonitoring==='function')resetMonitoring();cloudSnapshot=null;cloudRows.clear();cloudLoadAgain=false;cloudSyncErrorAt=0;cloudSyncRetryAt=0;cloudSyncFailures=0;records=[];pending=[];campaigns=[];activeCampaign=null;retryingCampaign=false;$('#campaignName').value='';navigate("home");
  $('#consultationLogPanel').open=false;$('#consultationLogRobot').value='';sessionStorage.removeItem(storageKey);$('#appShell').hidden=true;$('#loginPage').hidden=false;
  $('#loginStatus').textContent='';$('#loginError').textContent=message;$('#preview').classList.add('hide');$('#file').value='';$('#import').disabled=true;render();
 }
@@ -44,6 +44,7 @@ let cloudSnapshot=null;
 const cloudRows=new Map();
 const consultationLogDetails=new WeakMap();
 let cloudLoadPromise=null,cloudLoadAgain=false,cloudSyncErrorAt=0;
+let cloudSyncRetryAt=0,cloudSyncFailures=0;
 
 async function loadConsultationLogDetail(row){
  if(consultationLogDetails.has(row))return consultationLogDetails.get(row);
@@ -99,7 +100,7 @@ async function syncCloudPages(epoch){
  render();
 }
 function loadCloud(){
- if(!authenticated||document.visibilityState==='hidden')return Promise.resolve();
+ if(!authenticated||document.visibilityState==='hidden'||Date.now()<cloudSyncRetryAt)return Promise.resolve();
  if(cloudLoadPromise){cloudLoadAgain=true;return cloudLoadPromise;}
  const epoch=authEpoch;
  loadingCloud=true;
@@ -107,10 +108,16 @@ function loadCloud(){
   do{
    cloudLoadAgain=false;
    await syncCloudPages(epoch);
+   if(epoch===authEpoch){cloudSyncRetryAt=0;cloudSyncFailures=0;}
   }while(cloudLoadAgain&&epoch===authEpoch&&authenticated&&document.visibilityState!=='hidden');
  })().catch(error=>{
-  if(epoch===authEpoch&&authenticated&&Date.now()-cloudSyncErrorAt>30000){
-   cloudSyncErrorAt=Date.now();toast(error.message);
+  if(epoch!==authEpoch||!authenticated)return;
+  cloudSyncFailures++;
+  const now=Date.now();
+  cloudSyncRetryAt=now+Math.min(60000,5000*2**Math.min(cloudSyncFailures,4));
+  if(now-cloudSyncErrorAt>30000){
+   cloudSyncErrorAt=now;
+   toast('Não foi possível atualizar as consultas. O painel tentará novamente em instantes.');
   }
  }).finally(()=>{
   cloudLoadPromise=null;loadingCloud=false;
