@@ -307,7 +307,7 @@
       },
       "post": {
         "summary": "Criar campanha pausada",
-        "description": "Permissão necessária: campanhas:write.",
+        "description": "Permissão necessária: campanhas:write. No Digi+, convenio é opcional. No ConsigX, informe o código do convênio quando diferente de tjba.",
         "operationId": "post_campanhas",
         "security": [
           {
@@ -438,6 +438,11 @@
                   },
                   "servico": {
                     "type": "string"
+                  },
+                  "convenio": {
+                    "type": "string",
+                    "maxLength": 120,
+                    "description": "Código ou identificação do convênio. Para ConsigX, use um dos códigos suportados."
                   }
                 },
                 "required": [
@@ -447,7 +452,8 @@
               },
               "example": {
                 "nome": "Campanha de exemplo",
-                "servico": "digimais_saldo_parcela"
+                "servico": "digimais_saldo_parcela",
+                "convenio": "amigoz_33"
               }
             }
           }
