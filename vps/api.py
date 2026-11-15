@@ -225,7 +225,10 @@ class Handler(BaseHTTPRequestHandler):
  def handle_route(self):
   self.request_id=str(uuid.uuid4());target=urlsplit(self.path)
   if self.command=='GET' and target.path=='/api/health':
-   return self.send_json(200,{'status':'ok','version':'1'})
+   return self.send_json(200,{'status':'ok','version':'1','session_gateway':True})
+  if target.path.startswith('/api/session/'):
+   import auth_session
+   return auth_session.handle(self,target.path)
   if not target.path.startswith(('/api/v1/','/api/admin/')) or '%' in target.path:return self.error(404,'not_found','Rota não encontrada.')
   auth=self.headers.get('Authorization','')
   admin=target.path.startswith('/api/admin/')

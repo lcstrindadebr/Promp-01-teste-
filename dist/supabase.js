@@ -5,21 +5,39 @@ let currentAccess=null,accessRefreshing=false,accessCheckedAt=0;
 let session=null,authenticated=false,refreshing=null,loadingCloud=false,authEpoch=0;
 const statusNames={aguardando:'Aguardando',processando:'Processando',concluida:'Concluída',nao_localizado:'Não é cliente',nao_cliente:'Não é cliente',ja_vendeu:'Já vendeu',nao_encontrado:'Não encontrado',erro:'Erro',revisao:'Revisão',interrompida:'Consulta interrompida'};
 function showLogin(message=''){
+ $('#password').required=true;$('#loginSubmit').textContent='Entrar';$('#loginSwitchAccount').hidden=true;
  digimaisCampaignUpload=null;authenticated=false;session=null;currentAccess=null;accessRefreshing=false;accessCheckedAt=0;authEpoch++;if(typeof resetPartnerSettings==='function')resetPartnerSettings();if(typeof resetApiSettings==='function')resetApiSettings();if(typeof resetWebhooks==='function')resetWebhooks();if(typeof resetTjbaSettings==='function')resetTjbaSettings();importGeneration++;readingImport=false;importError='';if(typeof resetAmigoz==='function')resetAmigoz();if(typeof resetMonitoring==='function')resetMonitoring();cloudSnapshot=null;cloudRows.clear();cloudLoadAgain=false;cloudSyncErrorAt=0;cloudSyncRetryAt=0;cloudSyncFailures=0;records=[];pending=[];campaigns=[];activeCampaign=null;retryingCampaign=false;$('#campaignName').value='';navigate("home");
  $('#consultationLogPanel').open=false;$('#consultationLogRobot').value='';sessionStorage.removeItem(storageKey);$('#appShell').hidden=true;$('#loginPage').hidden=false;
  $('#loginStatus').textContent='';$('#loginError').textContent=message;$('#preview').classList.add('hide');$('#file').value='';$('#import').disabled=true;render();
 }
 function saveSession(data){session={...data,expires_at:data.expires_at||Math.floor(Date.now()/1000)+data.expires_in};sessionStorage.setItem(storageKey,JSON.stringify(session))}
 async function raw(path,options={},timeoutMs=20000){
- const res=await fetch(sb.url+path,{...options,headers:{apikey:sb.key,'Content-Type':'application/json',...options.headers},signal:AbortSignal.timeout(timeoutMs)});
- const text=await res.text();let data;
+ const sessionRoutes={
+  '/auth/v1/token?grant_type=password':'/api/session/login',
+  '/auth/v1/token?grant_type=refresh_token':'/api/session/refresh',
+  '/auth/v1/user':'/api/session/user',
+  '/auth/v1/logout':'/api/session/logout',
+  '/rest/v1/rpc/my_access':'/api/session/access'
+ };
+ const localRoute=sessionRoutes[path];
+ const controller=new AbortController();
+ const timer=setTimeout(()=>controller.abort(),localRoute?60000:timeoutMs);
+ let res,text;
+ try{
+  res=await fetch(localRoute||sb.url+path,{...options,headers:{...(localRoute?{}:{apikey:sb.key}),'Content-Type':'application/json',...options.headers},signal:controller.signal,cache:'no-store'});
+  text=await res.text();
+ }catch(error){
+  if(controller.signal.aborted)throw Object.assign(Error('Tempo de espera esgotado.'),{name:'TimeoutError'});
+  throw error;
+ }finally{clearTimeout(timer);}
+ let data;
  try{data=text?JSON.parse(text):null}catch{
   if(res.ok)throw Error('Resposta inválida do Supabase.');
  }
  if(!res.ok){
   const error=Error(data?.message||data?.msg||data?.error_description||'Falha na conexão com Supabase');
   error.status=res.status;
-  error.code=data?.error_code||data?.code;
+  error.code=data?.error_code||data?.code||data?.error?.code;
   throw error;
  }
  return data;
@@ -193,30 +211,67 @@ function loginFailureMessage(error){
  if(error.status>=500)return 'O serviço de login está indisponível no momento. Tente novamente em instantes.';
  return 'Não foi possível entrar. Se o problema persistir, informe o horário da tentativa ao administrador.';
 }
+function keepSessionForRetry(message){
+ authenticated=false;
+ currentAccess=null;
+ $('#appShell').hidden=true;
+ $('#loginPage').hidden=false;
+ $('#loginError').textContent=message;
+ $('#loginSubmit').textContent='Tentar acessar novamente';
+ $('#password').required=false;
+ $('#loginSwitchAccount').hidden=false;
+}
 async function openPanel(){
- authenticated=true;const epoch=authEpoch;
- $('#loginStatus').textContent='Validando acesso ao painel…';
+ authenticated=true;
+ const epoch=authEpoch;
+ setLoginStage('Validando seu acesso');
  try{
-  try{await refreshMyAccess(true);}catch(error){
-   if(epoch!==authEpoch)return;
-   if(!(isConnectionFailure(error)||error.status>=500))throw error;
-   await new Promise(resolve=>setTimeout(resolve,1000));
-   if(epoch!==authEpoch)return;
-   await refreshMyAccess(true);
-  }
+  await refreshMyAccess(true);
   if(epoch!==authEpoch)return;
   if(!currentAccess?.active){
    showLogin('Conta sem acesso ativo. Solicite liberação ao administrador.');
    return;
   }
  }catch(error){
-  if(epoch===authEpoch)showLogin('A conta foi autenticada, mas não foi possível validar o acesso ao painel. Tente novamente.');
+  if(epoch!==authEpoch)return;
+  if([400,401,403].includes(error.status)){showLogin('Sessão encerrada. Entre novamente.');return;}
+  keepSessionForRetry('Sua conta foi autenticada. A validação do acesso demorou ou está indisponível. Tente acessar novamente.');
   return;
  }
- $('#loginPage').hidden=true;$('#appShell').hidden=false;$('#accountEmail').textContent=session.user.email;
- $('#authState').textContent='Conectado como '+session.user.email;$('#password').value='';setPasswordVisible(false);$('#loginStatus').textContent='';$('#loginError').textContent='';loadCloud();
+ $('#loginPage').hidden=true;
+ $('#appShell').hidden=false;
+ $('#accountEmail').textContent=session.user.email;
+ $('#authState').textContent='Conectado como '+session.user.email;
+ $('#password').value='';
+ setPasswordVisible(false);
+ $('#loginError').textContent='';
+ loadCloud();
  if(typeof applyAccessUi==='function')applyAccessUi();
- if(typeof loadAmigozSettings==='function')loadAmigozSettings();if(typeof loadTjbaSettings==='function')loadTjbaSettings();
+ if(typeof loadAmigozSettings==='function')loadAmigozSettings();
+ if(typeof loadTjbaSettings==='function')loadTjbaSettings();
+}
+let loginClock=null,loginStage='',loginStarted=0;
+function setLoginStage(label){
+ loginStage=label;
+ loginStarted=Date.now();
+ const update=()=>{
+  const elapsed=Math.min(60,Math.floor((Date.now()-loginStarted)/1000));
+  $('#loginStatus').textContent=loginStage+' · '+elapsed+' de até 60 segundos';
+  $('#loginProgress').value=elapsed;
+ };
+ clearInterval(loginClock);
+ $('#loginProgress').hidden=false;
+ update();
+ loginClock=setInterval(update,1000);
+}
+function finishLoginWait(){
+ clearInterval(loginClock);loginClock=null;
+ $('#loginStatus').textContent='';
+ $('#loginProgress').hidden=true;
+ $('#loginSubmit').disabled=false;
+ $('#email').readOnly=false;
+ $('#password').readOnly=false;
+ $('#login').setAttribute('aria-busy','false');
 }
 
 function setPasswordVisible(visible){
@@ -229,25 +284,36 @@ function setPasswordVisible(visible){
 
 $('#togglePassword').onclick=()=>setPasswordVisible($('#password').type==='password');
 
-$('#login').onsubmit=async e=>{
- e.preventDefault();
+$('#login').onsubmit=async event=>{
+ event.preventDefault();
  const button=$('#loginSubmit');
  if(button.disabled)return;
  button.disabled=true;
+ $('#email').readOnly=true;
+ $('#password').readOnly=true;
+ $('#login').setAttribute('aria-busy','true');
  $('#loginError').textContent='';
- $('#loginStatus').textContent='Entrando…';
  try{
-  const data=await raw('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email:$('#email').value.trim(),password:$('#password').value})},30000);
-  authEpoch++;
-  saveSession(data);
+  if(!session){
+   setLoginStage('Conectando à sua conta');
+   const data=await raw('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email:$('#email').value.trim(),password:$('#password').value})});
+   if(!data?.access_token||!data?.user)throw Error('Resposta de autenticação inválida.');
+   authEpoch++;
+   saveSession(data);
+   $('#password').value='';
+   $('#password').required=false;
+  }else{
+   setLoginStage('Verificando sua sessão');
+   await refreshSession();
+  }
   await openPanel();
- }catch(e){
-  showLogin(loginFailureMessage(e));
- }finally{
-  $('#loginStatus').textContent='';
-  button.disabled=false;
- }
+ }catch(error){
+  if(session&&!(error.status>=400&&error.status<500)){
+   keepSessionForRetry('Não foi possível verificar sua sessão agora. Tente acessar novamente.');
+  }else showLogin(loginFailureMessage(error));
+ }finally{finishLoginWait();}
 };
+$('#loginSwitchAccount').onclick=()=>{showLogin();$('#password').value='';$('#email').focus();};
 
 async function signOut(){
  const token=session?.access_token;
@@ -266,10 +332,13 @@ async function restoreSession(){
  if(!stored)return;
  const button=$('#loginSubmit');
  button.disabled=true;
- $('#loginStatus').textContent='Verificando sessão…';
+ setLoginStage('Verificando sua sessão');
  try{session=JSON.parse(stored);await refreshSession();
  const user=await raw('/auth/v1/user',{headers:{Authorization:'Bearer '+session.access_token}});session.user=user;saveSession(session);await openPanel();
- }catch{showLogin('Entre novamente para acessar o sistema.')}finally{button.disabled=false;$('#loginStatus').textContent='';}
+ }catch(error){
+  if(session&&isConnectionFailure(error)||session&&error.status>=500)keepSessionForRetry('Sua sessão está salva. Tente acessar novamente quando o serviço responder.');
+  else showLogin('Entre novamente para acessar o sistema.');
+ }finally{finishLoginWait();}
 }
 // Discard credentials from versions that did not distinguish Supabase projects.
 sessionStorage.removeItem('sb-session');
