@@ -5,7 +5,7 @@ let currentAccess=null,accessRefreshing=false,accessCheckedAt=0;
 let session=null,authenticated=false,refreshing=null,loadingCloud=false,authEpoch=0;
 const statusNames={aguardando:'Aguardando',processando:'Processando',concluida:'Concluída',nao_localizado:'Não é cliente',nao_cliente:'Não é cliente',ja_vendeu:'Já vendeu',nao_encontrado:'Não encontrado',erro:'Erro',revisao:'Revisão',interrompida:'Consulta interrompida'};
 function showLogin(message=''){
- authenticated=false;session=null;currentAccess=null;accessRefreshing=false;accessCheckedAt=0;authEpoch++;if(typeof resetPartnerSettings==='function')resetPartnerSettings();if(typeof resetApiSettings==='function')resetApiSettings();if(typeof resetWebhooks==='function')resetWebhooks();if(typeof resetTjbaSettings==='function')resetTjbaSettings();importGeneration++;readingImport=false;importError='';if(typeof resetAmigoz==='function')resetAmigoz();if(typeof resetMonitoring==='function')resetMonitoring();cloudSnapshot=null;cloudRows.clear();cloudLoadAgain=false;cloudSyncErrorAt=0;cloudSyncRetryAt=0;cloudSyncFailures=0;records=[];pending=[];campaigns=[];activeCampaign=null;retryingCampaign=false;$('#campaignName').value='';navigate("home");
+ digimaisCampaignUpload=null;authenticated=false;session=null;currentAccess=null;accessRefreshing=false;accessCheckedAt=0;authEpoch++;if(typeof resetPartnerSettings==='function')resetPartnerSettings();if(typeof resetApiSettings==='function')resetApiSettings();if(typeof resetWebhooks==='function')resetWebhooks();if(typeof resetTjbaSettings==='function')resetTjbaSettings();importGeneration++;readingImport=false;importError='';if(typeof resetAmigoz==='function')resetAmigoz();if(typeof resetMonitoring==='function')resetMonitoring();cloudSnapshot=null;cloudRows.clear();cloudLoadAgain=false;cloudSyncErrorAt=0;cloudSyncRetryAt=0;cloudSyncFailures=0;records=[];pending=[];campaigns=[];activeCampaign=null;retryingCampaign=false;$('#campaignName').value='';navigate("home");
  $('#consultationLogPanel').open=false;$('#consultationLogRobot').value='';sessionStorage.removeItem(storageKey);$('#appShell').hidden=true;$('#loginPage').hidden=false;
  $('#loginStatus').textContent='';$('#loginError').textContent=message;$('#preview').classList.add('hide');$('#file').value='';$('#import').disabled=true;render();
 }
@@ -28,12 +28,44 @@ async function fetchAll(path){
  const rows=[];for(let offset=0;;offset+=1000){const page=await sbRequest(path+'&limit=1000&offset='+offset);rows.push(...page);if(page.length<1000)break;}
  return [...new Map(rows.map(row=>[row.id,row])).values()];
 }
+let digimaisCampaignUpload=null;
 async function createCampaign(name,items){
  if(!authenticated)throw Error('Entre na sua conta.');
  if(!name.trim()||name.trim().length>160||!items.length)throw Error('Informe o nome e selecione clientes válidos.');
- const quotaError=typeof campaignImportError==='function'?campaignImportError(items.length):'';if(quotaError)throw Error(quotaError);
- const service=selectedService();if(typeof assertCanSubmit==='function')assertCanSubmit(service,'campaign');const body={p_nome:name.trim(),p_items:items.map(r=>({nome:r.nome,cpf:r.cpf,telefone:r.telefone}))};if(service!=='tjba_margem')body.p_servico=service;else body.p_convenio=selectedConvenio();
- const id=await sbRequest('/rest/v1/rpc/'+(service==='tjba_margem'?'create_consigx_campaign':'create_consulta_campaign'),{method:'POST',body:JSON.stringify(body)});
+ const service=selectedService();
+ const payload={p_nome:name.trim(),p_items:items.map(r=>({nome:r.nome,cpf:r.cpf,telefone:r.telefone}))};
+ const retry=service==='digimais_saldo_parcela'&&digimaisCampaignUpload?.epoch===authEpoch&&
+  digimaisCampaignUpload.name===payload.p_nome&&digimaisCampaignUpload.items===items;
+ if(!retry){
+  const quotaError=typeof campaignImportError==='function'?campaignImportError(items.length):'';
+  if(quotaError)throw Error(quotaError);
+  if(typeof assertCanSubmit==='function')assertCanSubmit(service,'campaign');
+ }
+ let id;
+ if(service==='digimais_saldo_parcela'&&items.length>100){
+  if(!retry)digimaisCampaignUpload={id:crypto.randomUUID(),epoch:authEpoch,name:payload.p_nome,items,offset:0};
+  const upload=digimaisCampaignUpload;
+  const submitBatch=(rows)=>sbRequest('/rest/v1/rpc/save_digimais_campaign_batch',{method:'POST',
+   body:JSON.stringify({p_id:upload.id,p_nome:payload.p_nome,p_total:items.length,p_items:rows})});
+  try{
+   while(upload.offset<items.length){
+    if(upload.epoch!==authEpoch)throw Error('Sessão encerrada.');
+    const rows=payload.p_items.slice(upload.offset,upload.offset+100);
+    await submitBatch(rows);
+    upload.offset+=rows.length;
+    if(upload.offset%1000===0||upload.offset===items.length)toast(upload.offset.toLocaleString('pt-BR')+' de '+items.length.toLocaleString('pt-BR')+' leads enviados.');
+   }
+   if(upload.epoch!==authEpoch)throw Error('Sessão encerrada.');
+   await submitBatch([]);
+  }catch(error){
+   throw Error('Envio interrompido após '+upload.offset.toLocaleString('pt-BR')+' leads confirmados. Mantenha a planilha selecionada e clique novamente para retomar. '+error.message);
+  }
+  id=upload.id;digimaisCampaignUpload=null;
+ }else{
+  const route=service==='tjba_margem'?'create_consigx_campaign':'create_consulta_campaign';
+  if(service==='tjba_margem')payload.p_convenio=selectedConvenio();else payload.p_servico=service;
+  id=await sbRequest('/rest/v1/rpc/'+route,{method:'POST',body:JSON.stringify(payload)});
+ }
  await loadCloud();await refreshMyAccess(true).catch(()=>{});return id;
 }
 async function retryCampaign(id){
