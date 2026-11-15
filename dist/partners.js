@@ -2,7 +2,7 @@ const partnerServices=[['digimais_saldo_parcela','Digi+ · Saldo e parcela'],['t
 let partnersList=[],partnerSaving=false,applyingAccess=false;
 function hasIntegrationAccess(){return !!(currentAccess?.active&&(currentAccess.role==='admin'||currentAccess.allow_integrations===true));}
 function accessRule(service){return currentAccess?.services?.find(r=>r.id===service);}
-const campaignFileLimit=10000;
+const campaignFileLimit=11000;
 const quotaNumber=new Intl.NumberFormat('pt-BR');
 function sharedQuotaText(access){
  if(!access.shared_quota)return '';
