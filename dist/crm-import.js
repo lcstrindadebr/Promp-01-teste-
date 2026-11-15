@@ -1,3 +1,22 @@
+async function crmConfirmWithReceipt(rpcName, payload, requestId) {
+  try {
+    return await crmRpc(rpcName, payload);
+  } catch (error) {
+    const uncertain = error.name === 'TimeoutError' || error.name === 'AbortError' ||
+      error instanceof TypeError || error.status >= 500;
+    if (!uncertain) throw error;
+    let history;
+    try {
+      history = await crmRpc('crm_import_history', {p_id:requestId});
+    } catch (lookupError) {
+      if (lookupError.status === 401) throw lookupError;
+    }
+    const receipt = history?.find(row => row.id === requestId);
+    if (receipt?.response) return receipt.response;
+    throw Error('O servidor demorou para responder. Mantenha esta janela aberta e clique no mesmo botão para verificar ou retomar a confirmação.');
+  }
+}
+
 
 // Mantém cada CPF no mesmo lote e IDs estáveis para retentativas na mesma janela.
 async function crmConfirmImportBatches(payload, requestId, filename, onProgress) {
@@ -28,10 +47,10 @@ async function crmConfirmImportBatches(payload, requestId, filename, onProgress)
     const id = [hex.slice(0,8),hex.slice(8,12),hex.slice(12,16),hex.slice(16,20),hex.slice(20)].join('-');
     onProgress(completed, payload.p_rows.length);
     try {
-      const result = await crmRpc('crm_confirm_import', {
+      const result = await crmConfirmWithReceipt('crm_confirm_import', {
         ...payload, p_rows:batches[index], p_request_id:id,
         p_arquivo:filename
-      });
+      }, id);
       for (const key of Object.keys(total)) total[key] += Number(result[key] || 0);
     } catch (error) {
       throw Error(completed + ' de ' + payload.p_rows.length +
@@ -439,7 +458,7 @@ async function crmOpenClientImport(amigozCampaign=false) {
       importProgress(2);
       status.textContent='Etapa 3 de 4 · Salvando clientes e agendando consultas…';
       const result = amigozCampaign
-        ? await crmRpc('crm_criar_campanha_amigoz',{...payload,p_id:requestId,p_nome:campaignName,p_arquivo:file.files[0]?.name})
+        ? await crmConfirmWithReceipt('crm_criar_campanha_amigoz',{...payload,p_id:requestId,p_nome:campaignName,p_arquivo:file.files[0]?.name},requestId)
         : await crmConfirmImportBatches(payload, requestId, file.files[0]?.name, (done,total)=>{
             status.textContent='Etapa 3 de 4 · '+done.toLocaleString('pt-BR')+' de '+total.toLocaleString('pt-BR')+' registros confirmados. Mantenha esta janela aberta.';
           });
