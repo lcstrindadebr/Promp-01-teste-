@@ -1,7 +1,7 @@
 // Settings sections preserve the existing forms and their event handlers.
 let apiTokenEpoch=0,apiCatalog=[],apiTokensLoading=false;
 const settingsRoot=$('#settings');
-const settingsGroups=[['operation','Operação'],['robots','Robôs e monitoramento'],['digimais-api','Log API Digimais'],['tables','Tabelas'],['integrations','Integrações'],['account','Conta e diagnóstico'],['partners','Parceiros'],['amigoz-api','API Amigoz'],['minio','Armazenamento MinIO']];
+const settingsGroups=[['operation','Operação'],['robots','Robôs e monitoramento'],['digimais-api','Log API Digimais'],['tables','Tabelas'],['integrations','Integrações'],['account','Conta e diagnóstico'],['tenant-users','Usuários'],['partners','Parceiros'],['amigoz-api','API Amigoz'],['minio','Armazenamento MinIO']];
 const settingsNav=document.createElement('div');settingsNav.className='settings-tabs';settingsNav.setAttribute('role','tablist');settingsNav.setAttribute('aria-label','Seções das configurações');
 settingsNav.innerHTML=settingsGroups.map(([id,label],i)=>`<button type="button" id="settings-tab-${id}" role="tab" aria-controls="settings-${id}" aria-selected="${i===0}" tabindex="${i===0?0:-1}" data-settings-section="${id}">${label}</button>`).join('');
 settingsRoot.insertBefore(settingsNav,settingsRoot.querySelector('.portal-card'));
@@ -13,6 +13,7 @@ $('#settings-integrations').innerHTML=`<section class="card api-card"><div class
 $('#apiBase').value=location.origin+'/api/v1';
 function switchSettings(id){
  for(const [key] of settingsGroups){const selected=key===id;$('#settings-'+key).hidden=!selected;const button=$('#settings-tab-'+key);button.setAttribute('aria-selected',String(selected));button.tabIndex=selected?0:-1;}
+ if(id==='tenant-users') loadTenantUsers();
  if(id==='integrations'){loadApiTokens();loadApiDocs();}if(id==='robots')tickMonitoring();if(id==='tables')loadAmigozTables();
 }
 settingsNav.onclick=e=>{const button=e.target.closest('[data-settings-section]');if(button)switchSettings(button.dataset.settingsSection);};
@@ -81,3 +82,80 @@ function renderApiRoute(){
  $('#copyApiCurl').onclick=()=>copyApi(curl);
 }
 $('#apiRouteSelect').onchange=renderApiRoute;
+
+async function tenantUserRequest(path='',body) {
+ await refreshSession();
+ const response=await fetch('/api/admin/tenant/users'+path,{
+  method:body?'POST':'GET',headers:{Authorization:'Bearer '+session.access_token,'Content-Type':'application/json'},
+  body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(30000)
+ });
+ const result=await response.json();
+ if(!response.ok) throw Error(result.error?.message||'Não foi possível gerenciar os usuários.');
+ return result.data;
+}
+
+async function loadTenantUsers() {
+ const panel=$('#settings-tenant-users'), epoch=authEpoch;
+ panel.textContent='Carregando usuários…';
+ try {
+  const data=await tenantUserRequest();
+  if(epoch!==authEpoch)return;
+  panel.innerHTML='<section class="card"><h2>Usuários</h2><label class="field">Selecionar usuário <select></select></label><form><label class="field">Nome <input name="name" required maxlength="160"></label><label class="field">E-mail <input name="email" type="email" required></label><label class="field">Senha inicial <input name="password" type="password" minlength="8" required autocomplete="new-password"></label><label class="field">Perfil <select name="role"><option value="operator">Operador</option><option value="admin">Administrador da empresa</option></select></label><label class="field">Limite diário <input name="daily_limit" type="number" min="0" max="100000"></label><label><input name="active" type="checkbox" checked> Ativo</label><div data-services></div><button class="primary">Salvar</button><p role="status"></p></form></section>';
+  const select=panel.querySelector('select'),form=panel.querySelector('form'),fields=form.elements;
+  const status=form.querySelector('[role=status]');
+  select.add(new Option('Novo usuário',''));
+  for(const user of data.users) select.add(new Option(user.name+' · '+user.email,user.id));
+  const services=panel.querySelector('[data-services]');
+  const names={digimais_saldo_parcela:'Digi+',tjba_margem:'ConsigX',amigoz:'Amigoz'};
+  function renderUser() {
+   const user=data.users.find(item=>item.id===select.value);
+   form.reset();
+   fields.name.value=user?.name??'';
+   fields.email.value=user?.email??'';
+   fields.email.disabled=fields.password.disabled=!!user;
+   fields.email.closest('label').hidden=fields.password.closest('label').hidden=!!user;
+   fields.role.value=user?.role??'operator';
+   fields.active.checked=user?.active??true;
+   fields.daily_limit.value=user?.daily_limit??'';
+   services.replaceChildren();
+   for(const service of data.services) {
+    const saved=user?.services.find(item=>item.service===service.service);
+    const group=document.createElement('fieldset');
+    group.dataset.service=service.service;
+    const title=document.createElement('legend');
+    title.textContent=names[service.service]||service.service;
+    group.append(title);
+    for(const [key,label] of [['enabled','Acesso'],['allow_individual','Consultas individuais'],['allow_campaign','Campanhas']]) {
+     const item=document.createElement('label'),input=document.createElement('input');
+     input.type='checkbox';input.name=key;
+     input.disabled=!service.enabled||!service[key];
+     input.checked=!input.disabled&&!!saved?.[key];
+     item.append(input,' '+label+' ');group.append(item);
+    }
+    services.append(group);
+   }
+  }
+  select.onchange=renderUser;
+  renderUser();
+  form.onsubmit=async event=>{
+   event.preventDefault();
+   const button=form.querySelector('button');
+   button.disabled=select.disabled=true;
+   try {
+    const rules=[...services.children].map(group=>{
+     const checked=key=>group.querySelector('[name='+key+']').checked;
+     const enabled=checked('enabled');
+     return {service:group.dataset.service,enabled,allow_individual:enabled&&checked('allow_individual'),allow_campaign:enabled&&checked('allow_campaign')};
+    });
+    const body={name:fields.name.value.trim(),role:fields.role.value,active:fields.active.checked,
+     daily_limit:fields.daily_limit.value===''?null:Number(fields.daily_limit.value),services:rules};
+    if(!select.value) Object.assign(body,{email:fields.email.value,password:fields.password.value});
+    await tenantUserRequest(select.value?'/'+select.value:'',body);
+    if(epoch!==authEpoch)return;
+    await loadTenantUsers();
+    toast('Usuário salvo.');
+   } catch(error) { if(epoch===authEpoch)status.textContent=error.message; }
+   finally { button.disabled=select.disabled=false; }
+  };
+ } catch(error) { if(epoch===authEpoch)panel.textContent=error.message; }
+}
