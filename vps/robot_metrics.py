@@ -4,7 +4,7 @@ from collections import deque
 from datetime import datetime,timezone
 from pathlib import Path
 
-DIGIMAIS_API_MAX_CONCURRENCY=50
+DIGIMAIS_API_MAX_CONCURRENCY=100
 STATE_PATH=Path('/run/apoiarcred-robots/state.json')
 
 def stamp():return datetime.now(timezone.utc).isoformat()
