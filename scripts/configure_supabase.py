@@ -20,10 +20,15 @@ def validate(url, public, secret):
 
 class ProbeError(Exception):
     """A failed preflight check with a safe message for the installer."""
+    def __init__(self, message, temporary=False):
+        super().__init__(message)
+        self.temporary = temporary
+        self.exit_code = 75 if temporary else 1
 
 def check_endpoint(url, path, headers):
     endpoint = path.split('?', 1)[0]
     for attempt in range(2):
+        status = None
         try:
             with urlopen(Request(url + path, headers=headers), timeout=20) as response:
                 response.read()
@@ -54,7 +59,7 @@ def check_endpoint(url, path, headers):
             else:
                 failure = 'Falha de conexão da VPS com o Supabase.'
         if not retry or attempt == 1:
-            raise ProbeError(f'{endpoint}: {failure}')
+            raise ProbeError(f'{endpoint}: {failure}', temporary=retry or status == 429)
         print(f'{endpoint}: falha temporária. Repetindo a validação uma vez.', file=sys.stderr)
         time.sleep(2)
 
@@ -152,5 +157,5 @@ def main():
 
 if __name__=='__main__':
     try:main()
-    except ProbeError as e:print(f'Falha ao validar o Supabase em {e} Nenhuma configuração de conexão foi alterada.',file=sys.stderr);sys.exit(1)
+    except ProbeError as e:print(f'Falha ao validar o Supabase em {e} Nenhuma configuração de conexão foi alterada.',file=sys.stderr);sys.exit(e.exit_code)
     except Exception as e:print('Falha ao configurar Supabase: '+str(e) if isinstance(e,ValueError) else 'Falha ao salvar a configuração. Confira permissões e espaço em disco.',file=sys.stderr);sys.exit(1)

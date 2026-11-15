@@ -24,7 +24,22 @@ if [[ ! -f "$APP/supabase-public.json" ]]; then
     python3 "$REPO/scripts/configure_supabase.py" --app "$APP" --capture-public
 fi
 STAGE='validação do banco'
-python3 "$REPO/scripts/configure_supabase.py" --app "$APP" --check-runtime
+if python3 "$REPO/scripts/configure_supabase.py" --app "$APP" --check-runtime; then
+    :
+else
+    CHECK_STATUS=$?
+    if [[ "$CHECK_STATUS" -ne 75 ]]; then
+        echo 'Atualização bloqueada por configuração, permissões ou schema inválido.'
+        exit "$CHECK_STATUS"
+    fi
+    STAGE='atualização do login durante indisponibilidade do banco'
+    echo 'Supabase temporariamente indisponível. Aplicando somente login, backend e interface.'
+    bash "$REPO/scripts/update-auth.sh"
+    printf '\nATUALIZAÇÃO PARCIAL CONCLUÍDA: login, backend e interface.\n'
+    echo 'A atualização dos robôs e a devolução das consultas à fila foram adiadas.'
+    echo 'O erro do Supabase permanece; repita a opção 1 quando o banco voltar a responder.'
+    exit 0
+fi
 STAGE='interrupção e devolução das consultas à fila'
 python3 "$REPO/scripts/stop-consultas.py" --app "$APP"
 STAGE='aplicação da atualização'  
