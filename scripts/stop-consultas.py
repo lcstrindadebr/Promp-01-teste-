@@ -61,19 +61,33 @@ def api_client(app):
             return json.loads(data) if data else None
     return request
 
+def requeue_batch(request, table, rows, payload):
+    ids = ",".join(row["id"] for row in rows)
+    path = table + "?status=eq.processando&id=in.(" + ids + ")"
+    try:
+        request(path, payload)
+    except HTTPError as error:
+        if error.code not in (500, 502, 503, 504) or len(rows) == 1:
+            raise
+        midpoint = len(rows) // 2
+        requeue_batch(request, table, rows[:midpoint], payload)
+        requeue_batch(request, table, rows[midpoint:], payload)
+        return
+    if request(path + "&select=id&limit=1"):
+        raise RuntimeError("O lote ainda contém consultas em processamento.")
+
+
 def requeue(request):
     failures = []
     for table, payload in PAYLOADS.items():
         try:
             # Existing rows only: no INSERT, retry RPC, quota charge or completed result changes.
             while True:
-                rows = request(table + "?status=eq.processando&select=id&order=id&limit=50")
+                batch_size = 10 if table == "consulta_jobs" else 50
+                rows = request(f"{table}?status=eq.processando&select=id&order=id&limit={batch_size}")
                 if not rows:
                     break
-                ids = ",".join(row["id"] for row in rows)
-                request(table + "?status=eq.processando&id=in.(" + ids + ")", payload)
-                if request(table + "?status=eq.processando&id=in.(" + ids + ")&select=id&limit=1"):
-                    raise RuntimeError("O lote ainda contém consultas em processamento.")
+                requeue_batch(request, table, rows, payload)
             print(table + ": fila verificada e consultas devolvidas.", flush=True)
         except HTTPError as error:
             failures.append(f"{table} (HTTP {error.code})")
@@ -81,7 +95,7 @@ def requeue(request):
             failures.append(f"{table} ({type(error).__name__})")
     if failures:
         raise RuntimeError("Falha ao devolver/verificar: " + ", ".join(failures)
-                           + ". Serviços continuam parados. Corrija a conexão e repita a opção 6.")
+                           + ". Serviços continuam parados. Confira o banco e repita a opção 6.")
 
 def main():
     parser = argparse.ArgumentParser()
