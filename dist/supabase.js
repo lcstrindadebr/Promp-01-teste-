@@ -10,10 +10,19 @@ function showLogin(message=''){
  $('#loginStatus').textContent='';$('#loginError').textContent=message;$('#preview').classList.add('hide');$('#file').value='';$('#import').disabled=true;render();
 }
 function saveSession(data){session={...data,expires_at:data.expires_at||Math.floor(Date.now()/1000)+data.expires_in};sessionStorage.setItem(storageKey,JSON.stringify(session))}
-async function raw(path,options={}){
- const res=await fetch(sb.url+path,{...options,headers:{apikey:sb.key,'Content-Type':'application/json',...options.headers},signal:AbortSignal.timeout(20000)});
- const text=await res.text();let data;try{data=text?JSON.parse(text):null}catch{throw Error('Resposta inválida do Supabase.')}
- if(!res.ok){const error=Error(data?.message||data?.msg||data?.error_description||'Falha na conexão com Supabase');error.status=res.status;throw error}return data;
+async function raw(path,options={},timeoutMs=20000){
+ const res=await fetch(sb.url+path,{...options,headers:{apikey:sb.key,'Content-Type':'application/json',...options.headers},signal:AbortSignal.timeout(timeoutMs)});
+ const text=await res.text();let data;
+ try{data=text?JSON.parse(text):null}catch{
+  if(res.ok)throw Error('Resposta inválida do Supabase.');
+ }
+ if(!res.ok){
+  const error=Error(data?.message||data?.msg||data?.error_description||'Falha na conexão com Supabase');
+  error.status=res.status;
+  error.code=data?.error_code||data?.code;
+  throw error;
+ }
+ return data;
 }
 async function refreshSession(){
  if(!session)throw Error('Entre na sua conta.');if(Date.now()/1000<session.expires_at-60)return;
@@ -172,10 +181,38 @@ async function refreshMyAccess(force=false){
  currentAccess=data;accessCheckedAt=Date.now();if(typeof applyAccessUi==='function')applyAccessUi();
  }finally{if(epoch===authEpoch)accessRefreshing=false;}
 }
+function isConnectionFailure(error){
+ return error.name==='TimeoutError'||(error.name==='TypeError'&&!error.status);
+}
+function loginFailureMessage(error){
+ if(error.code==='invalid_credentials')return 'E-mail ou senha inválidos.';
+ if(error.code==='email_not_confirmed')return 'Confirme seu e-mail antes de entrar.';
+ if(error.status===429)return 'Muitas tentativas de login. Aguarde alguns instantes e tente novamente.';
+ if(error.name==='TimeoutError')return 'O serviço de login demorou para responder. Tente novamente.';
+ if(isConnectionFailure(error))return 'Não foi possível conectar ao serviço de login. Verifique sua conexão e tente novamente.';
+ if(error.status>=500)return 'O serviço de login está indisponível no momento. Tente novamente em instantes.';
+ return 'Não foi possível entrar. Se o problema persistir, informe o horário da tentativa ao administrador.';
+}
 async function openPanel(){
  authenticated=true;const epoch=authEpoch;
- try{await refreshMyAccess(true);if(epoch!==authEpoch)return;if(!currentAccess?.active)throw Error('Conta sem acesso ativo. Solicite liberação ao administrador.');}
- catch(e){if(epoch===authEpoch)showLogin(e.message);return;}
+ $('#loginStatus').textContent='Validando acesso ao painel…';
+ try{
+  try{await refreshMyAccess(true);}catch(error){
+   if(epoch!==authEpoch)return;
+   if(!(isConnectionFailure(error)||error.status>=500))throw error;
+   await new Promise(resolve=>setTimeout(resolve,1000));
+   if(epoch!==authEpoch)return;
+   await refreshMyAccess(true);
+  }
+  if(epoch!==authEpoch)return;
+  if(!currentAccess?.active){
+   showLogin('Conta sem acesso ativo. Solicite liberação ao administrador.');
+   return;
+  }
+ }catch(error){
+  if(epoch===authEpoch)showLogin('A conta foi autenticada, mas não foi possível validar o acesso ao painel. Tente novamente.');
+  return;
+ }
  $('#loginPage').hidden=true;$('#appShell').hidden=false;$('#accountEmail').textContent=session.user.email;
  $('#authState').textContent='Conectado como '+session.user.email;$('#password').value='';setPasswordVisible(false);$('#loginStatus').textContent='';$('#loginError').textContent='';loadCloud();
  if(typeof applyAccessUi==='function')applyAccessUi();
@@ -200,12 +237,12 @@ $('#login').onsubmit=async e=>{
  $('#loginError').textContent='';
  $('#loginStatus').textContent='Entrando…';
  try{
-  const data=await raw('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email:$('#email').value.trim(),password:$('#password').value})});
+  const data=await raw('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email:$('#email').value.trim(),password:$('#password').value})},30000);
   authEpoch++;
   saveSession(data);
   await openPanel();
  }catch(e){
-  showLogin(e.status===400?'E-mail ou senha inválidos. Confira também a confirmação da conta.':e.message);
+  showLogin(loginFailureMessage(e));
  }finally{
   $('#loginStatus').textContent='';
   button.disabled=false;
