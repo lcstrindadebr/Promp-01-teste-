@@ -41,7 +41,8 @@ jobs:
         run: |
           for t in tests/test_*.py; do
             echo "::group::$t"
-            sudo -E env "PATH=$PATH" timeout 300 python -m unittest "tests.$(basename "$t" .py)"
+            # sudo drops PYTHONPATH even with -E, so pass it explicitly.
+            sudo -E env "PATH=$PATH" "PYTHONPATH=$PYTHONPATH" timeout 300 python -m unittest "tests.$(basename "$t" .py)"
             echo "::endgroup::"
           done
 
