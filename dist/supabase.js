@@ -6,25 +6,25 @@ let session=null,authenticated=false,refreshing=null,loadingCloud=false,authEpoc
 const statusNames={aguardando:'Aguardando',processando:'Processando',concluida:'Concluída',nao_localizado:'Não é cliente',nao_cliente:'Não é cliente',ja_vendeu:'Já vendeu',nao_encontrado:'Não encontrado',erro:'Erro',revisao:'Revisão',interrompida:'Consulta interrompida'};
 function showLogin(message=''){
  $('#password').required=true;$('#loginSubmit').textContent='Entrar';$('#loginSwitchAccount').hidden=true;
- digimaisCampaignUpload=null;authenticated=false;session=null;currentAccess=null;accessRefreshing=false;accessCheckedAt=0;authEpoch++;if(typeof resetPartnerSettings==='function')resetPartnerSettings();if(typeof resetApiSettings==='function')resetApiSettings();if(typeof resetWebhooks==='function')resetWebhooks();if(typeof resetTjbaSettings==='function')resetTjbaSettings();importGeneration++;readingImport=false;importError='';if(typeof resetAmigoz==='function')resetAmigoz();if(typeof resetMonitoring==='function')resetMonitoring();cloudSnapshot=null;cloudRows.clear();cloudLoadAgain=false;cloudSyncErrorAt=0;cloudSyncRetryAt=0;cloudSyncFailures=0;records=[];pending=[];campaigns=[];activeCampaign=null;retryingCampaign=false;$('#campaignName').value='';navigate("home");
- $('#consultationLogPanel').open=false;$('#consultationLogRobot').value='';sessionStorage.removeItem(storageKey);$('#appShell').hidden=true;$('#loginPage').hidden=false;
+ digimaisCampaignUpload=null;authenticated=false;session=null;currentAccess=null;accessRefreshing=false;accessCheckedAt=0;authEpoch++;if(typeof resetPartnerSettings==='function')resetPartnerSettings();if(typeof resetApiSettings==='function')resetApiSettings();if(typeof resetWebhooks==='function')resetWebhooks();if(typeof resetTjbaSettings==='function')resetTjbaSettings();importGeneration++;readingImport=false;importError='';if(typeof resetAmigoz==='function')resetAmigoz();if(typeof resetMonitoring==='function')resetMonitoring();cloudSnapshot=null;cloudRows.clear();setCloudLoading(null);cloudLoadAgain=false;cloudSyncErrorAt=0;cloudSyncRetryAt=0;cloudSyncFailures=0;records=[];pending=[];campaigns=[];activeCampaign=null;retryingCampaign=false;$('#campaignName').value='';navigate("home");
+ $('#consultationLogPanel').open=false;$('#consultationLogRobot').value='';authStore.clear();$('#appShell').hidden=true;$('#loginPage').hidden=false;
  $('#loginStatus').textContent='';$('#loginError').textContent=message;$('#preview').classList.add('hide');$('#file').value='';$('#import').disabled=true;render();
 }
-function saveSession(data){session={...data,expires_at:data.expires_at||Math.floor(Date.now()/1000)+data.expires_in};sessionStorage.setItem(storageKey,JSON.stringify(session))}
-async function raw(path,options={},timeoutMs=20000){
- const sessionRoutes={
-  '/auth/v1/token?grant_type=password':'/api/session/login',
-  '/auth/v1/token?grant_type=refresh_token':'/api/session/refresh',
-  '/auth/v1/user':'/api/session/user',
-  '/auth/v1/logout':'/api/session/logout',
-  '/rest/v1/rpc/my_access':'/api/session/access'
- };
- const localRoute=sessionRoutes[path];
+const authStore={
+ get(){try{return localStorage.getItem(storageKey)||sessionStorage.getItem(storageKey)}catch{return null}},
+ set(value){try{localStorage.setItem(storageKey,value);sessionStorage.removeItem(storageKey)}catch{try{sessionStorage.setItem(storageKey,value)}catch{}}},
+ clear(){try{localStorage.removeItem(storageKey)}catch{}try{sessionStorage.removeItem(storageKey)}catch{}}
+};
+function saveSession(data){session={...data,expires_at:data.expires_at||Math.floor(Date.now()/1000)+data.expires_in};authStore.set(JSON.stringify(session))}
+// Requests go straight to Supabase (Auth and PostgREST), as in a standard Supabase app.
+// The VPS session gateway is no longer on the login path.
+const AUTH_TIMEOUT_MS=30000,DATA_TIMEOUT_MS=30000;
+async function raw(path,options={},timeoutMs=path.startsWith('/auth/')?AUTH_TIMEOUT_MS:DATA_TIMEOUT_MS){
  const controller=new AbortController();
- const timer=setTimeout(()=>controller.abort(),localRoute?60000:timeoutMs);
+ const timer=setTimeout(()=>controller.abort(),timeoutMs);
  let res,text;
  try{
-  res=await fetch(localRoute||sb.url+path,{...options,headers:{...(localRoute?{}:{apikey:sb.key}),'Content-Type':'application/json',...options.headers},signal:controller.signal,cache:'no-store'});
+  res=await fetch(sb.url+path,{...options,headers:{apikey:sb.key,'Content-Type':'application/json',...options.headers},signal:controller.signal,cache:'no-store'});
   text=await res.text();
  }catch(error){
   if(controller.signal.aborted)throw Object.assign(Error('Tempo de espera esgotado.'),{name:'TimeoutError'});
@@ -126,23 +126,8 @@ function normalizeCloudRow(r){
   saldo:r.saldo_liquidacao==null?null:Number(r.saldo_liquidacao),parcelas:r.total_parcelas,
   valorParcela:r.valor_parcela==null?null:Number(r.valor_parcela)};
 }
-async function syncCloudPages(epoch){
- const since=cloudSnapshot,buffer=[];
- let until=null,after=null;
- do{
-  if(epoch!==authEpoch||!authenticated||document.visibilityState==='hidden')return;
-  const page=await sbRequest('/rest/v1/rpc/painel_consultas_sync',{
-   method:'POST',body:JSON.stringify({p_since:since,p_until:until,p_after:after})
-  });
-  if(epoch!==authEpoch||!authenticated||document.visibilityState==='hidden')return;
-  until=page.snapshot;
-  buffer.push(...page.rows);
-  if(page.next&&after&&page.next<=after)throw Error('A paginação da sincronização não avançou.');
-  after=page.next;
- }while(after);
- cloudSnapshot=until;
- if(!buffer.length&&since!==null)return;
- for(const entry of buffer){
+function applyCloudEntries(entries){
+ for(const entry of entries){
   if(entry.excluido||(!entry.origem.endsWith('_jobs')&&entry.dados.tipo!=='campanha')){
    cloudRows.delete(entry.chave);
    continue;
@@ -150,6 +135,8 @@ async function syncCloudPages(epoch){
   cloudRows.set(entry.chave,{kind:entry.origem.endsWith('_jobs')?'job':'campaign',
    row:entry.origem.endsWith('_jobs')?normalizeCloudRow(entry.dados):entry.dados});
  }
+}
+function publishCloudRows(){
  const newest=(a,b)=>b.created_at.localeCompare(a.created_at)||b.id.localeCompare(a.id);
  const entries=[...cloudRows.values()];
  const nextCampaigns=entries.filter(e=>e.kind==='campaign').map(e=>e.row).sort(newest);
@@ -157,6 +144,43 @@ async function syncCloudPages(epoch){
  campaigns=nextCampaigns;
  records=entries.filter(e=>e.kind==='job').map(e=>e.row).sort(newest);
  render();
+}
+let cloudInitialLoad=null;
+function setCloudLoading(state){
+ cloudInitialLoad=state;
+ document.body?.classList?.toggle('cloud-loading',!!state);
+ const label=state?'Carregando suas consultas'+(state.count?' · '+state.count.toLocaleString('pt-BR')+' registros':'')+'…':'';
+ for(const id of ['cloudLoadStatus','campaignLoadStatus']){const el=document.getElementById?.(id);if(el){el.textContent=label;el.hidden=!state;}}
+}
+async function syncCloudPages(epoch){
+ const since=cloudSnapshot,buffer=[],initial=since===null;
+ let until=null,after=null,lastPublish=0,count=0;
+ // A retried first load starts clean so rows removed meanwhile do not linger.
+ if(initial){cloudRows.clear();setCloudLoading({count:0});}
+ try{
+  do{
+   if(epoch!==authEpoch||!authenticated||document.visibilityState==='hidden')return;
+   const page=await sbRequest('/rest/v1/rpc/painel_consultas_sync',{
+    method:'POST',body:JSON.stringify({p_since:since,p_until:until,p_after:after})
+   });
+   if(epoch!==authEpoch||!authenticated||document.visibilityState==='hidden')return;
+   until=page.snapshot;
+   if(page.next&&after&&page.next<=after)throw Error('A paginação da sincronização não avançou.');
+   after=page.next;
+   if(initial){
+    // First load: show rows as pages arrive instead of waiting for the whole history.
+    applyCloudEntries(page.rows);count+=page.rows.length;setCloudLoading({count});
+    if(!after||Date.now()-lastPublish>800){publishCloudRows();lastPublish=Date.now();}
+   }else buffer.push(...page.rows);
+  }while(after);
+  cloudSnapshot=until;
+  if(initial)return;
+  if(!buffer.length)return;
+  applyCloudEntries(buffer);
+  publishCloudRows();
+ }finally{
+  if(initial&&epoch===authEpoch)setCloudLoading(null);
+ }
 }
 function loadCloud(){
  if(!authenticated||document.visibilityState==='hidden'||Date.now()<cloudSyncRetryAt)return Promise.resolve();
@@ -226,7 +250,14 @@ async function openPanel(){
  const epoch=authEpoch;
  setLoginStage('Validando seu acesso');
  try{
-  await refreshMyAccess(true);
+  try{await refreshMyAccess(true);}
+  catch(error){
+   if([400,401,403].includes(error.status)||epoch!==authEpoch)throw error;
+   setLoginStage('Confirmando suas permissões');
+   await new Promise(resolve=>setTimeout(resolve,1500));
+   if(epoch!==authEpoch)return;
+   await refreshMyAccess(true);
+  }
   if(epoch!==authEpoch)return;
   if(!currentAccess?.active){
    showLogin('Conta sem acesso ativo. Solicite liberação ao administrador.');
@@ -235,7 +266,7 @@ async function openPanel(){
  }catch(error){
   if(epoch!==authEpoch)return;
   if([400,401,403].includes(error.status)){showLogin('Sessão encerrada. Entre novamente.');return;}
-  keepSessionForRetry('Sua conta foi autenticada. A validação do acesso demorou ou está indisponível. Tente acessar novamente.');
+  keepSessionForRetry('Você entrou, mas não conseguimos confirmar suas permissões agora. Tente novamente em instantes.');
   return;
  }
  $('#loginPage').hidden=true;
@@ -255,12 +286,12 @@ function setLoginStage(label){
  loginStage=label;
  loginStarted=Date.now();
  const update=()=>{
-  const elapsed=Math.min(60,Math.floor((Date.now()-loginStarted)/1000));
-  $('#loginStatus').textContent=loginStage+' · '+elapsed+' de até 60 segundos';
-  $('#loginProgress').value=elapsed;
+  const elapsed=Math.floor((Date.now()-loginStarted)/1000);
+  $('#loginStatus').textContent=elapsed<3?loginStage+'…':loginStage+'… '+elapsed+' s';
  };
  clearInterval(loginClock);
  $('#loginProgress').hidden=false;
+ $('#loginSubmit').classList?.add('is-loading');
  update();
  loginClock=setInterval(update,1000);
 }
@@ -268,6 +299,7 @@ function finishLoginWait(){
  clearInterval(loginClock);loginClock=null;
  $('#loginStatus').textContent='';
  $('#loginProgress').hidden=true;
+ $('#loginSubmit').classList?.remove('is-loading');
  $('#loginSubmit').disabled=false;
  $('#email').readOnly=false;
  $('#password').readOnly=false;
@@ -283,11 +315,27 @@ function setPasswordVisible(visible){
 }
 
 $('#togglePassword').onclick=()=>setPasswordVisible($('#password').type==='password');
+const passwordInput=$('#password');
+if(typeof passwordInput.addEventListener==='function'){
+for(const type of ['keydown','keyup'])passwordInput.addEventListener(type,event=>{
+ if(event.getModifierState)$('#capsLockHint').hidden=!event.getModifierState('CapsLock');
+});
+passwordInput.addEventListener('blur',()=>{$('#capsLockHint').hidden=true;});
+}
+function loginInputError(){
+ const email=$('#email').value.trim();
+ if(!email)return ['#email','Informe seu e-mail.'];
+ if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return ['#email','Confira o e-mail digitado.'];
+ if(!$('#password').value)return ['#password','Informe sua senha.'];
+ return null;
+}
 
 $('#login').onsubmit=async event=>{
  event.preventDefault();
  const button=$('#loginSubmit');
  if(button.disabled)return;
+ const invalid=!session&&loginInputError();
+ if(invalid){$('#loginError').textContent=invalid[1];$(invalid[0]).focus();return;}
  button.disabled=true;
  $('#email').readOnly=true;
  $('#password').readOnly=true;
@@ -295,7 +343,7 @@ $('#login').onsubmit=async event=>{
  $('#loginError').textContent='';
  try{
   if(!session){
-   setLoginStage('Conectando à sua conta');
+   setLoginStage('Entrando');
    const data=await raw('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email:$('#email').value.trim(),password:$('#password').value})});
    if(!data?.access_token||!data?.user)throw Error('Resposta de autenticação inválida.');
    authEpoch++;
@@ -328,7 +376,7 @@ $('#logout').onclick=signOut;
 $('#topLogout').onclick=signOut;
 
 async function restoreSession(){
- const stored=sessionStorage.getItem(storageKey);
+ const stored=authStore.get();
  if(!stored)return;
  const button=$('#loginSubmit');
  button.disabled=true;
@@ -340,6 +388,11 @@ async function restoreSession(){
   else showLogin('Entre novamente para acessar o sistema.');
  }finally{finishLoginWait();}
 }
+if(typeof window.addEventListener==='function')window.addEventListener('storage',event=>{
+ if(event.key!==storageKey)return;
+ if(!event.newValue&&authenticated)showLogin('Você saiu da conta em outra aba.');
+ else if(event.newValue&&authenticated){try{session=JSON.parse(event.newValue)}catch{}}
+});
 // Discard credentials from versions that did not distinguish Supabase projects.
 sessionStorage.removeItem('sb-session');
 restoreSession();
