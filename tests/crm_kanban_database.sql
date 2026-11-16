@@ -3,6 +3,8 @@ begin;
 insert into auth.users(id,aud,role,email) select gen_random_uuid(),'authenticated','authenticated','kanban-'||n||'@kanban-test.invalid' from generate_series(1,2) n;
 create temp table crm_test_users as select id,row_number() over(order by email) as n from auth.users where email like '%@kanban-test.invalid';
 grant select on crm_test_users to authenticated;
+-- Each account is its own company.
+insert into apoiarcred_private.user_profiles(user_id,role,name,email) select id,'partner','Kanban '||n,'kanban-'||n||'@kanban-test.invalid' from crm_test_users;
 insert into public.crm_cadastros(user_id,cpf,nome,ultima_atividade)
  select id,'00000000001','CRM test rollback',now() from crm_test_users on conflict do nothing;
 select set_config('request.jwt.claim.sub',(select id::text from crm_test_users where n=1),true);
