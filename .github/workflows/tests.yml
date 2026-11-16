@@ -35,10 +35,14 @@ jobs:
         with:
           python-version: '3.12'
       # The tests mock the browser and the providers; Playwright/boto3 are not needed here.
+      # Installer tests simulate a root shell (the real installer refuses to run otherwise),
+      # so the suite runs under sudo with the same environment and Python.
       - name: Testes dos workers, API e instalador
         run: |
           for t in tests/test_*.py; do
-            echo "::group::$t"; timeout 300 python -m unittest "tests.$(basename "$t" .py)"; echo "::endgroup::"
+            echo "::group::$t"
+            sudo -E env "PATH=$PATH" timeout 300 python -m unittest "tests.$(basename "$t" .py)"
+            echo "::endgroup::"
           done
 
   sql:
