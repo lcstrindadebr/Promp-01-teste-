@@ -2,7 +2,7 @@
 let apiTokenEpoch=0,apiCatalog=[],apiTokensLoading=false;
 const settingsRoot=$('#settings');
 // Two groups: day-to-day settings first, administration (admin-only tabs) after a label.
-const settingsGroups=[['operation','Operação'],['tables','Tabelas'],['integrations','Integrações'],['account','Conta e diagnóstico'],['robots','Robôs e monitoramento'],['digimais-api','Log da API Digi+'],['partners','Parceiros'],['amigoz-api','API Amigoz'],['minio','Armazenamento MinIO']];
+const settingsGroups=[['operation','Operação'],['tables','Tabelas'],['integrations','Integrações'],['account','Conta e diagnóstico'],['users','Usuários da empresa'],['robots','Robôs e monitoramento'],['digimais-api','Log da API Digi+'],['partners','Parceiros'],['amigoz-api','API Amigoz'],['minio','Armazenamento MinIO']];
 const settingsAdminStart='robots';
 const settingsNav=document.createElement('div');settingsNav.className='settings-tabs';settingsNav.setAttribute('role','tablist');settingsNav.setAttribute('aria-label','Seções das configurações');
 settingsNav.innerHTML='<span class="settings-tabs-group" role="presentation">Minha operação</span>'+settingsGroups.map(([id,label],i)=>(id===settingsAdminStart?'<span class="settings-tabs-group settings-tabs-admin" role="presentation">Administração</span>':'')+`<button type="button" id="settings-tab-${id}" role="tab" aria-controls="settings-${id}" aria-selected="${i===0}" tabindex="${i===0?0:-1}" data-settings-section="${id}">${label}</button>`).join('');
