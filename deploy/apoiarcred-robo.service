@@ -8,6 +8,8 @@ After=network-online.target
 User=apoiarcred
 RuntimeDirectory=apoiarcred-robots
 RuntimeDirectoryMode=0700
+StateDirectory=apoiarcred
+StateDirectoryMode=0750
 WorkingDirectory=/opt/apoiarcred/vps
 EnvironmentFile=/opt/apoiarcred/.env
 Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/apoiarcred/browsers

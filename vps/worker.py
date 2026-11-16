@@ -1,5 +1,6 @@
 """Supabase queue worker. Service key remains exclusively on the VPS."""
-import asyncio,json,os,random,time,urllib.request,urllib.error
+import asyncio,hashlib,json,os,random,time,urllib.request,urllib.error
+from pathlib import Path
 from datetime import datetime,timezone
 from collections import defaultdict
 from robot_failures import diagnose, label
@@ -211,11 +212,10 @@ async def robot_loop(index, capacity, sessions, waiting):
     if slot:slot.saving(result)
     save_started=time.monotonic()
     result['consultado_em']=datetime.now(timezone.utc).isoformat()
-    while True:
-     try:await asyncio.to_thread(request,('tjba_jobs' if job.get('servico')=='tjba_margem' else 'consulta_jobs')+'?id=eq.'+job['id'],result,'PATCH');break
-     except Exception as error:
-      log_failure(slot.name+' · gravar resultado',diagnose(error,'supabase'),'Repetindo apenas a gravação em 10 s.')
-      await asyncio.sleep(10)
+    # Only the attempt that reserved the job may save it: a job requeued meanwhile is left alone.
+    route=(('tjba_jobs' if job.get('servico')=='tjba_margem' else 'consulta_jobs')+'?id=eq.'+job['id']
+           +'&status=eq.processando&attempts=eq.'+str(job['attempts']))
+    await save_result(route,result,slot.name+' · gravar resultado')
     if slot:
      print(f"DURAÇÃO | {slot.name} | processamento={slot.duration:.1f}s | gravação={time.monotonic()-save_started:.1f}s",flush=True)
      slot.saved()
@@ -307,25 +307,119 @@ class QueueIdleGate:
   self.delay=min(self.MAX_DELAY,max(self.MIN_DELAY,self.delay*2))
   self.until=now+self.delay*random.uniform(.8,1.2)
 
-api_idle_gate=QueueIdleGate()
+class ApiDispatcher:
+ """Reserves work for every idle API slot in one database call.
 
-async def api_loop(index,capacity,slot,config,gate=None):
+ Slots wait on a future; the dispatcher asks the queue once per round for all of them
+ (claim_consulta_jobs_for_api) and hands each job to the slot it was reserved for.
+ While the queue is empty only this loop talks to the database, with the idle gate's
+ 5 s to 30 s backoff."""
+ def __init__(self,capacity,gate=None):
+  self.capacity=capacity;self.gate=gate or QueueIdleGate();self.waiting={};self.batch_supported=True
+ async def next_job(self,index,timeout=5):
+  # The future survives a timeout so a job reserved in the meantime is never dropped.
+  future=self.waiting.get(index)
+  if future is None or future.done():
+   future=asyncio.get_running_loop().create_future();self.waiting[index]=future
+  done,_=await asyncio.wait({future},timeout=timeout)
+  if not done:return None
+  if self.waiting.get(index) is future:del self.waiting[index]
+  return future.result()
+ def idle(self):
+  return sorted(i for i,f in self.waiting.items() if not f.done() and i<self.capacity.target)
+ async def claim(self,idle):
+  if self.batch_supported:
+   try:
+    return await asyncio.to_thread(request,'rpc/claim_consulta_jobs_for_api',{'p_slots':[i+1 for i in idle]}) or []
+   except urllib.error.HTTPError as error:
+    if error.code!=404:raise
+    self.batch_supported=False
+    print('API DigiMais: reserva em lote ainda não instalada no banco; usando reserva por vaga.',flush=True)
+  return await asyncio.to_thread(request,'rpc/claim_consulta_job_for_api',{'p_slot':idle[0]+1}) or []
+ async def run(self):
+  while True:
+   idle=self.idle() if MODE=='live' else []
+   wait=self.gate.remaining()
+   if not idle or wait>0:
+    await asyncio.sleep(min(wait,1) if wait>0 else .2);continue
+   try:jobs=await self.claim(idle)
+   except Exception as error:
+    log_failure('API DigiMais · reservar consultas',diagnose(error,'supabase'),'Nova tentativa em 10 s.')
+    self.gate.until=time.monotonic()+10;continue
+   if not jobs:
+    self.gate.empty();continue
+   self.gate.found()
+   for job in jobs:
+    future=self.waiting.get((job.get('api_slot') or 0)-1)
+    if future is not None and not future.done():future.set_result(job)
+    else:print(f"API DigiMais: consulta {job.get('id')} reservada sem vaga à espera; volta à fila pelo prazo de reserva.",flush=True)
+
+SPOOL_DIR=Path(os.environ.get('STATE_DIRECTORY') or os.environ.get('APOIARCRED_STATE','/var/lib/apoiarcred'))/'spool'
+
+def spool_write(route,payload):
+ """Keep a result on disk until the database confirms it (survives restarts and crashes)."""
+ try:
+  SPOOL_DIR.mkdir(parents=True,exist_ok=True)
+  path=SPOOL_DIR/(hashlib.sha1(route.encode()).hexdigest()[:20]+'.json')
+  temporary=path.with_suffix('.tmp')
+  temporary.write_text(json.dumps({'route':route,'payload':payload}))
+  os.replace(temporary,path)
+  return path
+ except OSError as error:
+  print(f'Resultados: não foi possível gravar cópia local ({type(error).__name__}); seguindo só com o banco.',flush=True)
+  return None
+
+async def save_result(route,payload,context):
+ path=spool_write(route,payload)
+ while True:
+  try:
+   await asyncio.to_thread(request,route,payload,'PATCH');break
+  except Exception as error:
+   log_failure(context,diagnose(error,'supabase'),'Repetindo apenas a gravação em 10 s.')
+   await asyncio.sleep(10)
+ if path:path.unlink(missing_ok=True)
+
+async def replay_spool():
+ """Save results left on disk by a previous run. Returns True when nothing is pending."""
+ if not SPOOL_DIR.is_dir():return True
+ pending=0
+ for path in sorted(SPOOL_DIR.glob('*.json')):
+  try:
+   item=json.loads(path.read_text())
+   await asyncio.to_thread(request,item['route'],item['payload'],'PATCH')
+   path.unlink(missing_ok=True)
+   print('Resultados: gravação pendente concluída após reinício.',flush=True)
+  except (ValueError,KeyError) as error:
+   print(f'Resultados: cópia local ilegível ignorada ({path.name}).',flush=True);path.rename(path.with_suffix('.bad'))
+  except Exception as error:
+   pending+=1;log_failure('Resultados · regravar cópia local',diagnose(error,'supabase'))
+ return pending==0
+
+async def release_previous_reservations():
+ """On start, jobs still 'processando' were held by this VPS before it stopped: requeue them."""
+ if not await replay_spool():
+  print('Resultados pendentes ainda não gravados; liberação adiada para a rotina de prazo do banco.',flush=True)
+  return
+ try:
+  summary=await asyncio.to_thread(request,'rpc/release_stale_jobs',{'p_older_seconds':0})
+  print('Fila: reservas anteriores ao reinício devolvidas '+json.dumps(summary,ensure_ascii=False),flush=True)
+ except urllib.error.HTTPError as error:
+  if error.code!=404:log_failure('Fila · devolver reservas anteriores',diagnose(error,'supabase'))
+ except Exception as error:
+  log_failure('Fila · devolver reservas anteriores',diagnose(error,'supabase'))
+
+async def api_loop(index,capacity,slot,config,dispatcher):
  from digimais_api import ApiSession
- gate=gate or api_idle_gate
  adapter=ApiSession(config);adapter.telemetry=slot
  while True:
   try:
    if MODE!='live' or index>=capacity.target:
     slot.state='resource_paused';await asyncio.sleep(5);continue
-   wait=gate.remaining()
-   if wait>0:
-    slot.state='idle';await asyncio.sleep(min(wait,5));continue
-   gate.reserve()
-   jobs=await asyncio.to_thread(request,'rpc/claim_consulta_job_for_api',{'p_slot':index+1})
-   if not jobs:
-    gate.empty();slot.state='idle';continue
-   gate.found()
-   job=jobs[0];slot.begin('digimais_api')
+   if slot.state=='resource_paused':slot.state='idle'
+   job=await dispatcher.next_job(index)
+   if job is None:
+    slot.state='idle';continue
+   slot.begin('digimais_api')
    try:result=await process_digimais(job,adapter)
    except Exception as error:
     diagnostic=diagnose(error,'digimais_api')
@@ -340,12 +434,7 @@ async def api_loop(index,capacity,slot,config,gate=None):
    slot.saving(result)
    route = (f"consulta_jobs?id=eq.{job['id']}&execution_mode=eq.api&status=eq.processando"
             f"&api_slot=eq.{index+1}&attempts=eq.{job['attempts']}")
-   while True:
-    try:
-     await asyncio.to_thread(request,route,result,'PATCH');break
-    except Exception as error:
-     log_failure('API DigiMais · gravar resultado',diagnose(error,'supabase'),'Repetindo apenas a gravação em 10 s.')
-     await asyncio.sleep(10)
+   await save_result(route,result,'API DigiMais · gravar resultado')
    slot.saved()
   except Exception:
    slot.state='queue_error';await asyncio.sleep(10)
@@ -361,7 +450,9 @@ async def api_supervisor():
  capacity=ApiCapacity()
  slots=[Slot(f'api-{i+1}') for i in range(capacity.maximum)]
  robot_metrics.api_slots=slots;robot_metrics.api_capacity=capacity
- tasks=[asyncio.create_task(api_loop(i,capacity,slot,config)) for i,slot in enumerate(slots)]
+ dispatcher=ApiDispatcher(capacity)
+ tasks=[asyncio.create_task(api_loop(i,capacity,slot,config,dispatcher)) for i,slot in enumerate(slots)]
+ tasks.append(asyncio.create_task(dispatcher.run()))
  tasks.append(asyncio.create_task(capacity.watch()))
  try:await asyncio.gather(*tasks)
  finally:
@@ -384,6 +475,7 @@ async def main_async():
   adapter.peers=sessions
   adapter.login_locks=login_locks
  print(f'Até {maximum} robôs para Digi+ e ConsigX, com ajuste automático de capacidade.',flush=True)
+ if MODE=='live':await release_previous_reservations()
  background=[asyncio.create_task(robot_metrics.publish_loop()),asyncio.create_task(capacity.watch()),asyncio.create_task(api_supervisor())]
  waiting={}
  tasks=[asyncio.create_task(robot_loop(index,capacity,sessions,waiting)) for index in range(maximum)]

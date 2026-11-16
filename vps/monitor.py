@@ -43,6 +43,9 @@ def snapshot(previous,current):
  mode=os.environ.get('ROBOT_MODE','disabled')
  return dict(cpu_percent=cpu_percent(previous,current),cpu_count=os.cpu_count(),memory=memory(),disk=dict(total=disk.total,used=disk.used,free=disk.free,percent=round(100*disk.used/disk.total,1)),uptime_seconds=int(float(Path('/proc/uptime').read_text().split()[0])),worker=worker_state(),robot_mode=mode if mode in ('live','disabled','demo') else 'unknown',robots=robot_activity())
 
+# One database write every 15 s is enough for the panel, which treats data older than 45 s as stale.
+INTERVAL=15
+
 def publish(payload):
  url=os.environ['SUPABASE_URL'].rstrip('/');key=os.environ['SUPABASE_SERVICE_ROLE_KEY']
  headers={'apikey':key,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'}
@@ -52,11 +55,14 @@ def publish(payload):
  with urllib.request.urlopen(req,timeout=4) as response:response.read()
 
 def main():
- previous=cpu_ticks();time.sleep(1)
+ previous=cpu_ticks();time.sleep(1);failures=0
  while True:
   start=time.monotonic()
   try:
    current=cpu_ticks();data=snapshot(previous,current);previous=current;publish(data)
-  except Exception:print('Monitor: coleta ou envio indisponível; nova tentativa em 5 segundos.',flush=True)
-  time.sleep(max(.1,5-(time.monotonic()-start)))
+   failures=0
+  except Exception:
+   failures=min(failures+1,4)
+   print(f'Monitor: coleta ou envio indisponível; nova tentativa em {INTERVAL*2**failures} segundos.',flush=True)
+  time.sleep(max(.1,INTERVAL*2**failures-(time.monotonic()-start)))
 if __name__=='__main__':main()
