@@ -24,10 +24,13 @@ def worker_state():
   return state if r.returncode==0 and state in ('active','inactive','failed','activating','deactivating','reloading') else 'unknown'
  except (OSError,subprocess.TimeoutExpired):return 'unknown'
 
+STATE_MAX_BYTES=256*1024
+
 def robot_activity(path='/run/apoiarcred-robots/state.json'):
  try:
   source=Path(path)
-  if source.stat().st_size>32768:return None
+  # 4 robots + 100 API slots produce ~42 KB; the old 32 KB cap silently dropped all robot telemetry.
+  if source.stat().st_size>STATE_MAX_BYTES:return None
   data=json.loads(source.read_text())
   if not isinstance(data,dict) or not isinstance(data.get('slots'),list):return None
   keys=('id','service','state','progress','elapsed_seconds','last_duration_seconds','last_activity',
