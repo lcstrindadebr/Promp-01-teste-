@@ -214,8 +214,8 @@ $('#bankTableCopyAll').onclick=()=>{
  const rule=bankTableSelected();
  if(rule)bankTableDuplicate([...rule.tabelas]);
 };
-$('#bankTableReload').onclick=()=>{
- if((bankTableState?.dirty||bankTableState?.edited.size)&&!confirm('Descartar alterações ainda não salvas?'))return;
+$('#bankTableReload').onclick=async()=>{
+ if((bankTableState?.dirty||bankTableState?.edited.size)&&!(await askConfirm('As alterações ainda não salvas nesta tabela serão perdidas.',{title:'Descartar alterações?',confirmLabel:'Descartar',danger:true})))return;
  loadAmigozTables($('#bankTableAgreement').value,true);
 };
 $('#bankTableSave').onclick=async()=>{

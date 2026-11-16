@@ -1,0 +1,89 @@
+/*
+ * ApoiarCred — camada visual v2 (16/11/2026)
+ * Carregada por último. Unifica a identidade no verde da marca (o mesmo do login),
+ * reorganiza as abas de Configurações e o fluxo de nova campanha.
+ * Só apresentação: nenhuma regra de negócio depende deste arquivo.
+ */
+
+/* 1. Identidade única: verde da marca no lugar do azul-marinho da camada CRM v1 */
+:root {
+  --crm-brand: #0d2a20;
+  --crm-brand-hover: #163b2d;
+  --crm-action: #16704b;
+  --crm-action-hover: #0f5a3b;
+  --crm-app: #f5f8f6;
+  --crm-surface-alt: #f1f6f3;
+  --crm-border: #e1e9e4;
+  --crm-border-strong: #c6d4cc;
+  --crm-text: #14261e;
+  --crm-secondary: #56695f;
+  --crm-shadow: 0 8px 24px rgba(13, 42, 32, .04);
+}
+aside nav button { color: #c9e2d4; }
+aside nav button:hover:not(:disabled) { background: #1a4233; }
+aside nav button.active { background: #1f4d3b; border-color: #2d634d; box-shadow: inset 3px 0 0 #7fd1a6; }
+aside footer { border-color: #2a4a3d; color: #d9ece1; }
+aside footer small { color: #a9c7b6; }
+.workspace-dot { background: #7fd1a6; }
+.sidebar-collapsed aside nav button.active { box-shadow: inset 0 -3px 0 #7fd1a6; }
+.crm-dialog::backdrop, .amigoz-overlay { background: rgba(13, 42, 32, .72); }
+#toast { box-shadow: 0 12px 36px rgba(13, 42, 32, .18); }
+.crm-kanban-card:hover { border-color: #b7cbbf; box-shadow: 0 7px 18px rgba(13, 42, 32, .07); }
+
+/* 2. Configurações: abas em dois grupos, quebrando linha em vez de cortar */
+.settings-tabs { flex-wrap: wrap; overflow: visible; row-gap: 6px; align-items: center; }
+.settings-tabs-group {
+  flex-basis: 100%; margin: 10px 0 2px; padding: 0 12px;
+  font-size: 11px; font-weight: 700; letter-spacing: .02em; color: var(--crm-secondary);
+}
+.settings-tabs-group:first-child { margin-top: 0; }
+/* Sem abas de administração visíveis (parceiro), o rótulo some. */
+.settings-tabs-admin:not(:has(~ button:not([hidden]))) { display: none; }
+
+/* 3. Campanhas: uma só ação "Nova campanha"; o formulário aparece quando aberto */
+#newCampaignPanel > summary { display: none; }
+.campaign-grid > .card:has(> #newCampaignPanel:not([open])) { display: none; }
+.campaign-grid:has(#newCampaignPanel:not([open])) { grid-template-columns: minmax(0, 1fr); }
+.new-campaign-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.new-campaign-head h2 { margin: 0; font-size: 17px; }
+
+/* 4. Menu de ações (Exportar): uma ação principal visível, as variações dentro do menu */
+.action-menu { position: relative; display: inline-block; }
+.action-menu > summary {
+  list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
+  min-height: 42px; padding: 0 16px; border: 1px solid var(--crm-border-strong); border-radius: 8px;
+  background: var(--crm-surface); color: var(--crm-brand); font-weight: 600;
+}
+.action-menu > summary::-webkit-details-marker { display: none; }
+.action-menu > summary::after { content: ""; width: 7px; height: 7px; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(45deg) translateY(-2px); }
+.action-menu[open] > summary { border-color: var(--crm-action); }
+.action-menu-list {
+  position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; min-width: 240px;
+  display: grid; padding: 6px; background: var(--crm-surface); border: 1px solid var(--crm-border);
+  border-radius: 10px; box-shadow: 0 12px 32px rgba(13, 42, 32, .14);
+}
+.action-menu-list > button, .action-menu-list > a {
+  display: block; width: 100%; margin: 0; padding: 10px 12px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--crm-text); text-align: left; font-weight: 500; font-size: 13px; text-decoration: none;
+}
+.action-menu-list > button:hover, .action-menu-list > a:hover { background: var(--crm-surface-alt); }
+
+/* 5. Diálogo de confirmação próprio (substitui o confirm() do navegador) */
+.confirm-dialog {
+  width: min(440px, calc(100vw - 32px)); padding: 24px; border: 1px solid var(--crm-border);
+  border-radius: 14px; color: var(--crm-text); box-shadow: 0 24px 60px rgba(13, 42, 32, .22);
+}
+.confirm-dialog::backdrop { background: rgba(13, 42, 32, .55); }
+.confirm-dialog h2 { margin: 0 0 8px; font-size: 18px; line-height: 1.3; }
+.confirm-dialog p { margin: 0; color: var(--crm-secondary); line-height: 1.55; }
+.confirm-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; flex-wrap: wrap; }
+.confirm-dialog-actions button { min-height: 42px; }
+.danger-solid { background: #a8322a; border-color: #a8322a; color: #fff; }
+.danger-solid:hover { background: #8c2821; border-color: #8c2821; color: #fff; }
+#newCampaignPanel > .new-campaign-head { display: flex; flex-direction: row; align-items: center; }
+#newCampaignPanel > .new-campaign-head h2 { flex: 1 1 auto; }
+/* Cartões de campanha lado a lado, ocupando a largura disponível */
+.campaign-group-phase { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; align-items: stretch; }
+.campaign-group-phase > h4 { grid-column: 1 / -1; margin-bottom: 0; }
+.campaign-group-phase > .campaign-item { margin-top: 0; height: 100%; }
+#campaignList > .campaign-group, #campaignList > .empty { grid-column: 1 / -1; }

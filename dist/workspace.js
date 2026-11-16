@@ -266,3 +266,19 @@ const workspaceServiceChange=$('#serviceSelect').onchange;
 function simplifyMarginForm(){const margin=selectedService()==='tjba_margem';$('#nameLabel').hidden=margin;$('#nome').hidden=margin;$('#phoneLabel').parentElement.hidden=margin;$('#importHint').textContent=margin?'Preencha apenas a coluna cpf. Substitua a linha de exemplo e preserve os zeros à esquerda. As margens serão preenchidas pelo robô.':'Preencha nome, cpf e telefone. Substitua a linha de exemplo; mantenha CPF e telefone como texto. O robô preenche saldo e parcela.';}
 $('#serviceSelect').onchange=()=>{workspaceServiceChange();simplifyMarginForm();};
 simplifyMarginForm();
+
+// The header "Nova campanha" button is the single entry point. The panel gets its own
+// title and a Cancel button, added after the wizard took over the panel's content div.
+{
+ const head=document.createElement('div');head.className='new-campaign-head';
+ head.innerHTML='<h2>Nova campanha</h2><button type="button" id="closeNewCampaign">Cancelar</button>';
+ creationPanel.querySelector(':scope > summary').after(head);
+ $('#closeNewCampaign').onclick=()=>{creationPanel.open=false;};
+}
+
+// Action menus (e.g. Clientes → Exportar) close after a choice or a click elsewhere.
+document.addEventListener('click',event=>{
+ for(const menu of document.querySelectorAll('details.action-menu[open]')){
+  if(!menu.contains(event.target)||event.target.closest('.action-menu-list > button, .action-menu-list > a'))menu.open=false;
+ }
+});

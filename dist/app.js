@@ -5,6 +5,23 @@ function selectedService(){const id=$('#serviceSelect').value||'digimais_saldo_p
 function serviceLabel(id){return serviceCatalog[id||'digimais_saldo_parcela']?.label||'Serviço não identificado';}
 let records=[],pending=[],campaigns=[],activeCampaign=null,currentPage="home",retryingCampaign=false;
 function toast(message){$('#toast').textContent=message;$('#toast').style.display='block';setTimeout(()=>$('#toast').style.display='none',4500)}
+// In-page confirmation instead of the browser's confirm(): states what will happen and
+// names the action on the button. Resolves true only when that button is chosen.
+function askConfirm(message,{confirmLabel='Confirmar',cancelLabel='Cancelar',danger=false,title='Confirme a ação'}={}){
+ return new Promise(resolve=>{
+  const dialog=document.createElement('dialog');dialog.className='confirm-dialog';
+  dialog.setAttribute('aria-labelledby','confirmDialogTitle');dialog.setAttribute('aria-describedby','confirmDialogText');
+  dialog.innerHTML=`<h2 id="confirmDialogTitle"></h2><p id="confirmDialogText"></p><div class="confirm-dialog-actions"><button type="button" data-answer="no"></button><button type="button" data-answer="yes" class="${danger?'danger-solid':'primary'}"></button></div>`;
+  dialog.querySelector('h2').textContent=title;dialog.querySelector('p').textContent=message;
+  dialog.querySelector('[data-answer="no"]').textContent=cancelLabel;dialog.querySelector('[data-answer="yes"]').textContent=confirmLabel;
+  let answer=false;
+  dialog.onclick=event=>{const button=event.target.closest('[data-answer]');if(button){answer=button.dataset.answer==='yes';dialog.close();}};
+  dialog.addEventListener('close',()=>{dialog.remove();resolve(answer);});
+  document.body.appendChild(dialog);
+  if(typeof dialog.showModal==='function'){dialog.showModal();dialog.querySelector('[data-answer="no"]').focus();}
+  else{dialog.remove();resolve(window.confirm(message));}
+ });
+}
 function statusLabel(status){return status==='Processando'?'Consultando...':status}
 function resultMessage(r){
  if(['Aguardando','Processando'].includes(r.status))return '';

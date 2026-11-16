@@ -1,9 +1,11 @@
 // Settings sections preserve the existing forms and their event handlers.
 let apiTokenEpoch=0,apiCatalog=[],apiTokensLoading=false;
 const settingsRoot=$('#settings');
-const settingsGroups=[['operation','Operação'],['robots','Robôs e monitoramento'],['digimais-api','Log API Digimais'],['tables','Tabelas'],['integrations','Integrações'],['account','Conta e diagnóstico'],['partners','Parceiros'],['amigoz-api','API Amigoz'],['minio','Armazenamento MinIO']];
+// Two groups: day-to-day settings first, administration (admin-only tabs) after a label.
+const settingsGroups=[['operation','Operação'],['tables','Tabelas'],['integrations','Integrações'],['account','Conta e diagnóstico'],['robots','Robôs e monitoramento'],['digimais-api','Log da API Digi+'],['partners','Parceiros'],['amigoz-api','API Amigoz'],['minio','Armazenamento MinIO']];
+const settingsAdminStart='robots';
 const settingsNav=document.createElement('div');settingsNav.className='settings-tabs';settingsNav.setAttribute('role','tablist');settingsNav.setAttribute('aria-label','Seções das configurações');
-settingsNav.innerHTML=settingsGroups.map(([id,label],i)=>`<button type="button" id="settings-tab-${id}" role="tab" aria-controls="settings-${id}" aria-selected="${i===0}" tabindex="${i===0?0:-1}" data-settings-section="${id}">${label}</button>`).join('');
+settingsNav.innerHTML='<span class="settings-tabs-group" role="presentation">Minha operação</span>'+settingsGroups.map(([id,label],i)=>(id===settingsAdminStart?'<span class="settings-tabs-group settings-tabs-admin" role="presentation">Administração</span>':'')+`<button type="button" id="settings-tab-${id}" role="tab" aria-controls="settings-${id}" aria-selected="${i===0}" tabindex="${i===0?0:-1}" data-settings-section="${id}">${label}</button>`).join('');
 settingsRoot.insertBefore(settingsNav,settingsRoot.querySelector('.portal-card'));
 for(const [id,label] of settingsGroups){const section=document.createElement('section');section.id='settings-'+id;section.className='settings-panel';section.setAttribute('role','tabpanel');section.setAttribute('aria-labelledby','settings-tab-'+id);section.hidden=id!=='operation';settingsRoot.appendChild(section);if(['amigoz-api','minio'].includes(id))$('#settings-tab-'+id).hidden=true;}
 $('#settings-operation').appendChild(settingsRoot.querySelector('.portal-card'));
@@ -40,7 +42,7 @@ $('#apiTokenForm').onsubmit=async e=>{
  }catch(e){if(epoch===authEpoch)$('#apiTokenStatus').textContent=e.message;}
  finally{$('#createApiToken').disabled=false;}
 };
-$('#apiTokens').onclick=async e=>{const id=e.target.dataset.revokeApi;if(!id||!confirm('Revogar este token? A integração deixará de acessar a API.'))return;const epoch=authEpoch;e.target.disabled=true;
+$('#apiTokens').onclick=async e=>{const id=e.target.dataset.revokeApi;if(!id||!(await askConfirm('A integração que usa este token deixará de acessar a API imediatamente.',{title:'Revogar este token?',confirmLabel:'Revogar token',danger:true})))return;const epoch=authEpoch;e.target.disabled=true;
  try{await sbRequest('/rest/v1/rpc/manage_api_tokens',{method:'POST',body:JSON.stringify({p_action:'revoke',p_input:{id}})});if(epoch!==authEpoch||typeof hasIntegrationAccess==='function'&&!hasIntegrationAccess())return;clearNewApiToken();$('#apiTokenStatus').textContent='Token revogado.';await loadApiTokens();}catch(error){if(epoch===authEpoch)$('#apiTokenStatus').textContent=error.message;}finally{e.target.disabled=false;}};
 async function loadApiDocs(){
  if(apiCatalog.length)return;

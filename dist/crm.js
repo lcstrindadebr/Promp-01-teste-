@@ -319,7 +319,8 @@ async function crmApplyBulk(excluir){
   const p_destino=excluir?null:crmBulkDestination.value;
   if(!excluir&&!p_destino){$('#crmPipelineStatus').textContent='Escolha a etapa de destino.';crmBulkDestination.focus();return;}
   const p_itens=[...crmBulkSelection.values()].map(({id,etapa_id})=>({id,etapa_id}));
-  if(excluir&&!confirm('Excluir '+p_itens.length+' oportunidades? Os cadastros e as consultas dos clientes serão preservados.'))return;
+  if(excluir&&!(await askConfirm('Os cadastros e as consultas dos clientes serão preservados.',{title:'Excluir '+p_itens.length+' oportunidades?',confirmLabel:'Excluir oportunidades',danger:true})))return;
+  if(crmBulkBusy)return;
   const epoch=authEpoch;
   crmBulkBusy=true;crmRenderBulk();
   try{
