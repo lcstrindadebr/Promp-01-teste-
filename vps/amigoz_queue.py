@@ -19,6 +19,7 @@ def process(job, config):
 
 
 def run(call, stop):
+ idle=3
  while not stop.is_set():
   try:
    config=amigoz_api.configuration()
@@ -27,8 +28,10 @@ def run(call, stop):
     continue # Keep queued work until an administrator supplies credentials.
    jobs=call('/rest/v1/rpc/claim_amigoz_import_job',{})
    if not jobs:
-    stop.wait(3)
+    stop.wait(idle)
+    idle=min(30,idle*2) # Empty queue: 3 s, 6 s, 12 s ... up to 30 s between checks.
     continue
+   idle=3
    job=jobs[0]
    try:
     status,result,message=process(job,config)

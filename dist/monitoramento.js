@@ -3,7 +3,7 @@ const metricPercent=v=>v!=null&&Number.isFinite(Number(v))?Math.max(0,Math.min(1
 function metricBytes(v){return v!=null&&Number.isFinite(Number(v))?(Number(v)/1073741824).toLocaleString('pt-BR',{maximumFractionDigits:2})+' GB':'—';}
 function renderMonitoring(){
  const data=monitoringSnapshot?.payload,stamp=Date.parse(monitoringSnapshot?.updated_at||''),age=(Date.now()-stamp)/1000;
- const fresh=Boolean(data)&&Number.isFinite(age)&&age>=-60&&age<=20&&!monitoringError;
+ const fresh=Boolean(data)&&Number.isFinite(age)&&age>=-60&&age<=45&&!monitoringError;
  $('#monitorStatus').textContent=monitoringError?'Sem conexão':!data?'Aguardando coletor':fresh?'Atualizado':'Dados desatualizados';
  $('#monitorStatus').className='pill '+(fresh?'ok':'err');
  $('#monitorUpdated').textContent=Number.isFinite(stamp)?'Última coleta: '+new Date(stamp).toLocaleString('pt-BR'):'As métricas aparecem após atualizar o auto instalador na VPS.';
@@ -25,7 +25,7 @@ async function tickMonitoring(){
  catch(e){if(epoch===authEpoch)monitoringError='Não foi possível atualizar as métricas. Verifique a conexão e a atualização do coletor na VPS.';}
  finally{monitoringLoading=false;if(epoch===authEpoch&&authenticated)renderMonitoring();}
 }
-$('#refreshMonitor').onclick=tickMonitoring;renderMonitoring();setInterval(tickMonitoring,5000);
+$('#refreshMonitor').onclick=tickMonitoring;renderMonitoring();setInterval(tickMonitoring,15000);
 
 function robotDuration(value){
  if(value==null||!Number.isFinite(Number(value)))return '—';

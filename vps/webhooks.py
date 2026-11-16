@@ -79,12 +79,15 @@ def dispatch_batch(jobs,pool):
     if attempt<5:time.sleep(5)
 
 def main():
+ idle=5
  with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
   while True:
    try:
     jobs=rpc('claim_webhook_deliveries') or []
-    if jobs:dispatch_batch(jobs,pool)
-    else:time.sleep(5)
+    if jobs:dispatch_batch(jobs,pool);idle=5
+    else:
+     # Empty queue: 5 s, 10 s, 20 s, then every 30 s until a delivery shows up.
+     time.sleep(idle);idle=min(30,idle*2)
    except Exception:
     print('Webhooks: fila indisponível; nova tentativa em 5 segundos.',flush=True);time.sleep(5)
 if __name__=='__main__':main()

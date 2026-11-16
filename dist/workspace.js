@@ -4,7 +4,14 @@ const campaignPageSize=50;
 let campaignPage=1,campaignPageKey='';
 function orderedClients(rows){return [...rows].sort((a,b)=>Number(a.queue_order??Number.MAX_SAFE_INTEGER)-Number(b.queue_order??Number.MAX_SAFE_INTEGER)||new Date(a.created_at||a.date)-new Date(b.created_at||b.date)||String(a.id).localeCompare(String(b.id)));}
 const originalCampaignRecords=campaignRecords;
-campaignRecords=function(id){return orderedClients(originalCampaignRecords(id));};
+// Ordered copy cached per campaign array, so sorting happens once per sync, not once per call.
+const orderedCampaignCache=new WeakMap();
+campaignRecords=function(id){
+ const rows=originalCampaignRecords(id);
+ let ordered=orderedCampaignCache.get(rows);
+ if(!ordered){ordered=orderedClients(rows);orderedCampaignCache.set(rows,ordered);}
+ return ordered;
+};
 function campaignPhase(c,rows){return c.paused?(rows.some(r=>r.status==='Processando')?'active':'paused'):rows.some(r=>['Aguardando','Processando'].includes(r.status))?'active':'done';}
 function campaignPhaseLabel(c,rows){const running=rows.filter(r=>r.status==='Processando').length;return c.paused?(running?'Pausando · consultas em andamento terminando':'Pausada'):campaignPhase(c,rows)==='done'?'Finalizada':running?'Em andamento':'Na fila';}
 function campaignEta(campaign, rows, pending, running, now=Date.now()){
@@ -259,3 +266,19 @@ const workspaceServiceChange=$('#serviceSelect').onchange;
 function simplifyMarginForm(){const margin=selectedService()==='tjba_margem';$('#nameLabel').hidden=margin;$('#nome').hidden=margin;$('#phoneLabel').parentElement.hidden=margin;$('#importHint').textContent=margin?'Preencha apenas a coluna cpf. Substitua a linha de exemplo e preserve os zeros à esquerda. As margens serão preenchidas pelo robô.':'Preencha nome, cpf e telefone. Substitua a linha de exemplo; mantenha CPF e telefone como texto. O robô preenche saldo e parcela.';}
 $('#serviceSelect').onchange=()=>{workspaceServiceChange();simplifyMarginForm();};
 simplifyMarginForm();
+
+// The header "Nova campanha" button is the single entry point. The panel gets its own
+// title and a Cancel button, added after the wizard took over the panel's content div.
+{
+ const head=document.createElement('div');head.className='new-campaign-head';
+ head.innerHTML='<h2>Nova campanha</h2><button type="button" id="closeNewCampaign">Cancelar</button>';
+ creationPanel.querySelector(':scope > summary').after(head);
+ $('#closeNewCampaign').onclick=()=>{creationPanel.open=false;};
+}
+
+// Action menus (e.g. Clientes → Exportar) close after a choice or a click elsewhere.
+document.addEventListener('click',event=>{
+ for(const menu of document.querySelectorAll('details.action-menu[open]')){
+  if(!menu.contains(event.target)||event.target.closest('.action-menu-list > button, .action-menu-list > a'))menu.open=false;
+ }
+});
