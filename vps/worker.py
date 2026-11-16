@@ -3,6 +3,7 @@ import asyncio,json,os,time,urllib.request,urllib.error
 from datetime import datetime,timezone
 from collections import defaultdict
 from robot_failures import diagnose, label
+from robot_metrics import DIGIMAIS_API_MAX_CONCURRENCY
 URL=os.environ['SUPABASE_URL'].rstrip('/')
 KEY=os.environ['SUPABASE_SERVICE_ROLE_KEY']
 MODE=os.environ.get('ROBOT_MODE','disabled')
@@ -127,11 +128,37 @@ async def run_with_recovery(process, job, session, name):
  recovered['message']=' '.join(filter(None,[recovered.get('message'),previous]))
  return recovered
 
-async def robot_loop(index, capacity, sessions):
+async def dispatch_robot_jobs(capacity, waiting):
+ """Reserve ConsigX work before offering Digi+ to the remaining idle robots."""
+ while True:
+  # Each robot registers only after finishing and saving its previous job.
+  batch=sorted(waiting.items())
+  consigx_active=any(slot.service=='consigx' and slot.state in ('consulting','saving')
+                     for slot in robot_metrics.slots)
+  for service,route in (('tjba','rpc/claim_tjba_job_for_robot'),
+                        ('digimais','rpc/claim_consulta_job_for_robot')):
+   candidates=reversed(batch) if service=='digimais' and consigx_active else batch
+   for index,(future,retry_after) in candidates:
+    if future.done() or index>=capacity.target or time.monotonic()<retry_after.get(service,0):
+     continue
+    try:
+     jobs=await asyncio.to_thread(request,route,{'p_slot':index+1})
+    except Exception as error:
+     if not future.done():future.set_exception(error)
+     continue
+    if jobs and not future.done():
+     future.set_result((service,jobs[0]))
+     if service=='tjba':
+      consigx_active=True
+  for _,(future,_) in batch:
+   if not future.done():
+    future.set_result(None)
+  await asyncio.sleep(3)
+
+async def robot_loop(index, capacity, sessions, waiting):
  from robot import DigiSession
  adapter=sessions[index]
  digi=DigiSession()
- last_queue='tjba' if index % 2 == 0 else 'digimais'
  retry_after={}
  slot=robot_metrics.slots[index]
  adapter.telemetry=slot;digi.telemetry=slot
@@ -147,22 +174,19 @@ async def robot_loop(index, capacity, sessions):
      continue
     if slot.state=='resource_paused':
      slot.state='idle'
-    queues=['digimais','tjba'] if last_queue=='tjba' else ['tjba','digimais']
-    jobs=[]
-    for queue_name in queues:
-     if index >= capacity.target:
-      break
-     if time.monotonic()<retry_after.get(queue_name,0):continue
-     route='rpc/claim_tjba_job_for_robot' if queue_name=='tjba' else 'rpc/claim_consulta_job_for_robot'
-     payload={'p_slot':index+1}
-     jobs=await asyncio.to_thread(request,route,payload)
-     if jobs:last_queue=queue_name;break
-    if not jobs:
+    assignment=asyncio.get_running_loop().create_future()
+    waiting[index]=(assignment,retry_after)
+    try:
+     selected=await assignment
+    finally:
+     waiting.pop(index,None)
+    if selected is None:
      if index >= capacity.target:
       continue
-     if slot and slot.state=='queue_error':slot.state='idle'
-     await adapter.close_idle();await digi.close_idle();await asyncio.sleep(3);continue
-    job=jobs[0]
+     if slot.state=='queue_error':slot.state='idle'
+     await adapter.close_idle();await digi.close_idle()
+     continue
+    service,job=selected
     if slot:slot.begin('consigx' if job.get('servico')=='tjba_margem' else 'digimais')
     try:
      if job.get('servico')=='tjba_margem':
@@ -177,7 +201,7 @@ async def robot_loop(index, capacity, sessions):
      await digi.close()
     diagnostic=result_diagnostic(result)
     if diagnostic and diagnostic.get('transitorio'):
-     retry_after[last_queue]=time.monotonic()+30
+     retry_after[service]=time.monotonic()+30
     if slot:slot.saving(result)
     save_started=time.monotonic()
     result['consultado_em']=datetime.now(timezone.utc).isoformat()
@@ -236,9 +260,27 @@ class RobotCapacity:
    await asyncio.sleep(5)
 
 class ApiCapacity(RobotCapacity):
- def __init__(self,maximum=12):
+ def __init__(self,maximum=DIGIMAIS_API_MAX_CONCURRENCY):
   super().__init__(maximum)
   self.target=maximum
+
+def digimais_api_handoff(job, result, finished_at):
+ balance = result.get('resultado_saldo') or {}
+ installment = result.get('resultado_parcela') or {}
+ if not any(part.get('codigo') in ('FORA_HORARIO_ATENDIMENTO', 'TENTATIVAS_ESGOTADAS') for part in (balance, installment)):
+  return None
+ message = 'API indisponível após tentativas ou fora do horário · encaminhada ao robô'
+ return {
+  'execution_mode': 'robot', 'status': 'aguardando', 'progress': 0,
+  'stage': 'Aguardando robô · falha na API', 'message': message,
+  'locked_at': None, 'consultado_em': None, 'robot_slot': None, 'api_slot': None,
+  'saldo_liquidacao': None, 'total_parcelas': None, 'valor_parcela': None,
+  'resultado_saldo': None, 'resultado_parcela': None,
+  'api_handoff': {
+   'date': finished_at, 'api_slot': job['api_slot'], 'message': message,
+   'resultado_saldo': balance or None, 'resultado_parcela': installment or None,
+  },
+ }
 
 async def api_loop(index,capacity,slot,config):
  from digimais_api import ApiSession
@@ -256,13 +298,21 @@ async def api_loop(index,capacity,slot,config):
     diagnostic=diagnose(error,'digimais_api')
     log_failure('API DigiMais · execução ou checkpoint',diagnostic)
     result={'status':'revisao','stage':'API interrompida durante execução ou gravação parcial','message':'Motivo da interrupção: '+diagnostic['codigo']+'. Confira o resultado parcial antes de tentar novamente.'}
+   finished_at = datetime.now(timezone.utc).isoformat()
+   handoff = digimais_api_handoff(job, result, finished_at)
+   if handoff is not None:
+    result = handoff
+   else:
+    result['consultado_em'] = finished_at
    slot.saving(result)
-   result['consultado_em']=datetime.now(timezone.utc).isoformat()
+   route = (f"consulta_jobs?id=eq.{job['id']}&execution_mode=eq.api&status=eq.processando"
+            f"&api_slot=eq.{index+1}&attempts=eq.{job['attempts']}")
    while True:
     try:
-     await asyncio.to_thread(request,'consulta_jobs?id=eq.'+job['id'],result,'PATCH');break
-    except Exception:
-     await asyncio.sleep(10) # Retry persistence only, never replay the external consultation.
+     await asyncio.to_thread(request,route,result,'PATCH');break
+    except Exception as error:
+     log_failure('API DigiMais · gravar resultado',diagnose(error,'supabase'),'Repetindo apenas a gravação em 10 s.')
+     await asyncio.sleep(10)
    slot.saved()
   except Exception:
    slot.state='queue_error';await asyncio.sleep(10)
@@ -275,8 +325,8 @@ async def api_supervisor():
    if not config:await asyncio.sleep(30);continue
    break
   except Exception:await asyncio.sleep(30)
- capacity=ApiCapacity(12)
- slots=[Slot(f'api-{i+1}') for i in range(12)]
+ capacity=ApiCapacity()
+ slots=[Slot(f'api-{i+1}') for i in range(capacity.maximum)]
  robot_metrics.api_slots=slots;robot_metrics.api_capacity=capacity
  tasks=[asyncio.create_task(api_loop(i,capacity,slot,config)) for i,slot in enumerate(slots)]
  tasks.append(asyncio.create_task(capacity.watch()))
@@ -302,7 +352,9 @@ async def main_async():
   adapter.login_locks=login_locks
  print(f'Até {maximum} robôs para Digi+ e ConsigX, com ajuste automático de capacidade.',flush=True)
  background=[asyncio.create_task(robot_metrics.publish_loop()),asyncio.create_task(capacity.watch()),asyncio.create_task(api_supervisor())]
- tasks=[asyncio.create_task(robot_loop(index,capacity,sessions)) for index in range(maximum)]
+ waiting={}
+ tasks=[asyncio.create_task(robot_loop(index,capacity,sessions,waiting)) for index in range(maximum)]
+ background.append(asyncio.create_task(dispatch_robot_jobs(capacity,waiting)))
  try:
   await asyncio.gather(*tasks,*background)
  finally:

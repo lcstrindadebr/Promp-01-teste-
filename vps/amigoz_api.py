@@ -42,12 +42,15 @@ def public_catalog():
  fields=('id','nome','uf','averbadora','matricula_obrigatoria','senha_servidor','produtos')
  return [{key:row[key] for key in fields} for row in CATALOG.values()]
 LOCK = threading.Lock()
+CONFIG_LOCK = threading.Lock()
 SESSION = None
 MAX_RESPONSE = 1024 * 1024
 
 
 def credentials_path():
- return Path(os.environ.get('STATE_DIRECTORY','/var/lib/apoiarcred-amigoz'))/'credentials.json'
+ directories=os.environ.get('STATE_DIRECTORY','/var/lib/apoiarcred-amigoz').split(os.pathsep)
+ directory=next((entry for entry in directories if Path(entry).name=='apoiarcred-amigoz'),directories[0])
+ return Path(directory)/'credentials.json'
 
 
 def configuration():
@@ -69,7 +72,7 @@ def endpoint(value):
   parsed=urlsplit(value)
   if (parsed.scheme!='https' or not parsed.hostname or parsed.username is not None or
       parsed.password is not None or parsed.port not in (None,443) or
-      parsed.query or parsed.fragment or parsed.path not in ('','/') or
+      parsed.query or parsed.fragment or parsed.path not in ('','/','/api','/api/') or
       not re.fullmatch(r'[a-zA-Z0-9.-]+',parsed.hostname) or '.' not in parsed.hostname):
    raise ValueError()
   return parsed.hostname.lower()
@@ -78,8 +81,7 @@ def endpoint(value):
 
 
 def save_configuration(payload):
- global SESSION
- with LOCK:
+ with CONFIG_LOCK:
   previous=configuration() or {}
   url='https://'+endpoint(payload.get('url'))
   user=payload.get('usuario')
@@ -94,17 +96,24 @@ def save_configuration(payload):
    raise AmigozError(422,'invalid_amigoz_password','Informe a senha da Amigoz para este usuário e endereço.')
   config={'url':url,'usuario':user,'senha':password,'corban_id':corban}
   path=credentials_path()
-  with tempfile.NamedTemporaryFile(mode='w',dir=path.parent,delete=False) as file:
-   temp=Path(file.name)
-   try:
-    json.dump(config,file)
-    file.flush()
-    os.fsync(file.fileno())
-    temp.replace(path)
-   finally:
-    temp.unlink(missing_ok=True)
-  SESSION=None
-  return public_configuration(config)
+  try:
+   return persist_configuration(path,config)
+  except OSError:
+   raise AmigozError(503,'amigoz_config_storage','A VPS não conseguiu gravar as credenciais Amigoz. Confira o diretório de estado da API.') from None
+
+
+def persist_configuration(path,config):
+ file=tempfile.NamedTemporaryFile(mode='w',dir=path.parent,delete=False)
+ temp=Path(file.name)
+ try:
+  with file:
+   json.dump(config,file)
+   file.flush()
+   os.fsync(file.fileno())
+  temp.replace(path)
+ finally:
+  temp.unlink(missing_ok=True)
+ return public_configuration(config)
 
 
 class PublicHTTPS(http.client.HTTPSConnection):
@@ -120,7 +129,27 @@ class PublicHTTPS(http.client.HTTPSConnection):
    raise
 
 
-def request(config,path,payload,token=None):
+def margin_response_diagnostic(raw,path,status,secrets):
+ # Read a bounded body. Keep diagnostics out of persisted customer results.
+ try:
+  text=raw[:8192].decode('utf-8',errors='replace')
+  try:
+   text=json.dumps(margin_result(json.loads(text)),ensure_ascii=False,indent=2)
+  except (ValueError,RecursionError):
+   pass
+  for secret in sorted({v for v in secrets if isinstance(v,str) and v},key=len,reverse=True):
+   for form in {secret,json.dumps(secret,ensure_ascii=True)[1:-1],json.dumps(secret,ensure_ascii=False)[1:-1]}:
+    text=text.replace(form,'[oculto]')
+  text=re.sub(r'(?i)\bBearer\s+[^\s",;]+','Bearer [oculto]',text)
+  text=re.sub(r'\beyJ[\w-]+\.[\w-]+\.[\w-]+\b','[oculto]',text)
+  text=re.sub(r'(?i)(["\x27]?(?:senha[_ ]?servidor|senha|password|access[_ ]?token|refresh[_ ]?token|authorization|cookie|secret|api[_ ]?key)["\x27]?\s*[:=]\s*)(?:"[^"]*"|\x27[^\x27]*\x27|[^\s,;]+)',r'\1[oculto]',text)
+  if len(raw)>8192:text+='\n[resposta truncada]'
+ except (ValueError,RecursionError):
+  text='Não foi possível formatar o corpo da resposta.'
+ return {'rota':path,'http_status':status,'resposta':text or 'Resposta sem corpo.'}
+
+
+def request(config,path,payload,token=None,record_response=None):
  timeout = 60 if path == '/api/consulta-margem' else 30
  conn=PublicHTTPS(endpoint(config['url']),timeout=timeout,context=ssl.create_default_context())
  headers={'Content-Type':'application/json','Accept':'application/json'}
@@ -129,11 +158,21 @@ def request(config,path,payload,token=None):
  try:
   conn.request('POST',path,json.dumps(payload),headers)
   response=conn.getresponse()
-  if response.status in (401,403):
-   raise AmigozError(response.status,'amigoz_denied','A Amigoz recusou a autenticação ou a permissão para esta operação.')
   if not 200<=response.status<300:
-   raise AmigozError(response.status,'amigoz_upstream',f'A Amigoz respondeu HTTP {response.status} em {path}.')
+   if record_response is not None:
+    try:
+     raw=response.read(8193)
+    except (OSError,http.client.HTTPException):
+     raw=b''
+    record_response(margin_response_diagnostic(raw,path,response.status,(
+     token,config.get('usuario'),config.get('senha'),payload.get('senha_servidor'))))
+   if response.status in (401,403):
+    raise AmigozError(response.status,'amigoz_denied','A Amigoz recusou a autenticação ou a permissão para esta operação.')
+   raise AmigozError(response.status,'amigoz_upstream','Não foi possível concluir a consulta na Amigoz. Confira o convênio e os dados informados.')
   raw=response.read(MAX_RESPONSE+1)
+  if record_response is not None:
+   record_response(margin_response_diagnostic(raw,path,response.status,(
+    token,config.get('usuario'),config.get('senha'),payload.get('senha_servidor'))))
   if len(raw)>MAX_RESPONSE:
    raise AmigozError(502,'amigoz_response','A resposta da Amigoz excedeu o tamanho permitido.')
   if not raw:
@@ -193,14 +232,15 @@ def session(config,failed=None,force=False):
   LOCK.release()
 
 
-def call(config,path,payload):
+def call(config,path,payload,record_response=None):
  token=session(config)
+ options={'record_response':record_response} if record_response is not None else {}
  try:
-  return request(config,path,payload,token)
+  return request(config,path,payload,token,**options)
  except AmigozError as error:
   if error.status!=401:
    raise
- return request(config,path,payload,session(config,failed=token))
+ return request(config,path,payload,session(config,failed=token),**options)
 
 
 def normalized(value):
@@ -230,7 +270,7 @@ def margin_result(value):
  return value
 
 
-def consultation(config,payload,before_request=None):
+def consultation(config,payload,before_request=None,diagnostics=None):
  mode=payload.get('modo')
  convenio_id=payload.get('convenio_id')
  convenio=CATALOG.get(convenio_id) if type(convenio_id) is int else None
@@ -258,9 +298,15 @@ def consultation(config,payload,before_request=None):
    result[operation]={'status':'indisponivel','mensagem':'Consulta de margem indisponível para este convênio. Falta o ID da averbadora.'}
    continue
   try:
-   value=call(config,path,body)
+   if operation=='margem' and diagnostics is not None:
+    value=call(config,path,body,record_response=lambda entry:diagnostics.update(margem=entry))
+   else:
+    value=call(config,path,body)
    data=saque_result(value,convenio) if operation=='saque' else margin_result(value)
    result[operation]={'status':'respondido','dados':data}
   except AmigozError as error:
-   result[operation]={'status':'erro','mensagem':error.message,'http_status':error.status,'codigo':error.code,'operacao':operation}
+   if operation=='margem' and diagnostics is not None:
+    diagnostics.setdefault(operation,{'rota':path,'resposta':error.message})['codigo']=error.code
+   message='Não foi possível consultar a margem. Confira o convênio e os dados informados.' if operation=='margem' else error.message
+   result[operation]={'status':'erro','mensagem':message,'http_status':error.status,'codigo':error.code,'operacao':operation}
  return result

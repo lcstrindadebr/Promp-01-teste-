@@ -257,7 +257,7 @@ async def choose_matricula(page):
  actions=locs[idx].locator('[id^="body_servidorGridView_selectImageButton_"]')
  if await actions.count()!=1:raise Review('revisao_matricula','Ação de seleção da matrícula ainda precisa ser validada.',{'vinculos':[{'colunas':headers,'valores':r} for r in rows]})
  await actions.click();return [{'matricula':r[headers.index(next(h for h in headers if norm(h)=='matricula'))] if any(norm(h)=='matricula' for h in headers) else None,'situacao':r[next(i for i,h in enumerate(headers) if norm(h) in ('situacao','situacao atual','situacao do vinculo','status'))]} for r in rows]
-async def read_margin(page,selector):
+async def read_margin(page,selector,*,include_total=False):
  row=page.locator(selector)
  if not await row.is_visible():return None
  # Locate the real table header; do not assume that the fourth cell is availability.
@@ -269,8 +269,15 @@ async def read_margin(page,selector):
  if index>=len(cells):raise Review('revisao_margens','A estrutura das colunas de margem mudou.')
  expected='emprestimo' if selector==ROWS['emprestimo_disponivel'] else 'cartao'
  if not cells or expected not in norm(cells[0]):raise Review('revisao_margens','A verba da linha de margem não corresponde ao resultado esperado.')
- try:return parse_brl(cells[index])
+ try:available=parse_brl(cells[index])
  except ValueError:raise Review('revisao_margens','Não foi possível interpretar o valor da margem disponível.') from None
+ if not include_total:return available
+ totals=[i for i,h in enumerate(headers) if norm(h) in ('margem total','margem total (r$)')]
+ total=None
+ if len(totals)==1 and totals[0]<len(cells):
+  try:total=parse_brl(cells[totals[0]])
+  except ValueError:pass
+ return available,total
 async def consult(page,cpf,on_step=None,convenio='tjba'):
  await report_step(on_step,35,'Preparar formulário TJBA')
  await prepare(page,**({'convenio':convenio} if convenio!='tjba' else {}))
@@ -305,14 +312,18 @@ async def consult(page,cpf,on_step=None,convenio='tjba'):
  await report_step(on_step,65,'Verificar vínculo e matrícula retornados')
  vinculos=await choose_matricula(page)
  await page.locator(ROWS['emprestimo_disponivel']).wait_for(state='visible',timeout=12000)
- await report_step(on_step,78,'Ler margens disponíveis e confirmar CPF')
+ await report_step(on_step,78,'Ler margens totais e disponíveis e confirmar CPF')
  fields={k:await value(page,s) for k,s in FIELDS.items()}
- margins={k:await read_margin(page,s) for k,s in ROWS.items()}
+ margins={}
+ for field,selector in ROWS.items():
+  available,total=await read_margin(page,selector,include_total=True) or (None,None)
+  margins[field]=available
+  margins[field.replace('_disponivel','_bruta')]=total
  if not fields['matricula'] or not fields['situacao_atual']:raise Review('revisao_matricula','Resultado sem matrícula ou situação verificável.')
  # Where available, verify the returned CPF as well as the completed postback.
  returned=await value(page,RESULT_CPF)
  if not returned or normalize_cpf(returned)!=normalize_cpf(cpf):raise Review('erro','O CPF retornado pelo portal não corresponde à consulta.')
- return dict(nome=await value(page,'#body_clienteTextBox'),status='consultado' if all(v is not None for v in margins.values()) else 'revisao_margens',observacoes=None if all(v is not None for v in margins.values()) else 'Uma das margens não foi retornada pelo portal.',vinculos=vinculos,**fields,**margins)
+ return dict(nome=await value(page,'#body_clienteTextBox'),status='consultado' if all(margins[field] is not None for field in ROWS) else 'revisao_margens',observacoes=None if all(margins[field] is not None for field in ROWS) else 'Uma das margens disponíveis não foi retornada pelo portal.',vinculos=vinculos,**fields,**margins)
 def job_result(raw):
  status=raw['status'];result=dict(status='concluida' if status=='consultado' else 'nao_encontrado' if status=='nao_encontrado' else 'erro' if status=='erro' else 'revisao',tjba_status=status,resultado_tjba=raw,matricula=raw.get('matricula'),tipo_servidor=raw.get('tipo_servidor'),situacao_atual=raw.get('situacao_atual'),emprestimo_disponivel=raw.get('emprestimo_disponivel'),cartao_disponivel=raw.get('cartao_disponivel'),message=raw.get('observacoes'),progress=100,stage='Consulta TJBA finalizada')
  if raw.get('nome'):result['nome']=str(raw['nome'])[:160]

@@ -24,13 +24,26 @@ class FlowStopped(Exception):
   super().__init__(reason)
 
 
-def assert_service_available(items):
+BUSINESS_RESULTS={
+ 'DOCUMENTO_NAO_LOCALIZADO':('nao_cliente','Não é cliente'),
+ 'CONTRATO_EM_ASSESSORIA':('ja_vendeu','Já vendeu'),
+}
+
+
+def assert_service_available(items,after_cpf=False):
  for item in items:
   if item.get('direction')=='I':continue
   text=item.get('contentText') or item.get('content') or item.get('text') or ''
   text=''.join(c for c in unicodedata.normalize('NFKD',text.lower()) if not unicodedata.combining(c))
   if re.search(r'fora do horario(?: de atendimento)?|fora (?:do nosso|de nosso) horario',text):
    raise FlowStopped('FORA_HORARIO_ATENDIMENTO','Atendimento DigiMais indisponível: fora do horário de atendimento informado pelo provedor.')
+  if not after_cpf:continue
+  text=' '.join(re.sub(r'[*_]', '', text).split())
+  if 'nao consegui localizar o seu documento' in text:
+   raise FlowStopped('DOCUMENTO_NAO_LOCALIZADO','O atendimento Digi+ informou que não localizou o documento.')
+  if re.search(r'(?:seu|o) contrato esta sob (?:a )?responsabilidade d[ae] (?:nossa |uma )?assessoria de cobranca',text):
+   raise FlowStopped('CONTRATO_EM_ASSESSORIA','O atendimento Digi+ informou que o contrato está sob responsabilidade de uma assessoria de cobrança.')
+
 
 
 def money(value):
@@ -66,7 +79,7 @@ class ApiSession:
   def mark(value,status='iniciada'):
    nonlocal stage
    stage=value;events.append({'horario':datetime.now(timezone.utc).isoformat(),'etapa':value,'status':status})
-  async def call(path,body=None,limit=None):
+  async def request_once(path,body=None,limit=None):
    nonlocal cookie
    def send():
     query={'code':cfg['code']}
@@ -86,6 +99,35 @@ class ApiSession:
      else:jar[name]=morsel.value
    cookie='; '.join(m.OutputString() for m in jar.values())
    return data,set_cookies
+  async def call(path,body=None,limit=None,validate=None):
+   for attempt,delay in enumerate((0,4,2),1):
+    if delay:
+     events.append({'horario':datetime.now(timezone.utc).isoformat(),'etapa':stage,'status':'nova tentativa','tentativa':attempt,'espera_segundos':delay})
+     await asyncio.sleep(delay)
+    try:
+     data,cookies=await request_once(path,body,limit)
+     if validate:validate(data)
+     return data,cookies
+    except (FlowStopped,CpfFormatError):
+     raise
+    except Exception:
+     if attempt==3:
+      raise FlowStopped('TENTATIVAS_ESGOTADAS','Falha na etapa '+stage+' após 3 tentativas da mesma chamada.')
+  def validate_login(data):
+   if not isinstance(data,dict) or not data.get('userId'):
+    raise ValueError('Login sem usuário')
+  def validate_menu(raw,predicate):
+   nonlocal items
+   items=messages(raw)
+   assert_service_available(items,after_cpf=stage!='menu de cobrança')
+   option(predicate)
+  def validate_result(raw):
+   nonlocal items
+   items=messages(raw)
+   assert_service_available(items,after_cpf=True)
+   result=parse_result(items,kind)
+   if not result['sucesso'] or result.get('valorSaldo' if kind=='saldo' else 'valorParcela') is None:
+    raise ValueError('Resultado ainda indisponível')
   async def message(text,option=None):
    await call('/messages',{'customData':{'options':[option],'buttons':None,'contextData':None} if option else None,
     'id':str(uuid.uuid4()),'contentText':text,'contentType':'text/plain','contentUrl':None,'messageType':'text',
@@ -100,7 +142,7 @@ class ApiSession:
   try:
    mark('autenticação')
    login,cookies=await call('/auth/login-public',{'userData':None,'userAccountUid':cfg['accountUid'],
-    'userFullName':job['nome'],'userId':user,'userRole':'public','userName':job['telefone'],'userPhotoUrl':None,'userCustomData':{}})
+    'userFullName':job['nome'],'userId':user,'userRole':'public','userName':job['telefone'],'userPhotoUrl':None,'userCustomData':{}},validate=validate_login)
    if not login.get('userId'):raise RuntimeError('Login sem usuário')
    user=login['userId']
    mark('criação da sessão')
@@ -109,16 +151,16 @@ class ApiSession:
    session=sess.get('id') or session
    mark('menu de cobrança')
    await asyncio.sleep(8)
-   raw,_=await call('/sessions/'+session+'/messages',limit=20);items=messages(raw);assert_service_available(items)
+   raw,_=await call('/sessions/'+session+'/messages',limit=20,validate=lambda raw:validate_menu(raw,lambda t:'cobran' in t));items=messages(raw);assert_service_available(items)
    selected=option(lambda t:'cobran' in t);await message(selected['id'],selected)
    mark('envio do CPF')
    await asyncio.sleep(5);await message(format_cpf(job['cpf']))
    await asyncio.sleep(6)
    mark('seleção de '+kind)
-   raw,_=await call('/sessions/'+session+'/messages',limit=20);items=messages(raw);assert_service_available(items)
+   raw,_=await call('/sessions/'+session+'/messages',limit=20,validate=lambda raw:validate_menu(raw,(lambda t:'iquid' in t or 'saldo' in t) if kind=='saldo' else (lambda t:'parcela' in t or ('valor' in t and 'saldo' not in t))));items=messages(raw);assert_service_available(items,after_cpf=True)
    selected=option((lambda t:'iquid' in t or 'saldo' in t) if kind=='saldo' else (lambda t:'parcela' in t or ('valor' in t and 'saldo' not in t)))
    await message(selected['id'],selected);mark('retorno de '+kind);await asyncio.sleep(8)
-   raw,_=await call('/sessions/'+session+'/messages',limit=30);items=messages(raw);assert_service_available(items)
+   raw,_=await call('/sessions/'+session+'/messages',limit=30,validate=validate_result);items=messages(raw);assert_service_available(items,after_cpf=True)
    result=parse_result(items,kind)
    reason=None if result['sucesso'] else 'O atendimento não retornou uma mensagem de '+kind+' reconhecida.'
    if result['sucesso'] and result.get('valorSaldo' if kind=='saldo' else 'valorParcela') is None:
@@ -137,7 +179,7 @@ class ApiSession:
    mark(stage,'interrompida')
    return {'sucesso':False,'etapa':stage,'motivo_interrupcao':reason,'codigo':error.code if isinstance(error,FlowStopped) else diagnostic['codigo'],'eventos':events,'erro':error.reason if isinstance(error,FlowStopped) else ('HTTP '+str(error.code)) if isinstance(error,urllib.error.HTTPError) else ('Opção esperada não encontrada' if isinstance(error,ValueError) else 'Falha na comunicação com o atendimento'),
     'http_status':error.code if isinstance(error,urllib.error.HTTPError) else None,
-    'todasMensagens':[m.get('contentText','') for m in items]}
+    'todasMensagens':[m.get('contentText') or m.get('content') or m.get('text') or '' for m in items]}
 
  async def run(self,job,on_progress=None,on_checkpoint=None):
   if on_progress:await on_progress(5,'API experimental · saldo')
@@ -145,17 +187,31 @@ class ApiSession:
   result={'resultado_saldo':first,'saldo_liquidacao':money(first.get('valorSaldo')),
    'total_parcelas':int(first['totalParcelas']) if first.get('totalParcelas') else None,
    'status':'processando','progress':50,'stage':'API experimental · fora do horário' if first.get('codigo')=='FORA_HORARIO_ATENDIMENTO' else 'API experimental · parcela'}
+  if first.get('codigo') in BUSINESS_RESULTS:
+   status,label=BUSINESS_RESULTS[first['codigo']]
+   result.update(status=status,progress=100,stage=label,message=first['motivo_interrupcao'])
+   return result
+  balance=result['saldo_liquidacao']
+  outside_hours=first.get('codigo')=='FORA_HORARIO_ATENDIMENTO'
+  if outside_hours or not first.get('sucesso') or balance is None or balance<=0:
+   confirmed_zero=first.get('sucesso') and balance==0
+   reason=(first.get('motivo_interrupcao') or first.get('erro') or
+    ('O atendimento informou saldo de liquidação de R$ 0,00.' if confirmed_zero else 'O atendimento não confirmou um saldo de liquidação positivo.'))
+   result.update(status='interrompida' if confirmed_zero else 'revisao',progress=100,
+    stage='API · parcela não iniciada',message=reason+' A parcela não foi consultada.')
+   result['resultado_parcela']={'sucesso':False,'etapa':'parcela não iniciada',
+    'motivo_interrupcao':reason,'nao_executada':True}
+   return result
   if on_checkpoint:await on_checkpoint(result.copy())
-  if on_progress and first.get('codigo')!='FORA_HORARIO_ATENDIMENTO':await on_progress(50,'API experimental · parcela')
-  if first.get('codigo')=='FORA_HORARIO_ATENDIMENTO':
-   second={'sucesso':False,'etapa':'parcela não iniciada','codigo':'FORA_HORARIO_ATENDIMENTO',
-    'motivo_interrupcao':'Consulta de parcela não iniciada: o provedor informou atendimento fora do horário no fluxo de saldo.',
-    'eventos':[],'todasMensagens':[],'nao_executada':True}
-  else:second=await self.flow(job,'parcela')
+  if on_progress:await on_progress(50,'API experimental · parcela')
+  second=await self.flow(job,'parcela')
   result['resultado_parcela']=second
   result['valor_parcela']=money(second.get('valorParcela'))
   result.update(status='concluida' if first['sucesso'] and second['sucesso'] else 'revisao',progress=100,stage='API experimental · finalizada')
-  if first.get('codigo')=='FORA_HORARIO_ATENDIMENTO':result['stage']='API experimental · interrompida: fora do horário de atendimento'
+  if second.get('codigo') in BUSINESS_RESULTS:
+   status,label=BUSINESS_RESULTS[second['codigo']]
+   result.update(status=status,stage=label,message=second['motivo_interrupcao'])
+   return result
   result['message']='Fluxos API executados. Confira os valores retornados.'
   texts=first.get('todasMensagens',[])+second.get('todasMensagens',[])
   referral=next((t for t in texts if 'assessoria de cobrança' in t.lower()),None)

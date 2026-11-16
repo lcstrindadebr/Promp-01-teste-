@@ -8,7 +8,7 @@ function amigozAction(r){
  const valid=r.saldo>0&&r.valorParcela>0&&!['Aguardando','Processando','Não é cliente'].includes(r.status);
  return valid?`<button data-simulate="${escapeHTML(r.id)}">Simular Amigoz</button>`:'<small class="muted">Simulação: aguarde saldo e parcela válidos.</small>';
 }
-function resetAmigoz(){amigozGeneration++;amigozCurrent=null;amigozDirty=false;$('#amigozPrazo').value=96;$('#amigozAlterarParcela').checked=false;$('#amigozNovaParcela').value='';$('#amigozNovaParcela').disabled=true;$('#amigozMarginInfo').textContent='';amigozBusy=false;$('#amigozPanel').hidden=true;$('#appShell').inert=false;$('#amigozCards').innerHTML='';$('#amigozSettingsStatus').textContent='';for(const rate of amigozRates)$('#commission-'+String(rate).replace('.','_')).value='';}
+function resetAmigoz(){amigozGeneration++;amigozCurrent=null;amigozDirty=false;$('#amigozPrazo').value=96;$('#amigozAlterarParcela').checked=false;$('#amigozNovaParcela').value='';$('#amigozNovaParcela').disabled=true;$('#amigozMarginInfo').textContent='';amigozBusy=false;$('#amigozPanel').hidden=true;$('#appShell').inert=false;$('#amigozCards').innerHTML='';}
 function refreshAmigoz(){
  if(!amigozCurrent)return;
  const r=records.find(r=>r.id===amigozCurrent.job_id);
@@ -42,22 +42,6 @@ function renderAmigozTable(t,best=false){
  const available=!t.insuficiente&&t.troco!=null;
  return `<article class="card amigoz-option${best?' amigoz-best':''}"><div class="amigoz-option-top"><h4>${Number(t.taxa).toFixed(2).replace('.',',')}% <small>a.m.</small></h4>${best?'<span class="amigoz-best-label">Maior troco</span>':''}</div><p class="amigoz-option-term">${escapeHTML(t.prazo||$('#amigozPrazo').value||96)} parcelas · estimativa antes dos encargos</p><dl><div class="amigoz-troco"><dt>Troco estimado</dt><dd class="amigoz-cash${available?'':' amigoz-unavailable'}">${t.insuficiente?'Limite insuficiente':t.troco==null?'Não disponível':brl(t.troco)}</dd>${t.insuficiente?'<p>O limite desta tabela não cobre a quitação.</p>':''}</div><div class="amigoz-amount-row"><dt>Limite estimado</dt><dd>${t.limite==null?'Não disponível':brl(t.limite)}</dd></div><div class="amigoz-amount-row"><dt>Valor de quitação</dt><dd>${brl(t.quitacao)}</dd></div>${t.percentual!=null&&t.comissao!=null?`<div class="amigoz-commission"><dt>Comissão estimada do vendedor (${Number(t.percentual).toLocaleString('pt-BR')}%)</dt><dd>${brl(t.comissao)}</dd></div>`:''}</dl></article>`;
 }
-async function loadAmigozSettings(){
- const epoch=authEpoch;$('#saveAmigoz').disabled=true;
- try{const rows=await sbRequest('/rest/v1/amigoz_comissoes?select=taxa,percentual');if(epoch!==authEpoch)return;
- for(const rate of amigozRates)$('#commission-'+String(rate).replace('.','_')).value=rows.find(r=>Number(r.taxa)===rate)?.percentual??'';
- $('#amigozSettingsStatus').textContent='Percentuais salvos por conta. Deixe vazio para ocultar a comissão.';$('#saveAmigoz').disabled=false;
- }catch(e){if(epoch===authEpoch)$('#amigozSettingsStatus').textContent='Não foi possível carregar os percentuais: '+e.message;}
-}
-$('#amigozCommissions').innerHTML=amigozRates.map(rate=>`<div><label class="field" for="commission-${String(rate).replace('.','_')}">Tabela ${rate.toFixed(2).replace('.',',')}% · comissão (%)</label><input id="commission-${String(rate).replace('.','_')}" type="number" min="0" max="100" step="0.0001" placeholder="Não configurada"></div>`).join('');
-$('#amigozSettings').onsubmit=async e=>{
- e.preventDefault();const epoch=authEpoch;$('#saveAmigoz').disabled=true;
- try{const rows=amigozRates.map(taxa=>{const value=$('#commission-'+String(taxa).replace('.','_')).value.trim(),percentual=value===''?null:Number(value.replace(',','.'));if(percentual!==null&&(!Number.isFinite(percentual)||percentual<0||percentual>100))throw Error('Use percentuais entre 0 e 100.');return {user_id:session.user.id,taxa,percentual};});
- await sbRequest('/rest/v1/amigoz_comissoes?on_conflict=user_id,taxa',{method:'POST',headers:{Prefer:'resolution=merge-duplicates'},body:JSON.stringify(rows)});
- if(epoch!==authEpoch)return;$('#amigozSettingsStatus').textContent='Comissões salvas.';
- if(amigozCurrent)await simulateAmigoz(amigozCurrent.job_id);
- }catch(e){if(epoch===authEpoch)$('#amigozSettingsStatus').textContent=e.message;}finally{if(epoch===authEpoch)$('#saveAmigoz').disabled=false;}
-};
 function closeAmigoz(){$('#amigozPanel').hidden=true;$('#appShell').inert=false;amigozReturnFocus?.focus?.();}
 $('#amigozClose').onclick=closeAmigoz;
 $('#amigozPanel').onkeydown=e=>{

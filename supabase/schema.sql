@@ -4596,7 +4596,7 @@ create table apoiarcred_private.digimais_preferences(
  user_id uuid primary key references auth.users(id) on delete cascade,
  mode text not null default 'robot' check(mode in ('robot','api')),
  paused boolean not null default false,
- max_concurrency integer not null default 12 check(max_concurrency between 1 and 12)
+ max_concurrency integer not null default 12 check(max_concurrency between 1 and 100)
 );
 alter table apoiarcred_private.digimais_preferences enable row level security;
 revoke all on apoiarcred_private.digimais_preferences from public,anon,authenticated;
@@ -4606,7 +4606,8 @@ alter table apoiarcred_private.digimais_api_config enable row level security;
 revoke all on apoiarcred_private.digimais_api_config from public,anon,authenticated;
 grant all on apoiarcred_private.digimais_api_config to service_role;
 alter table public.consulta_jobs add column execution_mode text not null default 'robot' check(execution_mode in ('robot','api'));
-alter table public.consulta_jobs add column api_slot integer check(api_slot between 1 and 12);
+alter table public.consulta_jobs add column api_slot integer check(api_slot between 1 and 100);
+alter table public.consulta_jobs add column if not exists api_handoff jsonb;
 create index consulta_jobs_api_queue on public.consulta_jobs(execution_mode,queue_order) where status='aguardando';
 create unique index consulta_jobs_api_running_slot on public.consulta_jobs(api_slot) where status='processando' and execution_mode='api';
 create function apoiarcred_private.manage_digimais_pilot(p_mode text,p_paused boolean,p_max integer) returns jsonb language plpgsql security definer set search_path='' as $$
@@ -4614,7 +4615,7 @@ declare uid uuid=auth.uid(); result jsonb;
 begin
  if not apoiarcred_private.is_admin(uid) then raise insufficient_privilege;end if;
  if p_mode is not null then
-  if p_mode not in ('robot','api') or p_paused is null or p_max is null or p_max not between 1 and 12 then raise exception 'Configuração inválida';end if;
+  if p_mode not in ('robot','api') or p_paused is null or p_max is null or p_max not between 1 and 100 then raise exception 'Configuração inválida';end if;
   if p_mode='api' and not exists(select 1 from apoiarcred_private.digimais_api_config) then raise exception 'API ainda não configurada na VPS/banco';end if;
   insert into apoiarcred_private.digimais_preferences(user_id,mode,paused,max_concurrency) values(uid,p_mode,p_paused,p_max)
   on conflict(user_id) do update set mode=excluded.mode,paused=excluded.paused,max_concurrency=excluded.max_concurrency;
@@ -4624,7 +4625,7 @@ begin
   from public.consulta_lotes l
   where j.lote_id=l.id and l.tipo='campanha'
     and j.user_id=uid and l.user_id=uid
-    and j.status='aguardando' and j.execution_mode<>p_mode;
+    and j.status='aguardando' and j.execution_mode<>p_mode and j.api_handoff is null;
  end if;
  select jsonb_build_object('mode',mode,'paused',paused,'max_concurrency',max_concurrency) into result from apoiarcred_private.digimais_preferences where user_id=uid;
  return coalesce(result,'{"mode":"robot","paused":false,"max_concurrency":12}'::jsonb);
@@ -4649,12 +4650,12 @@ revoke all on function public.get_digimais_api_config() from public,anon,authent
 grant execute on function public.get_digimais_api_config() to service_role;
 create function public.claim_consulta_job_for_api(p_slot integer) returns setof public.consulta_jobs language plpgsql security invoker set search_path='' as $$
 begin
- if p_slot is null or p_slot not between 1 and 12 then raise exception 'Executor API inválido';end if;
+ if p_slot is null or p_slot not between 1 and 100 then raise exception 'Executor API inválido';end if;
  perform 1 from apoiarcred_private.queue_maintenance where id for share;
  if exists(select 1 from apoiarcred_private.queue_maintenance where id and paused_until>clock_timestamp()) then return;end if;
  if not pg_try_advisory_xact_lock(763212,1) then return;end if;
  if exists(select 1 from public.consulta_jobs where execution_mode='api' and status='processando' and api_slot=p_slot) then return;end if;
- if (select count(*) from public.consulta_jobs where execution_mode='api' and status='processando')>=12 then return;end if;
+ if (select count(*) from public.consulta_jobs where execution_mode='api' and status='processando')>=100 then return;end if;
  return query update public.consulta_jobs set status='processando',locked_at=now(),attempts=attempts+1,api_slot=p_slot,robot_slot=null
  where id=(select j.id from public.consulta_jobs j join public.consulta_lotes l on l.id=j.lote_id
  join apoiarcred_private.digimais_preferences p on p.user_id=j.user_id
@@ -4772,11 +4773,11 @@ create function public.amigoz_save_model(p_config jsonb) returns bigint language
 revoke all on function public.amigoz_save_model(jsonb) from public,anon;
 grant execute on function public.amigoz_save_model(jsonb) to authenticated;
 
-create function public.amigoz_simulation_context(p_cpf text,p_convenio text default '',p_job_id uuid default null) returns jsonb
+create or replace function public.amigoz_simulation_context(p_cpf text,p_convenio text default '',p_job_id uuid default null) returns jsonb
 language plpgsql stable security invoker set search_path='' as $$
 declare uid uuid=auth.uid(); cpf_value text=regexp_replace(p_cpf,'\D','','g'); model public.amigoz_model_versions;
  j public.consulta_jobs; fact public.crm_dados_cliente; agreement text=nullif(p_convenio,''); agreements text[];
- margins jsonb; rules jsonb; source jsonb; known boolean; assumed boolean=false;
+ margins jsonb; rules jsonb; source jsonb; known boolean; options jsonb;
 begin
  if uid is null then raise insufficient_privilege;end if;
  if cpf_value is null or cpf_value !~ '^[0-9]{11}$' then raise exception 'CPF inválido';end if;
@@ -4802,10 +4803,12 @@ begin
  select array_agg(distinct convenio) into agreements from (
   select convenio from public.crm_vinculos where user_id=uid and cpf=cpf_value
   union select convenio from public.crm_margens_vinculo where user_id=uid and cpf=cpf_value
+  union select c.convenio from public.crm_classificacoes c
+  join public.crm_catalogo_importacao a on a.uf=c.uf and a.codigo=c.convenio
+  where c.user_id=uid and c.cpf=cpf_value
  ) links;
  if agreement is null then
   if coalesce(cardinality(agreements),0)=1 then agreement=agreements[1];
-  elsif coalesce(cardinality(agreements),0)=0 and j.id is not null then agreement=model.config->>'default_convenio';assumed=true;
   end if;
  end if;
  select value into rules from jsonb_array_elements(model.config->'eligibilidade') where value->>'convenio'=agreement
@@ -4814,7 +4817,10 @@ begin
   'elegivel',coalesce(rules->'produtos' ? m.produto and rules->'instituicoes' ? m.instituicao and m.valor>=0,false))
   order by m.observado_em desc,m.matricula,m.produto),'[]'::jsonb) into margins
  from public.crm_margens_vinculo m where m.user_id=uid and m.cpf=cpf_value and (agreement is null or m.convenio=agreement);
- return jsonb_build_object('cpf',cpf_value,'convenio',agreement,'convenio_assumido',assumed,'elegivel',rules is not null,
+ select coalesce(jsonb_agg(jsonb_build_object('convenio',codigo,'nome',nome) order by nome,codigo),'[]'::jsonb) into options
+ from public.crm_catalogo_importacao
+ where codigo=agreement or codigo=any(agreements) or (coalesce(cardinality(agreements),0)=0 and codigo ~ '^amigoz_[0-9]+$');
+ return jsonb_build_object('cpf',cpf_value,'convenio',agreement,'convenio_assumido',false,'convenios',options,'elegivel',rules is not null,
   'fonte',source,'margens',margins,'version_id',model.id,'config',model.config);
 end $$;
 revoke all on function public.amigoz_simulation_context(text,text,uuid) from public,anon;
@@ -4976,3 +4982,1253 @@ order by d.user_id,d.cpf,d.convenio,coalesce(x->>'numeroMatricula',x->>'numero_m
 on conflict(user_id,cpf,convenio,matricula,instituicao,produto) do update set
  valor=excluded.valor,observado_em=excluded.observado_em,origem=excluded.origem
 where public.crm_margens_vinculo.observado_em<excluded.observado_em;
+
+alter table public.consulta_jobs
+ drop constraint if exists consulta_jobs_status_check,
+ add constraint consulta_jobs_status_check
+ check(status in ('aguardando','processando','concluida','nao_localizado','nao_cliente','erro','revisao','interrompida','ja_vendeu'));
+
+
+-- Bank table administration and per-account commissions.
+create table public.amigoz_comissoes_tabela (
+ user_id uuid not null references auth.users(id) on delete cascade,
+ convenio text not null,
+ tabela_id text not null,
+ percentual numeric(7,4) check(percentual between 0 and 100),
+ primary key(user_id,convenio,tabela_id)
+);
+alter table public.amigoz_comissoes_tabela enable row level security;
+revoke all on public.amigoz_comissoes_tabela from public,anon,authenticated;
+grant select on public.amigoz_comissoes_tabela to authenticated;
+create policy amigoz_table_commission_read on public.amigoz_comissoes_tabela for select to authenticated
+ using(user_id=(select auth.uid()));
+
+create function apoiarcred_private.amigoz_save_tables(p_version bigint,p_config jsonb,p_comissoes jsonb) returns bigint
+language plpgsql security definer set search_path='' as $$
+declare uid uuid=auth.uid(); current_version bigint; cfg jsonb; rule jsonb; t jsonb; c jsonb; pct numeric;
+begin
+ if uid is null or not coalesce((apoiarcred_private.access_for(uid)->>'active')::boolean,false) then raise insufficient_privilege;end if;
+ if p_config is not null and not apoiarcred_private.is_admin(uid) then raise insufficient_privilege;end if;
+ if jsonb_typeof(p_comissoes) is distinct from 'array' or jsonb_array_length(p_comissoes)>6000 then
+  raise exception 'Lista de comissões inválida.';
+ end if;
+ perform pg_advisory_xact_lock(690134,1);
+ select id,config into current_version,cfg from public.amigoz_model_versions order by id desc limit 1;
+ if p_version is distinct from current_version then raise exception 'Existe uma versão mais recente. Reabra Tabelas antes de salvar.';end if;
+ if p_config is not null then
+  if jsonb_typeof(p_config) is distinct from 'object' or p_config->>'prazo' is distinct from '96'
+   or jsonb_typeof(p_config->'eligibilidade') is distinct from 'array' or jsonb_array_length(p_config->'eligibilidade') not between 1 and 200
+   or p_config->'tabelas' is distinct from cfg->'tabelas' then raise exception 'Configuração de tabelas inválida.';end if;
+  if (select count(distinct x->>'convenio') from jsonb_array_elements(p_config->'eligibilidade') x)<>jsonb_array_length(p_config->'eligibilidade')
+   or not exists(select 1 from jsonb_array_elements(p_config->'eligibilidade') x where x->>'convenio'=p_config->>'default_convenio')
+   then raise exception 'Verifique os convênios e o convênio de referência.';end if;
+  for rule in select value from jsonb_array_elements(p_config->'eligibilidade') loop
+   if not exists(select 1 from public.crm_catalogo_importacao where codigo=rule->>'convenio')
+    or jsonb_typeof(rule->'produtos') is distinct from 'array'
+    or not (rule->'produtos' <@ '["emprestimo","cartao","beneficio","consignado"]'::jsonb)
+    or jsonb_typeof(rule->'instituicoes') is distinct from 'array'
+    or exists(select 1 from jsonb_array_elements(rule->'instituicoes') x where jsonb_typeof(x)<>'string' or length(x#>>'{}') not between 1 and 60)
+    or jsonb_typeof(rule->'tabelas') is distinct from 'array' or jsonb_array_length(rule->'tabelas') not between 1 and 30
+    then raise exception 'Convênio, elegibilidade ou quantidade de tabelas inválida.';end if;
+   if (select count(distinct x->>'id') from jsonb_array_elements(rule->'tabelas') x)<>jsonb_array_length(rule->'tabelas')
+    then raise exception 'Identificadores de tabela repetidos.';end if;
+   for t in select value from jsonb_array_elements(rule->'tabelas') loop
+    if not coalesce(t->>'id' ~ '^(legacy-[0-9]+([.][0-9]+)?|[0-9a-f-]{36})$',false)
+     or not coalesce(length(btrim(t->>'nome')) between 1 and 100,false)
+     or not coalesce((t->>'taxa')::numeric between 0.01 and 100,false)
+     or not coalesce((t->>'cet')::numeric between 0 and 100,false)
+     or not coalesce((t->>'multiplicador')::numeric between 0.01 and 1000,false)
+     or not coalesce((t->>'iof_referencia')::numeric between 0 and (t->>'multiplicador')::numeric*140,false)
+     or not coalesce((t->>'parcela_saque')::numeric between 0 and 10000,false)
+     or not coalesce((t->>'parcela_quitacao')::numeric between 0 and 10000,false)
+     then raise exception 'Confira o nome e os coeficientes da tabela.';end if;
+   end loop;
+  end loop;
+  cfg=p_config;
+ end if;
+ for c in select value from jsonb_array_elements(p_comissoes) loop
+  if not exists(
+   select 1 from jsonb_array_elements(cfg->'eligibilidade') r
+   cross join lateral jsonb_array_elements(coalesce(r->'tabelas',cfg->'tabelas')) x
+   where r->>'convenio'=c->>'convenio'
+    and (r->'tabelas' is not null or r->'taxas' @> jsonb_build_array((x->>'taxa')::numeric))
+    and coalesce(x->>'id','legacy-'||trim_scale((x->>'taxa')::numeric)::text)=c->>'tabela_id'
+  ) then raise exception 'Tabela de comissão não encontrada.';end if;
+  pct=(c->>'percentual')::numeric;
+  if pct is not null and not (pct between 0 and 100) then raise exception 'Comissão deve estar entre 0 e 100.';end if;
+  insert into public.amigoz_comissoes_tabela(user_id,convenio,tabela_id,percentual)
+  values(uid,c->>'convenio',c->>'tabela_id',pct)
+  on conflict(user_id,convenio,tabela_id) do update set percentual=excluded.percentual;
+ end loop;
+ if p_config is not null then
+  insert into public.amigoz_model_versions(config) values(cfg) returning id into current_version;
+ end if;
+ return current_version;
+end $$;
+revoke all on function apoiarcred_private.amigoz_save_tables(bigint,jsonb,jsonb) from public,anon,authenticated;
+grant execute on function apoiarcred_private.amigoz_save_tables(bigint,jsonb,jsonb) to authenticated;
+create function public.amigoz_save_tables(p_version bigint,p_config jsonb,p_comissoes jsonb) returns bigint
+language sql security invoker set search_path='' as $$
+ select apoiarcred_private.amigoz_save_tables(p_version,p_config,p_comissoes);
+$$;
+revoke all on function public.amigoz_save_tables(bigint,jsonb,jsonb) from public,anon,authenticated;
+grant execute on function public.amigoz_save_tables(bigint,jsonb,jsonb) to authenticated;
+
+create or replace function apoiarcred_private.amigoz_coefficient_calculate(p_base numeric,p_debt numeric,p_config jsonb,p_agreement text,p_bank_iof jsonb default '{}') returns jsonb
+language plpgsql immutable set search_path='' as $$
+declare t jsonb; rule jsonb; limit_value numeric; remaining numeric; gross numeric; tax numeric; cash numeric; state text; tables jsonb='[]';
+begin
+ if p_base is null or not(p_base between 0 and 10000000) or (p_debt is not null and not(p_debt between 0 and 1000000000)) then raise exception 'Valores inválidos';end if;
+ select value into rule from jsonb_array_elements(p_config->'eligibilidade') where value->>'convenio'=p_agreement;
+ for t in select value from jsonb_array_elements(coalesce(rule->'tabelas',p_config->'tabelas')) with ordinality as r(value,ord) order by (value->>'taxa')::numeric,ord loop
+  if rule->'tabelas' is null and not coalesce(rule->'taxas' @> jsonb_build_array((t->>'taxa')::numeric),false) then continue;end if;
+  limit_value=round(p_base*(t->>'multiplicador')::numeric,2);
+  remaining=case when p_debt is not null then greatest(limit_value-p_debt,0) end;
+  gross=round(remaining*0.70,2);
+  tax=round(gross*(t->>'iof_referencia')::numeric/((t->>'multiplicador')::numeric*200*0.70),2);
+  if p_bank_iof ? (t->>'taxa') and gross>0 then
+   tax=(p_bank_iof->>(t->>'taxa'))::numeric;
+   if tax is null or not(tax between 0 and gross) then raise exception 'IOF informado inválido';end if;
+  end if;
+  state=case when p_debt is null then 'quitacao_pendente'
+   when limit_value<p_debt then 'limite_insuficiente'
+   when gross<315 or gross-tax<=0 then 'pre_aprovada_sem_troco'
+   else 'pre_aprovada_com_troco' end;
+  cash=case when state='quitacao_pendente' then null when state='pre_aprovada_com_troco' then gross-tax else 0 end;
+  tables=tables||jsonb_build_array(jsonb_build_object('tabela_id',coalesce(t->>'id','legacy-'||trim_scale((t->>'taxa')::numeric)::text),'nome_tabela',t->>'nome','taxa',(t->>'taxa')::numeric,'cet',(t->>'cet')::numeric,
+   'prazo',96,'limite',limit_value,'limite_restante',remaining,'saque_bruto',gross,
+   'regra_calculo','limite_residual_v1','saque_minimo',315,'saque_liberado',state='pre_aprovada_com_troco',
+   'iof_saque',case when state='pre_aprovada_com_troco' then tax when state='quitacao_pendente' then null else 0 end,
+   'troco',cash,'quitacao',p_debt,'situacao',state,'insuficiente',state='limite_insuficiente',
+   'motivo',case state when 'quitacao_pendente' then 'Informe a quitação para calcular o troco.'
+    when 'limite_insuficiente' then 'O limite não cobre a quitação da dívida.'
+    when 'pre_aprovada_sem_troco' then 'Pré-aprovada sem troco: cobre a dívida, mas não há saque disponível de pelo menos R$ 315,00.'
+    else 'Pré-aprovada com troco estimado, sujeita à confirmação no banco.' end,
+   'origem_iof',case when p_bank_iof ? (t->>'taxa') then 'informado_instituicao' else 'estimativa_historica' end,
+   'multiplicador',(t->>'multiplicador')::numeric,
+   'parcela_quitacao',null,'parcela_saque',null,'comprometimento_total',null,
+   'iof_quitacao',null,'preliminar',true));
+ end loop;
+ return tables;
+end $$;
+
+create or replace function public.amigoz_simular_coeficientes(p_input jsonb,p_save boolean default true) returns jsonb
+language plpgsql security invoker set search_path='' as $$
+declare ctx jsonb; margin jsonb; mode text=coalesce(p_input->>'mode','original'); base numeric; debt numeric;
+ fingerprint text; output jsonb; saved public.amigoz_coefficient_simulations; original numeric; stale boolean=false;
+ candidates jsonb; input_value jsonb=p_input;
+begin
+ ctx=public.amigoz_simulation_context(p_input->>'cpf',coalesce(p_input->>'convenio',''),(p_input->>'job_id')::uuid);
+ if not(ctx->>'elegivel')::boolean then
+  return jsonb_build_object('tabelas','[]'::jsonb,'motivo','Selecione um convênio com produto Amigoz habilitado.','contexto',ctx);
+ end if;
+ if coalesce((p_input->>'prazo')::integer,96)<>96 then raise exception 'Coeficientes disponíveis para 96 parcelas';end if;
+ if coalesce((p_input->>'use_saved')::boolean,false) then
+  select * into saved from public.amigoz_coefficient_simulations
+   where user_id=auth.uid() and cpf=ctx->>'cpf' and convenio=ctx->>'convenio'
+   and (p_input->>'job_id' is null or resultado->>'job_id'=p_input->>'job_id')
+   and (p_input->>'matricula' is null or resultado->'margem_selecionada'->>'matricula'=p_input->>'matricula')
+   and (p_input->>'instituicao' is null or resultado->'margem_selecionada'->>'instituicao'=p_input->>'instituicao')
+   and (p_input->>'produto' is null or resultado->'margem_selecionada'->>'produto'=p_input->>'produto')
+   order by created_at desc,id desc limit 1;
+  if saved.id is not null then input_value=saved.input;mode=input_value->>'mode';end if;
+ end if;
+ original=(ctx->'fonte'->>'parcela')::numeric;debt=(ctx->'fonte'->>'saldo')::numeric;
+ if mode='auto' then
+  mode=case when coalesce(p_input->>'source','')<>'margin' and original>0 then 'original' else 'margin' end;
+  if mode='margin' then
+   select jsonb_agg(value) into candidates from jsonb_array_elements(ctx->'margens')
+    where (value->>'elegivel')::boolean
+    and (p_input->>'matricula' is null or value->>'matricula'=p_input->>'matricula')
+    and (p_input->>'instituicao' is null or value->>'instituicao'=p_input->>'instituicao')
+    and (p_input->>'produto' is null or value->>'produto'=p_input->>'produto');
+   if jsonb_array_length(candidates)=1 then input_value=input_value||jsonb_build_object('margin_key',candidates->0->>'key');end if;
+  end if;
+ end if;
+ if mode in ('margin','aggregate') then
+  select value into margin from jsonb_array_elements(ctx->'margens') where value->>'key'=input_value->>'margin_key' and (value->>'elegivel')::boolean;
+  if margin is null then
+   return jsonb_build_object('tabelas','[]'::jsonb,'motivo','Selecione uma margem elegível do vínculo correto.','contexto',ctx);
+  end if;
+ end if;
+ case mode
+  when 'original' then base=original;
+  when 'margin' then base=(margin->>'valor')::numeric;
+  when 'aggregate' then base=original+(margin->>'valor')::numeric;
+  when 'manual' then base=(input_value->>'manual')::numeric;
+  else raise exception 'Modo de simulação inválido';
+ end case;
+ if base is null or base<0 or ((mode in ('original','aggregate')) and coalesce(original,0)<=0) then
+  return jsonb_build_object('tabelas','[]'::jsonb,'motivo','Parcela ou margem insuficiente para simular.','contexto',ctx);
+ end if;
+ fingerprint=md5(jsonb_build_object('fonte',ctx->'fonte','margem',margin,'base',base,'versao',ctx->'version_id','convenio',ctx->'convenio')::text);
+ stale=saved.id is not null and saved.fingerprint<>fingerprint;
+ if stale then
+  return jsonb_build_object('tabelas','[]'::jsonb,'motivo','Simulação salva desatualizada. Recalcule antes de exportar.','contexto',ctx);
+ end if;
+ output=jsonb_build_object('cpf',ctx->'cpf','convenio',ctx->'convenio','convenio_assumido',ctx->'convenio_assumido',
+  'job_id',ctx->'fonte'->'job_id','fonte',ctx->'fonte','parcela',original,'saldo',debt,'base',base,
+  'margem_adicional',case when mode='aggregate' then (margin->>'valor')::numeric when mode='manual' then greatest(base-coalesce(original,0),0) else 0 end,
+  'margem_selecionada',margin,'modo',mode,'version_id',ctx->'version_id','prazo',96,'data_simulacao',now(),
+  'preliminar',true,'motivo',case when debt is null then 'Simulação preliminar · saldo de quitação pendente' else 'Simulação preliminar · confirmar condições no banco' end,
+  'tabelas',apoiarcred_private.amigoz_coefficient_calculate(base,debt,ctx->'config',ctx->>'convenio',coalesce(input_value->'iof_banco','{}'::jsonb)));
+ output=jsonb_set(output,'{tabelas}',(
+  select coalesce(jsonb_agg(t.value||jsonb_build_object('percentual',rate.percentual,'comissao',
+   case when t.value->>'situacao' in ('pre_aprovada_com_troco','pre_aprovada_sem_troco')
+    then round(rate.percentual*((t.value->>'quitacao')::numeric+(t.value->>'troco')::numeric)/100,2) end) order by t.ord),'[]'::jsonb)
+  from jsonb_array_elements(output->'tabelas') with ordinality t(value,ord)
+  left join public.amigoz_comissoes_tabela c on c.user_id=auth.uid() and c.convenio=ctx->>'convenio' and c.tabela_id=t.value->>'tabela_id'
+  left join public.amigoz_comissoes legacy on legacy.user_id=auth.uid()
+   and ('legacy-'||trim_scale(legacy.taxa)::text)=t.value->>'tabela_id'
+  cross join lateral (select case when c.user_id is not null then c.percentual else legacy.percentual end as percentual) rate
+ ));
+ if p_save then
+  insert into public.amigoz_coefficient_simulations(cpf,convenio,version_id,input,fingerprint,resultado)
+  values(ctx->>'cpf',ctx->>'convenio',(ctx->>'version_id')::bigint,
+   input_value||jsonb_build_object('mode',mode,'convenio',ctx->>'convenio'),fingerprint,output);
+ end if;
+ return output;
+end $$;
+notify pgrst,'reload schema';
+
+
+begin;
+create table public.crm_etapas (
+ id uuid primary key default gen_random_uuid(),
+ user_id uuid not null references auth.users(id) on delete cascade,
+ codigo text not null,
+ nome text not null check(length(btrim(nome)) between 1 and 100),
+ posicao integer not null check(posicao>=0),
+ tipo text not null default 'aberta' check(tipo in ('aberta','ganho','perdido')),
+ inicial boolean not null default false,
+ destino_exportacao boolean not null default false,
+ arquivada boolean not null default false,
+ unique(user_id,id), unique(user_id,codigo)
+);
+create unique index crm_etapas_inicial on public.crm_etapas(user_id) where inicial;
+create unique index crm_etapas_exportacao on public.crm_etapas(user_id) where destino_exportacao;
+alter table public.crm_etapas enable row level security;
+create policy crm_etapas_conta on public.crm_etapas for select to authenticated using(user_id=(select auth.uid()));
+revoke all on public.crm_etapas from public,anon,authenticated;
+grant select on public.crm_etapas to authenticated;
+grant select on public.crm_etapas to service_role;
+
+create function apoiarcred_private.crm_semear_etapas(uid uuid) returns void
+language sql security definer set search_path='' as $$
+ insert into public.crm_etapas(user_id,codigo,nome,posicao,tipo,inicial,destino_exportacao)
+ select uid,codigo,nome,posicao,tipo,codigo='novo',codigo='exportada'
+ from (values ('novo','Novo',10,'aberta'),('exportada','Exportadas',20,'aberta'),
+ ('contato','Em contato',30,'aberta'),('simulacao','Simulação enviada',40,'aberta'),
+ ('negociacao','Em negociação',50,'aberta'),('ganho','Ganho',60,'ganho'),('perdido','Perdido',70,'perdido'))
+ defaults(codigo,nome,posicao,tipo)
+ where not exists(select 1 from public.crm_etapas where user_id=uid)
+ on conflict do nothing;
+$$;
+revoke all on function apoiarcred_private.crm_semear_etapas(uuid) from public,anon,authenticated;
+select apoiarcred_private.crm_semear_etapas(id) from auth.users;
+
+alter table public.crm_cadastros add column cliente_id uuid not null default gen_random_uuid();
+create unique index crm_cadastros_cliente_id on public.crm_cadastros(cliente_id);
+alter table public.crm_oportunidades add column etapa_id uuid;
+update public.crm_oportunidades o set etapa_id=e.id from public.crm_etapas e
+ where e.user_id=o.user_id and e.codigo=o.etapa;
+alter table public.crm_oportunidades alter column etapa_id set not null;
+alter table public.crm_oportunidades drop constraint crm_oportunidades_etapa_check;
+alter table public.crm_oportunidades add constraint crm_oportunidades_etapa_conta_fk
+ foreign key(user_id,etapa_id) references public.crm_etapas(user_id,id);
+create index crm_oportunidades_etapa_pagina on public.crm_oportunidades(user_id,etapa_id,created_at desc,id desc);
+
+create table public.crm_movimentacoes (
+ id uuid primary key default gen_random_uuid(),
+ user_id uuid not null,
+ oportunidade_id uuid not null references public.crm_oportunidades(id) on delete cascade,
+ etapa_anterior_id uuid not null,
+ etapa_id uuid not null,
+ nome_anterior text not null,
+ nome_destino text not null,
+ origem text not null,
+ alterado_em timestamptz not null default clock_timestamp()
+);
+create index crm_movimentacoes_pagina on public.crm_movimentacoes(user_id,oportunidade_id,alterado_em desc,id desc);
+alter table public.crm_movimentacoes enable row level security;
+create policy crm_movimentacoes_conta on public.crm_movimentacoes for select to authenticated using(user_id=(select auth.uid()));
+revoke all on public.crm_movimentacoes from public,anon,authenticated;
+grant select on public.crm_movimentacoes to authenticated,service_role;
+
+create function apoiarcred_private.crm_sincronizar_etapa() returns trigger
+language plpgsql security definer set search_path='' as $$
+declare destino public.crm_etapas; anterior text;
+begin
+ if tg_op='UPDATE' and new.etapa_id is not distinct from old.etapa_id and new.etapa is not distinct from old.etapa then return new;end if;
+ if tg_op='INSERT' then
+  perform apoiarcred_private.crm_semear_etapas(new.user_id);
+  select * into destino from public.crm_etapas where user_id=new.user_id and not arquivada
+   and case when new.etapa_id is not null then id=new.etapa_id when new.etapa='novo' then inicial else codigo=new.etapa end
+   for share;
+ elsif new.etapa_id is distinct from old.etapa_id then
+  select * into destino from public.crm_etapas where user_id=new.user_id and id=new.etapa_id and not arquivada for share;
+ else
+  select * into destino from public.crm_etapas where user_id=new.user_id and codigo=new.etapa and not arquivada for share;
+ end if;
+ if destino.id is null then raise exception using errcode='22023',message='Etapa indisponível para a conta.';end if;
+ new.etapa_id=destino.id;new.etapa=destino.codigo;
+ if tg_op='UPDATE' and new.etapa_id<>old.etapa_id then
+  select nome into anterior from public.crm_etapas where user_id=old.user_id and id=old.etapa_id;
+  insert into public.crm_movimentacoes(user_id,oportunidade_id,etapa_anterior_id,etapa_id,nome_anterior,nome_destino,origem)
+  values(new.user_id,new.id,old.etapa_id,new.etapa_id,anterior,destino.nome,
+   coalesce(nullif(current_setting('apoiarcred.crm_origem',true),''),'painel'));
+ end if;
+ return new;
+end $$;
+revoke all on function apoiarcred_private.crm_sincronizar_etapa() from public,anon,authenticated;
+create trigger crm_sincronizar_etapa before insert or update of etapa,etapa_id on public.crm_oportunidades
+ for each row execute function apoiarcred_private.crm_sincronizar_etapa();
+
+create function public.crm_listar_etapas() returns setof public.crm_etapas
+language plpgsql security definer set search_path='' as $$
+declare uid uuid=auth.uid();
+begin
+ if uid is null then raise insufficient_privilege;end if;
+ perform apoiarcred_private.crm_semear_etapas(uid);
+ return query select * from public.crm_etapas e where e.user_id=uid order by e.posicao,e.id;
+end $$;
+revoke all on function public.crm_listar_etapas() from public,anon,authenticated;
+grant execute on function public.crm_listar_etapas() to authenticated,service_role;
+
+create function public.crm_salvar_etapa(p_id uuid,p_input jsonb) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare uid uuid=auth.uid(); e public.crm_etapas; destino uuid; novo_nome text; nova_posicao integer; arquivar boolean;
+begin
+ if not coalesce(apoiarcred_private.is_admin(uid),false) then raise insufficient_privilege;end if;
+ perform pg_advisory_xact_lock(hashtextextended('crm_etapas:'||uid::text,0));
+ perform apoiarcred_private.crm_semear_etapas(uid);
+ if p_id is not null then
+  select * into e from public.crm_etapas where user_id=uid and id=p_id for update;
+  if not found then return null;end if;
+ end if;
+ novo_nome=btrim(coalesce(p_input->>'nome',e.nome));
+ nova_posicao=coalesce((p_input->>'posicao')::integer,e.posicao,(select max(s.posicao)+10 from public.crm_etapas s where s.user_id=uid));
+ arquivar=coalesce((p_input->>'arquivada')::boolean,e.arquivada,false);
+ if coalesce(length(novo_nome),0) not between 1 and 100 or nova_posicao<0 then raise exception using errcode='22023',message='Informe nome e posição válidos.';end if;
+ if arquivar and (coalesce(e.inicial,false) or coalesce(e.destino_exportacao,false)
+  or coalesce((p_input->>'inicial')::boolean,false) or coalesce((p_input->>'destino_exportacao')::boolean,false)) then
+  raise exception using errcode='22023',message='Defina outra etapa inicial ou de exportação antes de arquivar esta.';
+ end if;
+ if p_id is null then
+  p_id=gen_random_uuid();
+  insert into public.crm_etapas(id,user_id,codigo,nome,posicao,arquivada) values(p_id,uid,p_id::text,novo_nome,nova_posicao,arquivar) returning * into e;
+ elsif arquivar and not e.arquivada then
+  destino=(p_input->>'destino_id')::uuid;
+  if exists(select 1 from public.crm_oportunidades where user_id=uid and etapa_id=e.id) then
+   if destino is null or destino=e.id or not exists(select 1 from public.crm_etapas where user_id=uid and id=destino and not arquivada)
+    then raise exception using errcode='22023',message='Escolha uma etapa ativa de destino para os cartões.';
+   end if;
+   update public.crm_oportunidades set etapa_id=destino where user_id=uid and etapa_id=e.id;
+  end if;
+ end if;
+ if coalesce((p_input->>'inicial')::boolean,false) then update public.crm_etapas set inicial=false where user_id=uid and inicial and id<>p_id;end if;
+ if coalesce((p_input->>'destino_exportacao')::boolean,false) then update public.crm_etapas set destino_exportacao=false where user_id=uid and destino_exportacao and id<>p_id;end if;
+ update public.crm_etapas set nome=novo_nome,posicao=nova_posicao,arquivada=arquivar,
+  inicial=inicial or coalesce((p_input->>'inicial')::boolean,false),
+  destino_exportacao=destino_exportacao or coalesce((p_input->>'destino_exportacao')::boolean,false)
+ where user_id=uid and id=p_id returning * into e;
+ return to_jsonb(e)-'user_id';
+end $$;
+revoke all on function public.crm_salvar_etapa(uuid,jsonb) from public,anon,authenticated;
+grant execute on function public.crm_salvar_etapa(uuid,jsonb) to authenticated,service_role;
+
+create function public.crm_mover_etapa(p_id uuid,p_etapa_id uuid,p_etapa_original_id uuid) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare uid uuid=auth.uid(); o public.crm_oportunidades;
+begin
+ if uid is null then raise insufficient_privilege;end if;
+ if p_etapa_id is null or p_etapa_original_id is null then raise exception using errcode='22023',message='Informe os IDs das etapas de origem e destino.';end if;
+ select * into o from public.crm_oportunidades where user_id=uid and id=p_id for update;
+ if not found then return null;end if;
+ if o.etapa_id<>p_etapa_original_id then
+  return jsonb_build_object('conflito',true,'id',o.id,'etapa_id',o.etapa_id,'etapa',o.etapa);
+ end if;
+ if o.etapa_id<>p_etapa_id then
+  update public.crm_oportunidades set etapa_id=p_etapa_id where user_id=uid and id=p_id returning * into o;
+ end if;
+ return jsonb_build_object('id',o.id,'etapa_id',o.etapa_id,'etapa',o.etapa);
+end $$;
+revoke all on function public.crm_mover_etapa(uuid,uuid,uuid) from public,anon,authenticated;
+grant execute on function public.crm_mover_etapa(uuid,uuid,uuid) to authenticated,service_role;
+
+create or replace view public.crm_opportunity_cards with(security_invoker=true) as
+ select o.id,o.user_id,o.cpf,o.nome,o.produto,o.convenio,o.etapa,o.proxima_acao,o.created_at,o.campos,
+ q.saldo_liquidacao,q.emprestimo_disponivel,q.consultado_em as resultado_em,q.created_at as resultado_criado_em,q.servico as resultado_fonte,
+ o.automatica,o.sinais_consulta,o.responsavel,o.etapa_id,cl.cliente_id,e.nome as etapa_nome
+ from public.crm_oportunidades o left join lateral (
+ select c.saldo_liquidacao,c.emprestimo_disponivel,c.consultado_em,c.created_at,c.servico
+ from public.crm_consultas c where c.user_id=o.user_id and c.cpf=o.cpf and
+ ((o.produto='recompra' and c.servico='digimais_saldo_parcela' and c.saldo_liquidacao is not null)
+ or (o.produto='margem' and o.convenio<>'' and c.convenio=o.convenio and c.servico='tjba_margem' and c.emprestimo_disponivel is not null))
+ order by c.consultado_em desc nulls last,c.created_at desc,c.id desc limit 1
+ ) q on true
+ left join public.crm_cadastros cl on cl.user_id=o.user_id and cl.cpf=o.cpf
+ join public.crm_etapas e on e.user_id=o.user_id and e.id=o.etapa_id;
+create or replace function public.crm_export_opportunities(p_uf text,p_convenio text,p_tipos text[],p_etapa text,p_after uuid default null)
+returns setof public.crm_opportunity_cards language sql stable security invoker set search_path='' as $$
+ select o.* from public.crm_opportunity_cards o
+ where o.user_id=auth.uid()
+ and exists(select 1 from public.crm_etapas e where e.user_id=o.user_id and e.id=o.etapa_id and e.tipo='aberta' and not e.arquivada and not e.destino_exportacao and e.codigo<>'exportada')
+ and (p_etapa='' or o.etapa=p_etapa)
+ and o.produto=any(p_tipos)
+ and (p_after is null or o.id>p_after)
+ and ((p_uf='' and p_convenio='') or exists(
+  select 1 from public.crm_classificacao_filtros v
+  where v.user_id=o.user_id and v.cpf=o.cpf
+   and (p_uf='' or v.uf=p_uf) and (p_convenio='' or v.convenio=p_convenio)
+   and (o.convenio='' or v.convenio=o.convenio)
+   and (not exists(select 1 from jsonb_object_keys(o.sinais_consulta) k where k<>'digimais')
+        or exists(select 1 from jsonb_object_keys(o.sinais_consulta) k
+           where regexp_replace(k,'^(amigoz_(margem|saque)|consigx_margem|margem_importada)_','')=v.convenio))
+ ))
+ order by o.id limit 500
+$$;
+create or replace function public.crm_marcar_exportadas(p_itens jsonb)
+returns integer language plpgsql security invoker set search_path='' as $$
+declare total integer;
+begin
+ if auth.uid() is null then raise insufficient_privilege; end if;
+ update public.crm_oportunidades o set etapa=(select codigo from public.crm_etapas where user_id=auth.uid() and destino_exportacao)
+ from jsonb_to_recordset(p_itens) as item(id uuid, etapa text)
+ where o.id=item.id and o.user_id=auth.uid() and o.etapa=item.etapa
+ and exists(select 1 from public.crm_etapas e where e.user_id=o.user_id and e.id=o.etapa_id and e.tipo='aberta' and not e.arquivada and not e.destino_exportacao and e.codigo<>'exportada');
+ get diagnostics total=row_count;
+ return total;
+end $$;
+
+create function public.crm_kanban(p_produto text default '',p_convenio text default '',p_responsavel text default '',
+ p_etapa_id uuid default null,p_offset integer default 0) returns jsonb
+language sql stable security invoker set search_path='' as $$
+ with filtered as materialized (
+  select o.id,o.etapa_id,o.created_at from public.crm_oportunidades o
+  where o.user_id=auth.uid() and (p_etapa_id is null or o.etapa_id=p_etapa_id)
+  and (p_produto='' or o.produto=p_produto)
+  and (p_responsavel='' or position(lower(p_responsavel) in lower(coalesce(o.responsavel,'')))>0)
+  and (p_convenio='' or o.convenio=p_convenio or (o.convenio='' and exists(
+   select 1 from public.crm_classificacao_filtros v where v.user_id=o.user_id and v.cpf=o.cpf and v.convenio=p_convenio
+   and (not exists(select 1 from jsonb_object_keys(o.sinais_consulta) k where k<>'digimais')
+    or exists(select 1 from jsonb_object_keys(o.sinais_consulta) k
+     where regexp_replace(k,'^(amigoz_(margem|saque)|consigx_margem|margem_importada)_','')=v.convenio))
+  )))
+ ), totals as (select etapa_id,count(*) as total from filtered group by etapa_id)
+ select coalesce(jsonb_agg(to_jsonb(e)-'user_id'||jsonb_build_object('total',coalesce(t.total,0),'cartoes',cards.rows)
+  order by e.posicao,e.id),'[]'::jsonb)
+ from public.crm_etapas e left join totals t on t.etapa_id=e.id
+ cross join lateral (
+  select coalesce(jsonb_agg(to_jsonb(c)-'user_id' order by c.created_at desc,c.id desc),'[]'::jsonb) rows
+  from (select id from filtered where etapa_id=e.id order by created_at desc,id desc offset greatest(p_offset,0) limit 25) page
+  join public.crm_opportunity_cards c on c.id=page.id and c.user_id=e.user_id
+ ) cards
+ where e.user_id=auth.uid() and not e.arquivada and (p_etapa_id is null or e.id=p_etapa_id)
+$$;
+revoke all on function public.crm_kanban(text,text,text,uuid,integer) from public,anon;
+grant execute on function public.crm_kanban(text,text,text,uuid,integer) to authenticated;
+
+create function apoiarcred_private.crm_cliente_perfil(uid uuid,p_cpf text,p_id uuid) returns jsonb
+language sql stable security invoker set search_path='' as $$
+ select jsonb_build_object('cliente_id',c.cliente_id,'cpf',regexp_replace(c.cpf,'^([0-9]{3})([0-9]{3})([0-9]{3})([0-9]{2})$', '\1.\2.\3-\4'),
+  'nome',c.nome,'telefone',c.telefone,'data_nascimento',c.data_nascimento,
+  'convenios',coalesce((select jsonb_agg(to_jsonb(v)-'user_id'-'cpf' order by v.uf,v.convenio) from public.crm_classificacoes v where v.user_id=uid and v.cpf=c.cpf),'[]'),
+  'vinculos',coalesce((select jsonb_agg(to_jsonb(v)-'user_id'-'cpf' order by v.uf,v.convenio,v.matricula) from public.crm_vinculos v where v.user_id=uid and v.cpf=c.cpf),'[]'),
+  'margens',coalesce((select jsonb_agg(to_jsonb(m)-'user_id'-'cpf' order by m.observado_em desc,m.convenio,m.matricula,m.produto) from public.crm_margens_vinculo m where m.user_id=uid and m.cpf=c.cpf),'[]'),
+  'resultados',coalesce((select jsonb_agg(to_jsonb(f)-'user_id'-'cpf' order by f.registrado_em desc,f.referencia) from public.crm_dados_cliente f where f.user_id=uid and f.cpf=c.cpf),'[]'),
+  'oportunidades',coalesce((select jsonb_agg(jsonb_build_object('id',o.id,'produto',o.produto,'convenio',o.convenio,
+    'etapa_id',o.etapa_id,'etapa',e.codigo,'etapa_nome',e.nome) order by o.created_at desc,o.id)
+   from public.crm_oportunidades o join public.crm_etapas e on e.user_id=o.user_id and e.id=o.etapa_id where o.user_id=uid and o.cpf=c.cpf),'[]'))
+ from public.crm_cadastros c where c.user_id=uid and (p_cpf is null or c.cpf=p_cpf) and (p_id is null or c.cliente_id=p_id)
+ and (p_cpf is not null or p_id is not null)
+$$;
+revoke all on function apoiarcred_private.crm_cliente_perfil(uuid,text,uuid) from public,anon,authenticated;
+grant execute on function apoiarcred_private.crm_cliente_perfil(uuid,text,uuid) to service_role;
+
+create or replace function apoiarcred_private.api_route_oportunidades(uid uuid,method text,route text,p jsonb)
+returns jsonb language plpgsql security invoker set search_path='' as $$
+declare
+ stages text[]:=array['novo','exportada','contato','simulacao','negociacao','ganho','perdido'];
+ open_stages text[]:=array['novo','contato','simulacao','negociacao'];
+ products text[]:=array['margem','recompra','saque'];
+ selected text[];
+ stage text;
+ opportunity_id uuid;
+ data jsonb;
+ total integer;
+ page_no integer;
+ page_size integer;
+begin
+ select array_agg(codigo),array_agg(codigo) filter(where tipo='aberta' and not destino_exportacao and codigo<>'exportada')
+ into stages,open_stages from public.crm_etapas where user_id=uid and not arquivada;
+ if route <> '/oportunidades' and route not like '/oportunidades/%' then
+  return apoiarcred_private.api_route_legacy(uid,method,route,p);
+ end if;
+
+ if method='GET' and route='/oportunidades' then
+  stage:=p->>'etapa';
+  selected:=string_to_array(p->>'tipos',',');
+  page_no:=coalesce((p->>'page')::integer,1);
+  page_size:=coalesce((p->>'page_size')::integer,50);
+  if (stage is not null and not stage=any(stages)) or (selected is not null and not selected<@products)
+   or page_no not between 1 and 1000000 or page_size not between 1 and 100
+   or coalesce(p->>'exportaveis','false') not in ('true','false') then
+   return apoiarcred_private.api_error(422,'invalid_filter','Confira etapa, tipos, exportaveis e paginação.');
+  end if;
+  with filtered as materialized (
+   select c.* from public.crm_opportunity_cards c
+   where c.user_id=uid and (stage is null or c.etapa=stage)
+    and (selected is null or c.produto=any(selected))
+    and (coalesce(p->>'exportaveis','false')='false' or c.etapa=any(open_stages))
+  )
+  select (select count(*) from filtered),
+   coalesce((select jsonb_agg(to_jsonb(x)-'user_id' order by x.created_at desc,x.id)
+    from (select * from filtered order by created_at desc,id limit page_size offset (page_no-1)*page_size) x),'[]')
+  into total,data;
+  return apoiarcred_private.api_response(200,jsonb_build_object('data',data,'pagination',jsonb_build_object('page',page_no,'page_size',page_size,'total',total)));
+ end if;
+
+ if method='GET' and route ~ '^/oportunidades/[0-9a-fA-F-]{36}$' then
+  opportunity_id:=split_part(route,'/',3)::uuid;
+  select to_jsonb(c)-'user_id' into data from public.crm_opportunity_cards c where c.user_id=uid and c.id=opportunity_id;
+  if not found then return apoiarcred_private.api_error(404,'not_found','Oportunidade não encontrada.'); end if;
+  return apoiarcred_private.api_response(200,jsonb_build_object('data',data));
+ end if;
+
+ if method='POST' and route ~ '^/oportunidades/[0-9a-fA-F-]{36}/etapa$' then
+  opportunity_id:=split_part(route,'/',3)::uuid;
+  stage:=p->>'etapa';
+  if stage is null or not stage=any(stages) or (p->>'etapa_original') is null or not (p->>'etapa_original')=any(stages) then
+   return apoiarcred_private.api_error(422,'invalid_stage','Informe etapa e etapa_original válidas.');
+  end if;
+  update public.crm_oportunidades o set etapa=stage
+  where o.user_id=uid and o.id=opportunity_id and o.etapa=p->>'etapa_original'
+  returning jsonb_build_object('id',o.id,'etapa',o.etapa) into data;
+  if not found then
+   if exists(select 1 from public.crm_oportunidades o where o.user_id=uid and o.id=opportunity_id) then
+    return apoiarcred_private.api_error(409,'stage_changed','A etapa mudou. Consulte a oportunidade novamente.');
+   end if;
+   return apoiarcred_private.api_error(404,'not_found','Oportunidade não encontrada.');
+  end if;
+  return apoiarcred_private.api_response(200,jsonb_build_object('data',data));
+ end if;
+
+ if method='POST' and route='/oportunidades/exportacao' then
+  if jsonb_typeof(p->'itens') is distinct from 'array' then
+   return apoiarcred_private.api_error(422,'invalid_items','Informe itens com id e etapa.');
+  end if;
+  if jsonb_array_length(p->'itens') not between 1 and 500 or exists(
+   select 1 from jsonb_to_recordset(p->'itens') item(id uuid,etapa text)
+   where item.id is null or item.etapa is null or not item.etapa=any(open_stages)
+  ) then
+   return apoiarcred_private.api_error(422,'invalid_items','Envie de 1 a 500 itens com id e etapa aberta.');
+  end if;
+  with moved as (
+   update public.crm_oportunidades o set etapa=(select codigo from public.crm_etapas where user_id=uid and destino_exportacao)
+   from jsonb_to_recordset(p->'itens') item(id uuid,etapa text)
+   where o.user_id=uid and o.id=item.id and o.etapa=item.etapa and o.etapa=any(open_stages)
+   returning o.id
+  )
+  select count(*),coalesce(jsonb_agg(id order by id),'[]') into total,data from moved;
+  return apoiarcred_private.api_response(200,jsonb_build_object('movidas',total,'ids',data));
+ end if;
+ return apoiarcred_private.api_error(404,'route_not_found','Rota não encontrada.');
+end $$;
+
+alter function apoiarcred_private.api_route(uuid,text,text,jsonb) rename to api_route_antes_etapas;
+create function apoiarcred_private.api_route(uid uuid,method text,route text,p jsonb) returns jsonb
+language plpgsql security invoker set search_path='' as $$
+declare parts text[]=string_to_array(trim(both '/' from route),'/');
+ data jsonb; response jsonb; card_id uuid; client_id uuid; cpf_value text; code text;
+ stage_id uuid; previous_id uuid; total integer; page integer; size integer;
+begin
+ perform set_config('apoiarcred.crm_origem','api',true);
+ if route='/crm/etapas' and method='GET' then
+  perform set_config('request.jwt.claim.sub',uid::text,true);
+  select coalesce(jsonb_agg(to_jsonb(e)-'user_id' order by e.posicao,e.id),'[]') into data from public.crm_listar_etapas() e;
+  return apoiarcred_private.api_response(200,jsonb_build_object('data',data));
+ end if;
+ if (route='/crm/etapas' and method='POST') or (route ~ '^/crm/etapas/[0-9a-fA-F-]{36}$' and method='PATCH') then
+  perform set_config('request.jwt.claim.sub',uid::text,true);
+  data=public.crm_salvar_etapa(nullif(parts[3],'')::uuid,p);
+  if data is null then return apoiarcred_private.api_error(404,'not_found','Etapa não encontrada.');end if;
+  return apoiarcred_private.api_response(case when method='POST' then 201 else 200 end,jsonb_build_object('data',data));
+ end if;
+ if route ~ '^/oportunidades/[0-9a-fA-F-]{36}/etapa$' and method='POST' then
+  card_id=parts[2]::uuid;
+  if p ? 'etapa_id' or p ? 'etapa_original_id' then
+   stage_id=(p->>'etapa_id')::uuid;previous_id=(p->>'etapa_original_id')::uuid;
+  else
+   select id into stage_id from public.crm_etapas where user_id=uid and codigo=p->>'etapa' and not arquivada;
+   select id into previous_id from public.crm_etapas where user_id=uid and codigo=p->>'etapa_original';
+  end if;
+  perform set_config('request.jwt.claim.sub',uid::text,true);
+  data=public.crm_mover_etapa(card_id,stage_id,previous_id);
+  if data is null then return apoiarcred_private.api_error(404,'not_found','Oportunidade não encontrada.');end if;
+  if data ? 'conflito' then
+   return apoiarcred_private.api_response(409,jsonb_build_object('error',jsonb_build_object('code','stage_changed',
+    'message','A etapa mudou. Consulte a oportunidade novamente.','details',data-'conflito')));
+  end if;
+  return apoiarcred_private.api_response(200,jsonb_build_object('data',data));
+ end if;
+ if (route='/clientes/buscar' and method='POST') or (route ~ '^/clientes/[0-9a-fA-F-]{36}$' and method='GET') then
+  if method='POST' then
+   cpf_value=regexp_replace(coalesce(p->>'cpf',''),'[^0-9]','','g');
+   if cpf_value!~'^[0-9]{11}$' then return apoiarcred_private.api_error(422,'invalid_cpf','Informe CPF com 11 dígitos.');end if;
+  else client_id=parts[2]::uuid;end if;
+  data=apoiarcred_private.crm_cliente_perfil(uid,cpf_value,client_id);
+  if data is null then return apoiarcred_private.api_error(404,'not_found','Cliente não encontrado.');end if;
+  return apoiarcred_private.api_response(200,jsonb_build_object('data',data));
+ end if;
+ if method='GET' and (route ~ '^/clientes/[0-9a-fA-F-]{36}/consultas$' or route ~ '^/oportunidades/[0-9a-fA-F-]{36}/movimentacoes$') then
+  page=coalesce((p->>'page')::integer,1);size=coalesce((p->>'page_size')::integer,50);
+  if page not between 1 and 1000000 or size not between 1 and 100 then return apoiarcred_private.api_error(422,'invalid_filter','Paginação inválida.');end if;
+  if parts[1]='clientes' then
+   select cpf into cpf_value from public.crm_cadastros where user_id=uid and cliente_id=parts[2]::uuid;
+   if not found then return apoiarcred_private.api_error(404,'not_found','Cliente não encontrado.');end if;
+   select count(*) into total from public.crm_consultas where user_id=uid and cpf=cpf_value;
+   select coalesce(jsonb_agg(to_jsonb(x) order by x.created_at desc,x.id desc),'[]') into data from (
+    select id,servico,convenio,status,created_at,consultado_em,matricula,saldo_liquidacao,valor_parcela,emprestimo_disponivel,cartao_disponivel
+    from public.crm_consultas where user_id=uid and cpf=cpf_value order by created_at desc,id desc offset (page-1)*size limit size
+   ) x;
+  else
+   card_id=parts[2]::uuid;
+   if not exists(select 1 from public.crm_oportunidades where user_id=uid and id=card_id) then return apoiarcred_private.api_error(404,'not_found','Oportunidade não encontrada.');end if;
+   select count(*) into total from public.crm_movimentacoes where user_id=uid and oportunidade_id=card_id;
+   select coalesce(jsonb_agg(to_jsonb(x)-'user_id' order by x.alterado_em desc,x.id desc),'[]') into data from (
+    select * from public.crm_movimentacoes where user_id=uid and oportunidade_id=card_id order by alterado_em desc,id desc offset (page-1)*size limit size
+   ) x;
+  end if;
+  return apoiarcred_private.api_response(200,jsonb_build_object('data',data,'pagination',jsonb_build_object('page',page,'page_size',size,'total',total)));
+ end if;
+ if method='GET' and route='/oportunidades' and p ? 'etapa_id' then
+  select codigo into code from public.crm_etapas where user_id=uid and id=(p->>'etapa_id')::uuid and not arquivada;
+  if not found then return apoiarcred_private.api_error(422,'invalid_stage','Etapa indisponível.');end if;
+  p=p||jsonb_build_object('etapa',code);
+ end if;
+ response=apoiarcred_private.api_route_antes_etapas(uid,method,route,p);
+ if method='GET' and route ~ '^/oportunidades/[0-9a-fA-F-]{36}$' and p->>'include'='cliente'
+  and response->>'status'='200' then
+  client_id=(response#>>'{body,data,cliente_id}')::uuid;
+  data=apoiarcred_private.crm_cliente_perfil(uid,null,client_id);
+  response=jsonb_set(response,'{body,data,cliente}',coalesce(data,'null'::jsonb));
+ end if;
+ return response;
+exception when invalid_parameter_value then
+ return apoiarcred_private.api_error(422,'validation_error',sqlerrm);
+end $$;
+revoke all on function apoiarcred_private.api_route(uuid,text,text,jsonb) from public,anon,authenticated;
+grant execute on function apoiarcred_private.api_route(uuid,text,text,jsonb) to service_role;
+
+create or replace function public.api_execute(p_hash text,p_method text,p_route text,p_payload jsonb default '{}',p_key text default null) returns jsonb
+language plpgsql security invoker set search_path='' as $$
+declare t apoiarcred_private.api_tokens;scope text;fingerprint text;cached apoiarcred_private.api_idempotency;result jsonb;
+begin
+ select * into t from apoiarcred_private.api_tokens where token_hash=p_hash for update;
+ if not found or t.revoked_at is not null or (t.expires_at is not null and t.expires_at<=now()) then return apoiarcred_private.api_error(401,'invalid_token','Token inválido, expirado ou revogado.');end if;
+ if not apoiarcred_private.can_integrate(t.user_id) then return apoiarcred_private.api_error(403,'integrations_disabled','Integrações não estão liberadas para esta conta.');end if;
+ scope=case when p_method='GET' or p_route in ('/leads/buscar','/clientes/buscar') then 'read' when p_route='/consultas' then 'consultas:create' else 'campanhas:write' end;
+ if not scope=any(t.scopes) then return apoiarcred_private.api_error(403,'insufficient_scope','O token não possui esta permissão.');end if;
+ if t.rate_window is null or t.rate_window<now()-interval '1 minute' then t.rate_count=0;t.rate_window=now();end if;
+ if t.rate_count>=120 then return apoiarcred_private.api_error(429,'rate_limit','Limite de 120 requisições por minuto.');end if;
+ update apoiarcred_private.api_tokens set rate_count=t.rate_count+1,rate_window=t.rate_window,last_used_at=now() where id=t.id;
+ if p_method not in ('GET','POST','PATCH') or jsonb_typeof(p_payload) is distinct from 'object' then return apoiarcred_private.api_error(400,'invalid_request','Requisição inválida.');end if;
+ if p_method in ('POST','PATCH') and p_route not in ('/leads/buscar','/clientes/buscar') and (p_key is null or length(p_key) not between 1 and 128) then return apoiarcred_private.api_error(400,'idempotency_required','Envie Idempotency-Key de 1 a 128 caracteres.');end if;
+ delete from apoiarcred_private.api_idempotency where token_id=t.id and created_at<now()-interval '24 hours';
+ if p_method in ('POST','PATCH') and p_route not in ('/leads/buscar','/clientes/buscar') then
+  fingerprint=encode(extensions.digest(p_method||p_route||p_payload::text,'sha256'),'hex');
+  select * into cached from apoiarcred_private.api_idempotency where token_id=t.id and key=p_key;
+  if found then
+   if cached.fingerprint<>fingerprint then return apoiarcred_private.api_error(409,'idempotency_conflict','Chave já usada com outra rota ou payload.');end if;
+   return cached.response||'{"replayed":true}';
+  end if;
+ end if;
+ begin
+  result=apoiarcred_private.api_route(t.user_id,p_method,p_route,p_payload);
+ exception when insufficient_privilege then
+  result=apoiarcred_private.api_error(403,'partner_permission',sqlerrm);
+ when sqlstate 'PT429' then
+  result=apoiarcred_private.api_error(429,'daily_limit',sqlerrm);
+ when invalid_text_representation or numeric_value_out_of_range or invalid_parameter_value or check_violation or not_null_violation then
+  result=apoiarcred_private.api_error(422,'validation_error','Dados inválidos. Confira UUIDs, paginação e campos obrigatórios.');
+ end;
+ if fingerprint is not null and (result->>'status')::integer<300 then insert into apoiarcred_private.api_idempotency(token_id,key,fingerprint,response) values(t.id,p_key,fingerprint,result);end if;
+ return result;
+end $$;
+notify pgrst,'reload schema';
+
+commit;
+
+begin;
+alter table public.crm_movimentacoes add column autor_id uuid, add column api_token_id uuid;
+
+create or replace function apoiarcred_private.api_route_oportunidades(uid uuid,method text,route text,p jsonb)
+returns jsonb language plpgsql security invoker set search_path='' as $$
+declare
+ stages text[]:=array['novo','exportada','contato','simulacao','negociacao','ganho','perdido'];
+ open_stages text[]:=array['novo','contato','simulacao','negociacao'];
+ products text[]:=array['margem','recompra','saque'];
+ selected text[];
+ stage text;
+ opportunity_id uuid;
+ data jsonb;
+ total integer;
+ clients integer;
+ page_no integer;
+ page_size integer;
+begin
+ select array_agg(codigo),array_agg(codigo) filter(where tipo='aberta' and not destino_exportacao and codigo<>'exportada')
+ into stages,open_stages from public.crm_etapas where user_id=uid and not arquivada;
+ if route <> '/oportunidades' and route not like '/oportunidades/%' then
+  return apoiarcred_private.api_route_legacy(uid,method,route,p);
+ end if;
+
+ if method='GET' and route='/oportunidades' then
+  stage:=p->>'etapa';
+  selected:=string_to_array(p->>'tipos',',');
+  page_no:=coalesce((p->>'page')::integer,1);
+  page_size:=coalesce((p->>'page_size')::integer,50);
+  if (stage is not null and not stage=any(stages)) or (selected is not null and not selected<@products)
+   or page_no not between 1 and 1000000 or page_size not between 1 and 100
+   or coalesce(p->>'exportaveis','false') not in ('true','false') then
+   return apoiarcred_private.api_error(422,'invalid_filter','Confira etapa, tipos, exportaveis e paginação.');
+  end if;
+  with filtered as materialized (
+   select c.* from public.crm_opportunity_cards c
+   where c.user_id=uid and (stage is null or c.etapa=stage)
+    and (selected is null or c.produto=any(selected))
+    and (coalesce(p->>'exportaveis','false')='false' or c.etapa=any(open_stages))
+  )
+  select (select count(*) from filtered),(select count(distinct cpf) from filtered),
+   coalesce((select jsonb_agg(to_jsonb(x)-'user_id' order by x.created_at desc,x.id)
+    from (select * from filtered order by created_at desc,id limit page_size offset (page_no-1)*page_size) x),'[]')
+  into total,clients,data;
+  return apoiarcred_private.api_response(200,jsonb_build_object('data',data,'pagination',jsonb_build_object('page',page_no,'page_size',page_size,'total',total,'clientes_unicos',clients)));
+ end if;
+
+ if method='GET' and route ~ '^/oportunidades/[0-9a-fA-F-]{36}$' then
+  opportunity_id:=split_part(route,'/',3)::uuid;
+  select to_jsonb(c)-'user_id' into data from public.crm_opportunity_cards c where c.user_id=uid and c.id=opportunity_id;
+  if not found then return apoiarcred_private.api_error(404,'not_found','Oportunidade não encontrada.'); end if;
+  return apoiarcred_private.api_response(200,jsonb_build_object('data',data));
+ end if;
+
+ if method='POST' and route ~ '^/oportunidades/[0-9a-fA-F-]{36}/etapa$' then
+  opportunity_id:=split_part(route,'/',3)::uuid;
+  stage:=p->>'etapa';
+  if stage is null or not stage=any(stages) or (p->>'etapa_original') is null or not (p->>'etapa_original')=any(stages) then
+   return apoiarcred_private.api_error(422,'invalid_stage','Informe etapa e etapa_original válidas.');
+  end if;
+  update public.crm_oportunidades o set etapa=stage
+  where o.user_id=uid and o.id=opportunity_id and o.etapa=p->>'etapa_original'
+  returning jsonb_build_object('id',o.id,'etapa',o.etapa) into data;
+  if not found then
+   if exists(select 1 from public.crm_oportunidades o where o.user_id=uid and o.id=opportunity_id) then
+    return apoiarcred_private.api_error(409,'stage_changed','A etapa mudou. Consulte a oportunidade novamente.');
+   end if;
+   return apoiarcred_private.api_error(404,'not_found','Oportunidade não encontrada.');
+  end if;
+  return apoiarcred_private.api_response(200,jsonb_build_object('data',data));
+ end if;
+
+ if method='POST' and route='/oportunidades/exportacao' then
+  if jsonb_typeof(p->'itens') is distinct from 'array' then
+   return apoiarcred_private.api_error(422,'invalid_items','Informe itens com id e etapa.');
+  end if;
+  if jsonb_array_length(p->'itens') not between 1 and 500 or exists(
+   select 1 from jsonb_to_recordset(p->'itens') item(id uuid,etapa text)
+   where item.id is null or item.etapa is null or not item.etapa=any(open_stages)
+  ) then
+   return apoiarcred_private.api_error(422,'invalid_items','Envie de 1 a 500 itens com id e etapa aberta.');
+  end if;
+  with moved as (
+   update public.crm_oportunidades o set etapa=(select codigo from public.crm_etapas where user_id=uid and destino_exportacao)
+   from jsonb_to_recordset(p->'itens') item(id uuid,etapa text)
+   where o.user_id=uid and o.id=item.id and o.etapa=item.etapa and o.etapa=any(open_stages)
+   returning o.id
+  )
+  select count(*),coalesce(jsonb_agg(id order by id),'[]') into total,data from moved;
+  return apoiarcred_private.api_response(200,jsonb_build_object('movidas',total,'ids',data));
+ end if;
+ return apoiarcred_private.api_error(404,'route_not_found','Rota não encontrada.');
+end $$;
+
+create or replace function apoiarcred_private.crm_sincronizar_etapa() returns trigger
+language plpgsql security definer set search_path='' as $$
+declare destino public.crm_etapas; anterior text;
+begin
+ if tg_op='UPDATE' and new.etapa_id is not distinct from old.etapa_id and new.etapa is not distinct from old.etapa then return new;end if;
+ if tg_op='INSERT' then
+  perform apoiarcred_private.crm_semear_etapas(new.user_id);
+  select * into destino from public.crm_etapas where user_id=new.user_id and not arquivada
+   and case when new.etapa_id is not null then id=new.etapa_id when new.etapa='novo' then inicial else codigo=new.etapa end
+   for share;
+ elsif new.etapa_id is distinct from old.etapa_id then
+  select * into destino from public.crm_etapas where user_id=new.user_id and id=new.etapa_id and not arquivada for share;
+ else
+  select * into destino from public.crm_etapas where user_id=new.user_id and codigo=new.etapa and not arquivada for share;
+ end if;
+ if destino.id is null then raise exception using errcode='22023',message='Etapa indisponível para a conta.';end if;
+ new.etapa_id=destino.id;new.etapa=destino.codigo;
+ if tg_op='UPDATE' and new.etapa_id<>old.etapa_id then
+  select nome into anterior from public.crm_etapas where user_id=old.user_id and id=old.etapa_id;
+  insert into public.crm_movimentacoes(user_id,oportunidade_id,etapa_anterior_id,etapa_id,nome_anterior,nome_destino,origem,autor_id,api_token_id)
+  values(new.user_id,new.id,old.etapa_id,new.etapa_id,anterior,destino.nome,
+   coalesce(nullif(current_setting('apoiarcred.crm_origem',true),''),'painel'),auth.uid(),
+   nullif(current_setting('apoiarcred.crm_token_id',true),'')::uuid);
+ end if;
+ return new;
+end $$;
+
+create or replace function public.api_execute(p_hash text,p_method text,p_route text,p_payload jsonb default '{}',p_key text default null) returns jsonb
+language plpgsql security invoker set search_path='' as $$
+declare t apoiarcred_private.api_tokens;scope text;fingerprint text;cached apoiarcred_private.api_idempotency;result jsonb;
+begin
+ select * into t from apoiarcred_private.api_tokens where token_hash=p_hash for update;
+ if not found or t.revoked_at is not null or (t.expires_at is not null and t.expires_at<=now()) then return apoiarcred_private.api_error(401,'invalid_token','Token inválido, expirado ou revogado.');end if;
+ if not apoiarcred_private.can_integrate(t.user_id) then return apoiarcred_private.api_error(403,'integrations_disabled','Integrações não estão liberadas para esta conta.');end if;
+ scope=case when p_method='GET' or p_route in ('/leads/buscar','/clientes/buscar') then 'read' when p_route='/consultas' then 'consultas:create' else 'campanhas:write' end;
+ if not scope=any(t.scopes) then return apoiarcred_private.api_error(403,'insufficient_scope','O token não possui esta permissão.');end if;
+ if t.rate_window is null or t.rate_window<now()-interval '1 minute' then t.rate_count=0;t.rate_window=now();end if;
+ if t.rate_count>=120 then return apoiarcred_private.api_error(429,'rate_limit','Limite de 120 requisições por minuto.');end if;
+ update apoiarcred_private.api_tokens set rate_count=t.rate_count+1,rate_window=t.rate_window,last_used_at=now() where id=t.id;
+ if p_method not in ('GET','POST','PATCH') or jsonb_typeof(p_payload) is distinct from 'object' then return apoiarcred_private.api_error(400,'invalid_request','Requisição inválida.');end if;
+ if p_method in ('POST','PATCH') and p_route not in ('/leads/buscar','/clientes/buscar') and (p_key is null or length(p_key) not between 1 and 128) then return apoiarcred_private.api_error(400,'idempotency_required','Envie Idempotency-Key de 1 a 128 caracteres.');end if;
+ delete from apoiarcred_private.api_idempotency where token_id=t.id and created_at<now()-interval '24 hours';
+ if p_method in ('POST','PATCH') and p_route not in ('/leads/buscar','/clientes/buscar') then
+  fingerprint=encode(extensions.digest(p_method||p_route||p_payload::text,'sha256'),'hex');
+  select * into cached from apoiarcred_private.api_idempotency where token_id=t.id and key=p_key;
+  if found then
+   if cached.fingerprint<>fingerprint then return apoiarcred_private.api_error(409,'idempotency_conflict','Chave já usada com outra rota ou payload.');end if;
+   return cached.response||'{"replayed":true}';
+  end if;
+ end if;
+ begin
+  perform set_config('apoiarcred.crm_token_id',t.id::text,true);
+  result=apoiarcred_private.api_route(t.user_id,p_method,p_route,p_payload);
+ exception when insufficient_privilege then
+  result=apoiarcred_private.api_error(403,'partner_permission',sqlerrm);
+ when sqlstate 'PT429' then
+  result=apoiarcred_private.api_error(429,'daily_limit',sqlerrm);
+ when invalid_text_representation or numeric_value_out_of_range or invalid_parameter_value or check_violation or not_null_violation then
+  result=apoiarcred_private.api_error(422,'validation_error','Dados inválidos. Confira UUIDs, paginação e campos obrigatórios.');
+ end;
+ if fingerprint is not null and (result->>'status')::integer<300 then insert into apoiarcred_private.api_idempotency(token_id,key,fingerprint,response) values(t.id,p_key,fingerprint,result);end if;
+ return result;
+end $$;
+
+commit;
+
+begin;
+create or replace function apoiarcred_private.manage_api_tokens(p_action text,p_input jsonb default '{}') returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare uid uuid=auth.uid(); secret text; scopes text[]; expires timestamptz; result jsonb; tid uuid;
+begin
+ if uid is null or not apoiarcred_private.can_integrate(uid) then raise insufficient_privilege using message='Integrações não estão liberadas para esta conta.';end if;
+ if p_action='list' then
+  select coalesce(jsonb_agg(jsonb_build_object('id',t.id,'name',t.name,'prefix',t.prefix,'scopes',t.scopes,'created_at',t.created_at,'expires_at',t.expires_at,'revoked_at',t.revoked_at,'last_used_at',t.last_used_at) order by t.created_at desc),'[]') into result from apoiarcred_private.api_tokens t where t.user_id=uid;return result;
+ elsif p_action='revoke' then
+  update apoiarcred_private.api_tokens set revoked_at=coalesce(revoked_at,clock_timestamp()) where id=(p_input->>'id')::uuid and user_id=uid;
+  if not found then raise insufficient_privilege;end if;return '{"revoked":true}';
+ elsif p_action<>'create' then raise exception 'Ação inválida.';end if;
+ if coalesce(length(btrim(p_input->>'name')),0) not between 1 and 80 then raise exception 'Informe nome de até 80 caracteres.';end if;
+ select coalesce(array_agg(distinct x),'{}') into scopes from jsonb_array_elements_text(p_input->'scopes') x;
+ if cardinality(scopes)=0 or not scopes<@array['read','consultas:create','campanhas:write','crm:read','crm:write'] then raise exception 'Permissões inválidas.';end if;
+ expires=nullif(p_input->>'expires_at','')::timestamptz;
+ if expires is not null and (expires<=now() or expires>now()+interval '366 days') then raise exception 'Validade deve estar entre agora e um ano.';end if;
+ perform pg_advisory_xact_lock(hashtextextended(uid::text,0));
+ if (select count(*) from apoiarcred_private.api_tokens where user_id=uid and revoked_at is null and (expires_at is null or expires_at>now()))>=20 then raise exception 'Limite de 20 tokens ativos. Revogue um token antes.';end if;
+ secret='apc_'||encode(extensions.gen_random_bytes(32),'hex');
+ insert into apoiarcred_private.api_tokens(user_id,name,token_hash,prefix,scopes,expires_at)
+ values(uid,btrim(p_input->>'name'),encode(extensions.digest(secret,'sha256'),'hex'),left(secret,12),scopes,expires) returning id into tid;
+ return jsonb_build_object('id',tid,'token',secret,'expires_at',expires);
+end $$;
+
+create or replace function public.api_execute(p_hash text,p_method text,p_route text,p_payload jsonb default '{}',p_key text default null) returns jsonb
+language plpgsql security invoker set search_path='' as $$
+declare t apoiarcred_private.api_tokens;scope text;crm_scope text;fingerprint text;cached apoiarcred_private.api_idempotency;result jsonb;
+begin
+ select * into t from apoiarcred_private.api_tokens where token_hash=p_hash for update;
+ if not found or t.revoked_at is not null or (t.expires_at is not null and t.expires_at<=now()) then return apoiarcred_private.api_error(401,'invalid_token','Token inválido, expirado ou revogado.');end if;
+ if not apoiarcred_private.can_integrate(t.user_id) then return apoiarcred_private.api_error(403,'integrations_disabled','Integrações não estão liberadas para esta conta.');end if;
+ scope=case when p_method='GET' or p_route in ('/leads/buscar','/clientes/buscar') then 'read' when p_route='/consultas' then 'consultas:create' else 'campanhas:write' end;
+ if p_route ~ '^/(crm/etapas|oportunidades)(/|$)' or p_route='/clientes/buscar'
+  or p_route ~ '^/clientes/[0-9a-fA-F-]{36}(/consultas)?$' then
+  crm_scope=case when scope='read' then 'crm:read' else 'crm:write' end;
+ end if;
+ if not (scope=any(t.scopes) or coalesce(crm_scope=any(t.scopes),false)) then return apoiarcred_private.api_error(403,'insufficient_scope','O token não possui esta permissão.');end if;
+ if t.rate_window is null or t.rate_window<now()-interval '1 minute' then t.rate_count=0;t.rate_window=now();end if;
+ if t.rate_count>=120 then return apoiarcred_private.api_error(429,'rate_limit','Limite de 120 requisições por minuto.');end if;
+ update apoiarcred_private.api_tokens set rate_count=t.rate_count+1,rate_window=t.rate_window,last_used_at=now() where id=t.id;
+ if p_method not in ('GET','POST','PATCH') or jsonb_typeof(p_payload) is distinct from 'object' then return apoiarcred_private.api_error(400,'invalid_request','Requisição inválida.');end if;
+ if p_method in ('POST','PATCH') and p_route not in ('/leads/buscar','/clientes/buscar') and (p_key is null or length(p_key) not between 1 and 128) then return apoiarcred_private.api_error(400,'idempotency_required','Envie Idempotency-Key de 1 a 128 caracteres.');end if;
+ delete from apoiarcred_private.api_idempotency where token_id=t.id and created_at<now()-interval '24 hours';
+ if p_method in ('POST','PATCH') and p_route not in ('/leads/buscar','/clientes/buscar') then
+  fingerprint=encode(extensions.digest(p_method||p_route||p_payload::text,'sha256'),'hex');
+  select * into cached from apoiarcred_private.api_idempotency where token_id=t.id and key=p_key;
+  if found then
+   if cached.fingerprint<>fingerprint then return apoiarcred_private.api_error(409,'idempotency_conflict','Chave já usada com outra rota ou payload.');end if;
+   return cached.response||'{"replayed":true}';
+  end if;
+ end if;
+ begin
+  perform set_config('apoiarcred.crm_token_id',t.id::text,true);
+  result=apoiarcred_private.api_route(t.user_id,p_method,p_route,p_payload);
+ exception when insufficient_privilege then
+  result=apoiarcred_private.api_error(403,'partner_permission',sqlerrm);
+ when sqlstate 'PT429' then
+  result=apoiarcred_private.api_error(429,'daily_limit',sqlerrm);
+ when invalid_text_representation or numeric_value_out_of_range or invalid_parameter_value or check_violation or not_null_violation then
+  result=apoiarcred_private.api_error(422,'validation_error','Dados inválidos. Confira UUIDs, paginação e campos obrigatórios.');
+ end;
+ if fingerprint is not null and (result->>'status')::integer<300 then insert into apoiarcred_private.api_idempotency(token_id,key,fingerprint,response) values(t.id,p_key,fingerprint,result);end if;
+ return result;
+end $$;
+commit;
+
+
+begin;
+create function public.crm_listar_exportacao(p_uf text,p_convenio text,p_tipos text[],p_etapa text,p_after uuid default null,p_reexportar boolean default false)
+returns setof public.crm_opportunity_cards language sql stable security invoker set search_path='' as $$
+ select o.* from public.crm_opportunity_cards o
+ where o.user_id=auth.uid()
+ and exists(select 1 from public.crm_etapas e where e.user_id=o.user_id and e.id=o.etapa_id and not e.arquivada and case when p_reexportar then (e.destino_exportacao or e.codigo='exportada') else e.tipo='aberta' and not e.destino_exportacao and e.codigo<>'exportada' end)
+ and (p_etapa='' or o.etapa=p_etapa)
+ and o.produto=any(p_tipos)
+ and (p_after is null or o.id>p_after)
+ and ((p_uf='' and p_convenio='') or exists(
+  select 1 from public.crm_classificacao_filtros v
+  where v.user_id=o.user_id and v.cpf=o.cpf
+   and (p_uf='' or v.uf=p_uf) and (p_convenio='' or v.convenio=p_convenio)
+   and (o.convenio='' or v.convenio=o.convenio)
+   and (not exists(select 1 from jsonb_object_keys(o.sinais_consulta) k where k<>'digimais')
+        or exists(select 1 from jsonb_object_keys(o.sinais_consulta) k
+           where regexp_replace(k,'^(amigoz_(margem|saque)|consigx_margem|margem_importada)_','')=v.convenio))
+ ))
+ order by o.id limit 500
+$$;
+revoke all on function public.crm_listar_exportacao(text,text,text[],text,uuid,boolean) from public,anon;
+grant execute on function public.crm_listar_exportacao(text,text,text[],text,uuid,boolean) to authenticated;
+
+create function public.crm_convenios_exportacao(p_cpfs text[]) returns table(cpf text,convenios jsonb)
+language sql stable security invoker set search_path='' as $$
+ select c.cpf,coalesce(jsonb_agg(jsonb_build_object('codigo',x.codigo,'nome',coalesce(a.nome,x.codigo),'uf',x.uf)
+  order by x.codigo,x.uf) filter(where x.codigo is not null),'[]')
+ from public.crm_cadastros c
+ left join lateral (
+  select v.convenio as codigo,v.uf from public.crm_classificacoes v where v.user_id=c.user_id and v.cpf=c.cpf
+  union select v.convenio,v.uf from public.crm_vinculos v where v.user_id=c.user_id and v.cpf=c.cpf
+  union select m.convenio,coalesce(k.uf,'') from public.crm_margens_vinculo m
+   left join public.crm_catalogo_importacao k on k.codigo=m.convenio
+   where m.user_id=c.user_id and m.cpf=c.cpf
+ ) x on true
+ left join public.crm_catalogo_importacao a on a.codigo=x.codigo and a.uf=x.uf
+ where c.user_id=auth.uid() and c.cpf=any(p_cpfs)
+ group by c.cpf
+$$;
+revoke all on function public.crm_convenios_exportacao(text[]) from public,anon;
+grant execute on function public.crm_convenios_exportacao(text[]) to authenticated;
+
+create or replace function public.amigoz_exportar_estimativas(p_items jsonb) returns jsonb
+language plpgsql security invoker set search_path='' as $$
+declare item jsonb; result jsonb='[]'; output jsonb;
+begin
+ if auth.uid() is null then raise insufficient_privilege;end if;
+ if jsonb_typeof(p_items)<>'array' or jsonb_array_length(p_items)>100 then raise exception 'Envie até 100 clientes por lote';end if;
+ for item in select value from jsonb_array_elements(p_items) loop
+  begin
+   output=public.amigoz_simular_coeficientes(item||jsonb_build_object('mode','auto','use_saved',true),false);
+   if jsonb_array_length(output->'tabelas')=0 and output->>'motivo' like 'Simulação salva desatualizada%' then
+    output=public.amigoz_simular_coeficientes(item||jsonb_build_object('mode','auto','use_saved',false),false);
+   end if;
+  exception when others then
+   output=jsonb_build_object('tabelas','[]'::jsonb,'motivo','Dados indisponíveis ou incompatíveis para simular.');
+  end;
+  result=result||jsonb_build_array(output);
+ end loop;
+ return result;
+end $$;
+
+create function public.crm_selecionar_etapa(p_etapa_id uuid,p_produto text,p_convenio text,p_responsavel text)
+returns jsonb language sql stable security invoker set search_path='' as $$
+ select coalesce(jsonb_agg(jsonb_build_object('id',o.id,'etapa_id',o.etapa_id,'etapa',o.etapa) order by o.id),'[]')
+ from public.crm_oportunidades o
+  where o.user_id=auth.uid() and o.etapa_id=p_etapa_id
+  and (p_produto='' or o.produto=p_produto)
+  and (p_responsavel='' or position(lower(p_responsavel) in lower(coalesce(o.responsavel,'')))>0)
+  and (p_convenio='' or o.convenio=p_convenio or (o.convenio='' and exists(
+   select 1 from public.crm_classificacao_filtros v where v.user_id=o.user_id and v.cpf=o.cpf and v.convenio=p_convenio
+   and (not exists(select 1 from jsonb_object_keys(o.sinais_consulta) k where k<>'digimais')
+    or exists(select 1 from jsonb_object_keys(o.sinais_consulta) k
+     where regexp_replace(k,'^(amigoz_(margem|saque)|consigx_margem|margem_importada)_','')=v.convenio))
+  )))
+$$;
+revoke all on function public.crm_selecionar_etapa(uuid,text,text,text) from public,anon;
+grant execute on function public.crm_selecionar_etapa(uuid,text,text,text) to authenticated;
+
+alter table public.crm_exportacoes alter column oportunidade_referencia drop not null;
+alter table public.crm_exportacoes drop constraint crm_exportacoes_oportunidade_referencia_fkey;
+alter table public.crm_exportacoes add constraint crm_exportacoes_oportunidade_referencia_fkey
+ foreign key(oportunidade_referencia) references public.crm_oportunidades(id) on delete set null;
+
+create function public.crm_acao_lote(p_itens jsonb,p_destino uuid default null,p_excluir boolean default false)
+returns integer language plpgsql security definer set search_path='' as $$
+declare uid uuid=auth.uid(); total integer; validos integer; afetados integer;
+begin
+ if uid is null or not coalesce((apoiarcred_private.access_for(uid)->>'active')::boolean,false) then raise insufficient_privilege;end if;
+ if (p_destino is null and not p_excluir) or (p_destino is not null and p_excluir)
+  or jsonb_typeof(p_itens) is distinct from 'array' or jsonb_array_length(p_itens)<1 then
+  raise exception using errcode='22023',message='Selecione as oportunidades e uma ação.';
+ end if;
+ total=jsonb_array_length(p_itens);
+ select count(*) into validos from (
+  select o.id from public.crm_oportunidades o join jsonb_to_recordset(p_itens) i(id uuid,etapa_id uuid)
+   on i.id=o.id and i.etapa_id=o.etapa_id
+   where o.user_id=uid order by o.id for update of o
+ ) locked;
+ if validos<>total or (select count(distinct x->>'id') from jsonb_array_elements(p_itens) x)<>total then
+  raise exception using errcode='PT409',message='A seleção mudou. Atualize o quadro e selecione os cartões novamente.';
+ end if;
+ if p_excluir then
+  delete from public.crm_oportunidades o using jsonb_to_recordset(p_itens) i(id uuid)
+   where o.user_id=uid and o.id=i.id;
+ else
+  if not exists(select 1 from public.crm_etapas where user_id=uid and id=p_destino and not arquivada) then
+   raise exception using errcode='22023',message='Etapa de destino indisponível.';
+  end if;
+  update public.crm_oportunidades o set etapa_id=p_destino from jsonb_to_recordset(p_itens) i(id uuid)
+   where o.user_id=uid and o.id=i.id and o.etapa_id<>p_destino;
+ end if;
+ get diagnostics afetados=row_count;
+ return afetados;
+end $$;
+revoke all on function public.crm_acao_lote(jsonb,uuid,boolean) from public,anon,authenticated;
+grant execute on function public.crm_acao_lote(jsonb,uuid,boolean) to authenticated;
+notify pgrst,'reload schema';
+
+commit;
+
+
+begin;
+create table public.painel_exclusoes (
+ user_id uuid not null references auth.users(id) on delete cascade,
+ origem text not null, id uuid not null, sync_xid xid8 not null,
+ primary key(user_id,origem,id)
+);
+create index painel_exclusoes_sync on public.painel_exclusoes(user_id,sync_xid);
+alter table public.painel_exclusoes enable row level security;
+revoke all on public.painel_exclusoes from public,anon,authenticated;
+grant select on public.painel_exclusoes to authenticated;
+create policy painel_exclusoes_conta on public.painel_exclusoes for select to authenticated using(user_id=(select auth.uid()));
+
+create function apoiarcred_private.painel_marcar_mudanca() returns trigger
+language plpgsql security definer set search_path='' as $$
+begin
+ if tg_op='DELETE' then
+  -- During an account cascade the owner may already have been removed.
+  insert into public.painel_exclusoes(user_id,origem,id,sync_xid)
+  select old.user_id,tg_table_name,old.id,pg_current_xact_id() from auth.users where id=old.user_id
+  on conflict(user_id,origem,id) do update set sync_xid=excluded.sync_xid;
+  return old;
+ end if;
+ new.sync_xid=pg_current_xact_id();
+ if tg_op='INSERT' then
+  delete from public.painel_exclusoes where user_id=new.user_id and origem=tg_table_name and id=new.id;
+ end if;
+ return new;
+end $$;
+revoke all on function apoiarcred_private.painel_marcar_mudanca() from public,anon,authenticated;
+alter table public.consulta_jobs add column sync_xid xid8;
+create index consulta_jobs_painel_sync on public.consulta_jobs(user_id,sync_xid);
+create trigger painel_marcar_mudanca before insert or update or delete on public.consulta_jobs
+ for each row execute function apoiarcred_private.painel_marcar_mudanca();
+alter table public.tjba_jobs add column sync_xid xid8;
+create index tjba_jobs_painel_sync on public.tjba_jobs(user_id,sync_xid);
+create trigger painel_marcar_mudanca before insert or update or delete on public.tjba_jobs
+ for each row execute function apoiarcred_private.painel_marcar_mudanca();
+alter table public.consulta_lotes add column sync_xid xid8;
+create index consulta_lotes_painel_sync on public.consulta_lotes(user_id,sync_xid);
+create trigger painel_marcar_mudanca before insert or update or delete on public.consulta_lotes
+ for each row execute function apoiarcred_private.painel_marcar_mudanca();
+alter table public.tjba_lotes add column sync_xid xid8;
+create index tjba_lotes_painel_sync on public.tjba_lotes(user_id,sync_xid);
+create trigger painel_marcar_mudanca before insert or update or delete on public.tjba_lotes
+ for each row execute function apoiarcred_private.painel_marcar_mudanca();
+
+create function public.painel_consultas_sync(p_since text default null,p_until text default null,p_after text default null)
+returns jsonb language plpgsql stable security invoker set search_path='' as $$
+declare uid uuid=auth.uid(); previous pg_snapshot=p_since::pg_snapshot;
+ cutoff pg_snapshot=coalesce(p_until::pg_snapshot,pg_current_snapshot()); result jsonb;
+begin
+ if uid is null then raise insufficient_privilege;end if;
+ select coalesce(jsonb_agg(to_jsonb(page) order by page.chave),'[]') into result from (
+ select 'consulta_jobs:'||r.id::text as chave,'consulta_jobs'::text as origem,r.id,
+   r.sync_xid::text as revisao,false as excluido,jsonb_build_object('id',r.id,'lote_id',r.lote_id,'nome',r.nome,'cpf',r.cpf,'telefone',r.telefone,'progress',r.progress,'stage',r.stage,'status',r.status,'valor_parcela',r.valor_parcela,'saldo_liquidacao',r.saldo_liquidacao,'total_parcelas',r.total_parcelas,'created_at',r.created_at,'consultado_em',r.consultado_em,'attempts',r.attempts,'servico',r.servico,'queue_order',r.queue_order,'robot_slot',r.robot_slot,'execution_mode',r.execution_mode,'api_slot',r.api_slot,'message',left(r.message,500),'api_handoff',r.api_handoff-'resultado_saldo'-'resultado_parcela') as dados
+ from public.consulta_jobs r
+ where r.user_id=uid and 'consulta_jobs:'||r.id::text>coalesce(p_after,'')
+ and (r.sync_xid is null or pg_visible_in_snapshot(r.sync_xid,cutoff))
+ and (previous is null or (r.sync_xid>=pg_snapshot_xmin(previous) and not pg_visible_in_snapshot(r.sync_xid,previous)))
+ union all
+ select 'tjba_jobs:'||r.id::text as chave,'tjba_jobs'::text as origem,r.id,
+   r.sync_xid::text as revisao,false as excluido,jsonb_build_object('id',r.id,'lote_id',r.lote_id,'nome',r.nome,'cpf',r.cpf,'telefone',r.telefone,'progress',r.progress,'stage',r.stage,'status',r.status,'created_at',r.created_at,'consultado_em',r.consultado_em,'attempts',r.attempts,'servico',r.servico,'queue_order',r.queue_order,'robot_slot',r.robot_slot,'convenio',r.convenio,'matricula',r.matricula,'tipo_servidor',r.tipo_servidor,'situacao_atual',r.situacao_atual,'emprestimo_disponivel',r.emprestimo_disponivel,'cartao_disponivel',r.cartao_disponivel,'tjba_status',r.tjba_status,'message',left(r.message,500)) as dados
+ from public.tjba_jobs r
+ where r.user_id=uid and 'tjba_jobs:'||r.id::text>coalesce(p_after,'')
+ and (r.sync_xid is null or pg_visible_in_snapshot(r.sync_xid,cutoff))
+ and (previous is null or (r.sync_xid>=pg_snapshot_xmin(previous) and not pg_visible_in_snapshot(r.sync_xid,previous)))
+ union all
+ select 'consulta_lotes:'||r.id::text as chave,'consulta_lotes'::text as origem,r.id,
+   r.sync_xid::text as revisao,false as excluido,jsonb_build_object('id',r.id,'nome',r.nome,'created_at',r.created_at,'tipo',r.tipo,'servico',r.servico,'paused',r.paused,'auto_paused',r.auto_paused) as dados
+ from public.consulta_lotes r
+ where r.user_id=uid and 'consulta_lotes:'||r.id::text>coalesce(p_after,'')
+ and (r.sync_xid is null or pg_visible_in_snapshot(r.sync_xid,cutoff))
+ and (previous is null or (r.sync_xid>=pg_snapshot_xmin(previous) and not pg_visible_in_snapshot(r.sync_xid,previous)))
+ union all
+ select 'tjba_lotes:'||r.id::text as chave,'tjba_lotes'::text as origem,r.id,
+   r.sync_xid::text as revisao,false as excluido,jsonb_build_object('id',r.id,'nome',r.nome,'created_at',r.created_at,'tipo',r.tipo,'servico',r.servico,'convenio',r.convenio,'paused',r.paused,'auto_paused',r.auto_paused) as dados
+ from public.tjba_lotes r
+ where r.user_id=uid and 'tjba_lotes:'||r.id::text>coalesce(p_after,'')
+ and (r.sync_xid is null or pg_visible_in_snapshot(r.sync_xid,cutoff))
+ and (previous is null or (r.sync_xid>=pg_snapshot_xmin(previous) and not pg_visible_in_snapshot(r.sync_xid,previous)))
+ union all
+ select d.origem||':'||d.id::text,d.origem,d.id,d.sync_xid::text,true,null::jsonb
+ from public.painel_exclusoes d where d.user_id=uid and previous is not null
+  and d.origem||':'||d.id::text>coalesce(p_after,'')
+  and d.sync_xid>=pg_snapshot_xmin(previous) and not pg_visible_in_snapshot(d.sync_xid,previous)
+  and pg_visible_in_snapshot(d.sync_xid,cutoff)
+ order by chave limit 400
+ ) page;
+ return jsonb_build_object('snapshot',cutoff::text,'rows',result,
+  'next',case when jsonb_array_length(result)=400 then result->399->>'chave' end);
+end $$;
+revoke all on function public.painel_consultas_sync(text,text,text) from public,anon;
+grant execute on function public.painel_consultas_sync(text,text,text) to authenticated;
+notify pgrst,'reload schema';
+
+commit;
+
+begin;
+create or replace function public.painel_consultas_sync(p_since text default null,p_until text default null,p_after text default null)
+returns jsonb language plpgsql stable security invoker set search_path='' as $$
+declare uid uuid=auth.uid(); previous pg_snapshot=p_since::pg_snapshot;
+ cutoff pg_snapshot=coalesce(p_until::pg_snapshot,pg_current_snapshot()); result jsonb;
+begin
+ if uid is null then raise insufficient_privilege;end if;
+ select coalesce(jsonb_agg(to_jsonb(page) order by page.chave),'[]') into result from (
+ select 'consulta_jobs:'||r.id::text as chave,'consulta_jobs'::text as origem,r.id,
+   r.sync_xid::text as revisao,false as excluido,jsonb_build_object('id',r.id,'lote_id',r.lote_id,'nome',r.nome,'cpf',r.cpf,'telefone',r.telefone,'progress',r.progress,'stage',r.stage,'status',r.status,'valor_parcela',r.valor_parcela,'saldo_liquidacao',r.saldo_liquidacao,'total_parcelas',r.total_parcelas,'created_at',r.created_at,'consultado_em',r.consultado_em,'attempts',r.attempts,'servico',r.servico,'queue_order',r.queue_order,'robot_slot',r.robot_slot,'execution_mode',r.execution_mode,'api_slot',r.api_slot,'message',left(r.message,500),'api_handoff',r.api_handoff-'resultado_saldo'-'resultado_parcela') as dados
+ from public.consulta_jobs r
+ where r.user_id=uid and 'consulta_jobs:'||r.id::text>coalesce(p_after,'')
+ and (r.sync_xid is null or pg_visible_in_snapshot(r.sync_xid,cutoff))
+ and (previous is null or (r.sync_xid>=pg_snapshot_xmin(previous) and not pg_visible_in_snapshot(r.sync_xid,previous)))
+ union all
+ select 'tjba_jobs:'||r.id::text as chave,'tjba_jobs'::text as origem,r.id,
+   r.sync_xid::text as revisao,false as excluido,jsonb_build_object('id',r.id,'lote_id',r.lote_id,'nome',r.nome,'cpf',r.cpf,'telefone',r.telefone,'progress',r.progress,'stage',r.stage,'status',r.status,'created_at',r.created_at,'consultado_em',r.consultado_em,'attempts',r.attempts,'servico',r.servico,'queue_order',r.queue_order,'robot_slot',r.robot_slot,'convenio',r.convenio,'matricula',r.matricula,'tipo_servidor',r.tipo_servidor,'situacao_atual',r.situacao_atual,'emprestimo_disponivel',r.emprestimo_disponivel,'cartao_disponivel',r.cartao_disponivel,'tjba_status',r.tjba_status,'motivo_situacao',r.resultado_tjba->>'motivo_situacao','message',left(r.message,500)) as dados
+ from public.tjba_jobs r
+ where r.user_id=uid and 'tjba_jobs:'||r.id::text>coalesce(p_after,'')
+ and (r.sync_xid is null or pg_visible_in_snapshot(r.sync_xid,cutoff))
+ and (previous is null or (r.sync_xid>=pg_snapshot_xmin(previous) and not pg_visible_in_snapshot(r.sync_xid,previous)))
+ union all
+ select 'consulta_lotes:'||r.id::text as chave,'consulta_lotes'::text as origem,r.id,
+   r.sync_xid::text as revisao,false as excluido,jsonb_build_object('id',r.id,'nome',r.nome,'created_at',r.created_at,'tipo',r.tipo,'servico',r.servico,'paused',r.paused,'auto_paused',r.auto_paused) as dados
+ from public.consulta_lotes r
+ where r.user_id=uid and 'consulta_lotes:'||r.id::text>coalesce(p_after,'')
+ and (r.sync_xid is null or pg_visible_in_snapshot(r.sync_xid,cutoff))
+ and (previous is null or (r.sync_xid>=pg_snapshot_xmin(previous) and not pg_visible_in_snapshot(r.sync_xid,previous)))
+ union all
+ select 'tjba_lotes:'||r.id::text as chave,'tjba_lotes'::text as origem,r.id,
+   r.sync_xid::text as revisao,false as excluido,jsonb_build_object('id',r.id,'nome',r.nome,'created_at',r.created_at,'tipo',r.tipo,'servico',r.servico,'convenio',r.convenio,'paused',r.paused,'auto_paused',r.auto_paused) as dados
+ from public.tjba_lotes r
+ where r.user_id=uid and 'tjba_lotes:'||r.id::text>coalesce(p_after,'')
+ and (r.sync_xid is null or pg_visible_in_snapshot(r.sync_xid,cutoff))
+ and (previous is null or (r.sync_xid>=pg_snapshot_xmin(previous) and not pg_visible_in_snapshot(r.sync_xid,previous)))
+ union all
+ select d.origem||':'||d.id::text,d.origem,d.id,d.sync_xid::text,true,null::jsonb
+ from public.painel_exclusoes d where d.user_id=uid and previous is not null
+  and d.origem||':'||d.id::text>coalesce(p_after,'')
+  and d.sync_xid>=pg_snapshot_xmin(previous) and not pg_visible_in_snapshot(d.sync_xid,previous)
+  and pg_visible_in_snapshot(d.sync_xid,cutoff)
+ order by chave limit 400
+ ) page;
+ return jsonb_build_object('snapshot',cutoff::text,'rows',result,
+  'next',case when jsonb_array_length(result)=400 then result->399->>'chave' end);
+end $$;
+commit;
+
+alter table apoiarcred_private.digimais_preferences add column if not exists api_enabled boolean not null default false;
+
+create or replace function apoiarcred_private.can_use_digimais_api(p_user uuid)
+returns boolean language sql stable security definer set search_path='' as $$
+ select apoiarcred_private.is_admin(p_user) or exists(
+ select 1 from apoiarcred_private.user_profiles u
+ join apoiarcred_private.digimais_preferences d on d.user_id=u.user_id
+ join apoiarcred_private.partner_permissions p on p.user_id=u.user_id and p.service='digimais_saldo_parcela'
+ where u.user_id=p_user and u.active and d.api_enabled and p.enabled
+ and (u.trial_until is null or u.trial_until >= (now() at time zone 'America/Sao_Paulo')::date));
+$$;
+revoke all on function apoiarcred_private.can_use_digimais_api(uuid) from public,anon,authenticated;
+grant execute on function apoiarcred_private.can_use_digimais_api(uuid) to service_role;
+
+create or replace function apoiarcred_private.assign_digimais_execution()
+returns trigger language plpgsql security definer set search_path='' as $$
+begin
+ new.execution_mode='robot';new.api_slot=null;
+ if apoiarcred_private.can_use_digimais_api(new.user_id) then
+  select coalesce((select mode from apoiarcred_private.digimais_preferences where user_id=new.user_id),'robot') into new.execution_mode;
+ end if;
+ return new;
+end $$;
+
+CREATE OR REPLACE FUNCTION public.claim_consulta_job_for_api(p_slot integer)
+ RETURNS SETOF consulta_jobs
+ LANGUAGE plpgsql
+ SET search_path TO ''
+AS $function$
+begin
+ if p_slot is null or p_slot not between 1 and 100 then raise exception 'Executor API inválido';end if;
+ perform 1 from apoiarcred_private.queue_maintenance where id for share;
+ if exists(select 1 from apoiarcred_private.queue_maintenance where id and paused_until>clock_timestamp()) then return;end if;
+ if not pg_try_advisory_xact_lock(763212,1) then return;end if;
+ if exists(select 1 from public.consulta_jobs where execution_mode='api' and status='processando' and api_slot=p_slot) then return;end if;
+ if (select count(*) from public.consulta_jobs where execution_mode='api' and status='processando')>=100 then return;end if;
+ return query update public.consulta_jobs set status='processando',locked_at=now(),attempts=attempts+1,api_slot=p_slot,robot_slot=null
+ where id=(select j.id from public.consulta_jobs j join public.consulta_lotes l on l.id=j.lote_id
+ join apoiarcred_private.digimais_preferences p on p.user_id=j.user_id
+ where j.execution_mode='api' and j.status='aguardando' and not l.paused and not p.paused
+ and apoiarcred_private.can_use_digimais_api(j.user_id)
+ and (select count(*) from public.consulta_jobs r where r.user_id=j.user_id and r.execution_mode='api' and r.status='processando')<p.max_concurrency
+ order by j.queue_order for update of j skip locked for share of l skip locked limit 1) returning *;
+end $function$;
+
+create or replace function apoiarcred_private.admin_digimais_access(p_user uuid,p_enabled boolean,p_max integer)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare result jsonb;
+begin
+ if not apoiarcred_private.is_admin(auth.uid()) then raise insufficient_privilege;end if;
+ if p_user is not null then
+  if p_enabled is null or p_max is null or p_max not between 1 and 100 then raise exception 'Informe um limite entre 1 e 100';end if;
+  perform pg_advisory_xact_lock(763212,1);
+  perform 1 from apoiarcred_private.user_profiles where user_id=p_user and role='partner' for update;
+  if not found then raise exception 'Parceiro não encontrado';end if;
+  if p_enabled and not exists(select 1 from apoiarcred_private.digimais_api_config) then raise exception 'Configure a API Digi+ antes de liberar';end if;
+  if p_enabled and not exists(select 1 from apoiarcred_private.partner_permissions where user_id=p_user and service='digimais_saldo_parcela' and enabled) then raise exception 'Libere o serviço Digi+ para este parceiro primeiro';end if;
+  insert into apoiarcred_private.digimais_preferences(user_id,mode,paused,max_concurrency,api_enabled)
+  values(p_user,case when p_enabled then 'api' else 'robot' end,false,p_max,p_enabled)
+  on conflict(user_id) do update set mode=excluded.mode,paused=false,max_concurrency=excluded.max_concurrency,api_enabled=excluded.api_enabled;
+  update public.consulta_jobs set execution_mode=case when p_enabled then 'api' else 'robot' end,api_slot=null,robot_slot=null
+  where user_id=p_user and status='aguardando' and api_handoff is null;
+ end if;
+ select coalesce(jsonb_agg(jsonb_build_object('user_id',u.user_id,'name',u.name,'email',u.email,'active',u.active,
+ 'enabled',coalesce(d.api_enabled,false),'max_concurrency',coalesce(d.max_concurrency,1)) order by u.name),'[]'::jsonb)
+ into result from apoiarcred_private.user_profiles u left join apoiarcred_private.digimais_preferences d on d.user_id=u.user_id where u.role='partner';
+ return result;
+end $$;
+revoke all on function apoiarcred_private.admin_digimais_access(uuid,boolean,integer) from public,anon;
+grant execute on function apoiarcred_private.admin_digimais_access(uuid,boolean,integer) to authenticated;
+create or replace function public.admin_digimais_access(p_user uuid default null,p_enabled boolean default null,p_max integer default null)
+returns jsonb language sql security invoker set search_path='' as $$
+ select apoiarcred_private.admin_digimais_access(p_user,p_enabled,p_max);
+$$;
+revoke all on function public.admin_digimais_access(uuid,boolean,integer) from public,anon;
+grant execute on function public.admin_digimais_access(uuid,boolean,integer) to authenticated;
+notify pgrst,'reload schema';

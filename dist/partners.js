@@ -2,7 +2,7 @@ const partnerServices=[['digimais_saldo_parcela','Digi+ · Saldo e parcela'],['t
 let partnersList=[],partnerSaving=false,applyingAccess=false;
 function hasIntegrationAccess(){return !!(currentAccess?.active&&(currentAccess.role==='admin'||currentAccess.allow_integrations===true));}
 function accessRule(service){return currentAccess?.services?.find(r=>r.id===service);}
-const campaignFileLimit=10000;
+const campaignFileLimit=11000;
 const quotaNumber=new Intl.NumberFormat('pt-BR');
 function sharedQuotaText(access){
  if(!access.shared_quota)return '';
@@ -55,7 +55,7 @@ function applyAccessUi(){
  const admin=currentAccess.role==='admin'&&currentAccess.active,rules=currentAccess.services||[];
  const canCampaign=admin||currentAccess.active&&rules.some(r=>r.enabled&&r.allow_campaign);
  document.querySelector('[data-consultation="campaigns"]').hidden=!canCampaign;
- for(const id of ['robots','partners']){$('#settings-tab-'+id).hidden=!admin;if(!admin&&!$('#settings-'+id).hidden)switchSettings('account');}
+ for(const id of ['robots','partners','minio']){$('#settings-tab-'+id).hidden=!admin;if(!admin&&!$('#settings-'+id).hidden)switchSettings('account');}
  const integrationsAllowed=hasIntegrationAccess();
  $('#settings-tab-integrations').hidden=!integrationsAllowed;
  $('#settings-account .technical-settings').hidden=!admin;
@@ -102,7 +102,7 @@ $('#partnerAccessType').onchange=()=>{
  if($('#partnerAccessType').value==='trial'&&$('#partnerQuotaMode').value==='legacy')$('#partnerQuotaMode').value='limited';
  syncPartnerQuotaFields();
 };$('#partnerTrialUntil').oninput=syncPartnerQuotaFields;$('#partnerQuotaMode').onchange=syncPartnerQuotaFields;
-function resetPartnerSettings(){quotaBanner.hidden=true;partnersList=[];$('#partnerList').innerHTML='';$('#partnerAdminStatus').textContent='';clearPartnerForm();$('#settings-tab-partners').hidden=true;quotaBox.hidden=true;}
+function resetPartnerSettings(){if(typeof resetMinioSettings==='function')resetMinioSettings();quotaBanner.hidden=true;partnersList=[];$('#partnerList').innerHTML='';$('#partnerAdminStatus').textContent='';clearPartnerForm();$('#settings-tab-partners').hidden=true;quotaBox.hidden=true;}
 function clearPartnerForm(){
  $('#partnerEditId').value='';$('#partnerName').value='';$('#partnerEmail').value='';$('#partnerEmail').disabled=false;$('#partnerPassword').value='';$('#partnerPassword').required=true;$('#partnerPasswordField').hidden=false;$('#partnerActive').checked=true;$('#partnerIntegrations').checked=false;$('#partnerAmigoz').checked=false;
  for(const [id] of partnerServices){for(const name of ['Enabled','Individual','Campaign'])$('#partner'+name+'-'+id).checked=false;$('#partnerLimit-'+id).value=0;}
@@ -116,7 +116,7 @@ async function loadPartners(){
  $('#partnerAdminStatus').textContent='';
  }catch(e){if(epoch===authEpoch)$('#partnerAdminStatus').textContent=e.message;}
 }
-const partnerSwitchSettings=switchSettings;switchSettings=function(id){if(id==='partners'&&currentAccess?.role!=='admin'||id==='integrations'&&!hasIntegrationAccess())return;partnerSwitchSettings(id);if(id==='partners')loadPartners();};
+const partnerSwitchSettings=switchSettings;switchSettings=function(id){if(id==='minio'&&!minioAdmin()||id==='partners'&&currentAccess?.role!=='admin'||id==='integrations'&&!hasIntegrationAccess())return;partnerSwitchSettings(id);if(id==='partners')loadPartners();if(id==='minio')requestMinio('load');};
 $('#newPartner').onclick=clearPartnerForm;$('#cancelPartnerEdit').onclick=clearPartnerForm;$('#reloadPartners').onclick=loadPartners;
 $('#partnerList').onclick=e=>{const id=e.target.dataset.editPartner,p=partnersList.find(p=>p.user_id===id);if(!p)return;clearPartnerForm();$('#partnerEditId').value=id;$('#partnerName').value=p.name;$('#partnerEmail').value=p.email;$('#partnerEmail').disabled=true;$('#partnerPassword').required=false;$('#partnerPasswordField').hidden=true;$('#partnerActive').checked=p.active;$('#partnerIntegrations').checked=p.allow_integrations===true;$('#partnerAmigoz').checked=p.allow_amigoz===true;
  for(const r of p.access.services){$('#partnerEnabled-'+r.id).checked=r.enabled;$('#partnerIndividual-'+r.id).checked=r.allow_individual;$('#partnerCampaign-'+r.id).checked=r.allow_campaign;$('#partnerLimit-'+r.id).value=r.daily_limit;}
@@ -135,3 +135,47 @@ $('#partnerForm').onsubmit=async e=>{
  finally{$('#partnerPassword').value='';partnerSaving=false;$('#savePartner').disabled=false;}
 };
 applyAccessUi();
+
+const partnerDigiCard=document.createElement('section');
+partnerDigiCard.className='card';
+partnerDigiCard.innerHTML=`<h2>Consulta Digi+ pela API</h2><form id="partnerDigiForm"><label class="field" for="partnerDigiUser">Parceiro</label><select id="partnerDigiUser" required></select><label class="portal-enable"><input id="partnerDigiEnabled" type="checkbox"> Liberar consultas pela API Digi+</label><label class="field" for="partnerDigiMax">Consultas simultâneas permitidas</label><input id="partnerDigiMax" type="number" min="1" max="100" step="1" value="1" required><p>Usuários atuais e novos começam sem liberação. A configuração vale para consultas individuais e campanhas, respeitando as permissões do serviço. Ao revogar, as consultas em andamento terminam e as próximas usam o robô. O limite total da VPS é compartilhado entre as contas.</p><button id="partnerDigiSave" class="primary" disabled>Salvar liberação</button></form><p id="partnerDigiStatus" role="status"></p>`;
+$('#settings-partners').append(partnerDigiCard);
+let partnerDigiUsers=[],partnerDigiBusy=false;
+function renderPartnerDigiSelection(){
+ const user=partnerDigiUsers.find(row=>row.user_id===$('#partnerDigiUser').value);
+ $('#partnerDigiEnabled').checked=user?.enabled===true;
+ $('#partnerDigiMax').value=user?.max_concurrency||1;
+ $('#partnerDigiSave').disabled=!user||partnerDigiBusy;
+}
+async function loadPartnerDigiAccess(){
+ if(!authenticated||!currentAccess?.active||currentAccess.role!=='admin')return;
+ const epoch=authEpoch;
+ $('#partnerDigiSave').disabled=true;
+ try{
+  const rows=await sbRequest('/rest/v1/rpc/admin_digimais_access',{method:'POST',body:'{}'});
+  if(epoch!==authEpoch)return;
+  partnerDigiUsers=rows;
+  const selected=$('#partnerDigiUser').value;
+  $('#partnerDigiUser').innerHTML=rows.map(row=>'<option value="'+escapeHTML(row.user_id)+'">'+escapeHTML(row.name+' · '+row.email+(row.enabled?' · API liberada':' · API desativada'))+'</option>').join('');
+  if(rows.some(row=>row.user_id===selected))$('#partnerDigiUser').value=selected;
+  renderPartnerDigiSelection();
+ }catch(error){if(epoch===authEpoch)$('#partnerDigiStatus').textContent=error.message||'Não foi possível carregar as liberações.';}
+}
+$('#partnerDigiUser').onchange=renderPartnerDigiSelection;
+$('#partnerDigiForm').onsubmit=async event=>{
+ event.preventDefault();
+ if(partnerDigiBusy||currentAccess?.role!=='admin')return;
+ const user=$('#partnerDigiUser').value,max=Number($('#partnerDigiMax').value);
+ if(!user||!Number.isInteger(max)||max<1||max>100)return;
+ const epoch=authEpoch;
+ partnerDigiBusy=true;$('#partnerDigiSave').disabled=true;
+ try{
+  await sbRequest('/rest/v1/rpc/admin_digimais_access',{method:'POST',body:JSON.stringify({p_user:user,p_enabled:$('#partnerDigiEnabled').checked,p_max:max})});
+  if(epoch!==authEpoch)return;
+  $('#partnerDigiStatus').textContent='Liberação salva.';
+  await loadPartnerDigiAccess();
+ }catch(error){if(epoch===authEpoch)$('#partnerDigiStatus').textContent=error.message||'Não foi possível salvar.';}
+ finally{partnerDigiBusy=false;if(epoch===authEpoch)renderPartnerDigiSelection();}
+};
+const partnerDigiLoadPartners=loadPartners;
+loadPartners=async function(){await partnerDigiLoadPartners();await loadPartnerDigiAccess();};

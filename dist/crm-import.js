@@ -1,3 +1,67 @@
+async function crmConfirmWithReceipt(rpcName, payload, requestId) {
+  try {
+    return await crmRpc(rpcName, payload);
+  } catch (error) {
+    const uncertain = error.name === 'TimeoutError' || error.name === 'AbortError' ||
+      error instanceof TypeError || error.status >= 500;
+    if (!uncertain) throw error;
+    let history;
+    try {
+      history = await crmRpc('crm_import_history', {p_id:requestId});
+    } catch (lookupError) {
+      if (lookupError.status === 401) throw lookupError;
+    }
+    const receipt = history?.find(row => row.id === requestId);
+    if (receipt?.response) return receipt.response;
+    throw Error('O servidor demorou para responder. Mantenha esta janela aberta e clique no mesmo botão para verificar ou retomar a confirmação.');
+  }
+}
+
+
+// Mantém cada CPF no mesmo lote e IDs estáveis para retentativas na mesma janela.
+async function crmConfirmImportBatches(payload, requestId, filename, onProgress) {
+  const groups = new Map();
+  for (const row of payload.p_rows) {
+    if (!groups.has(row.cpf)) groups.set(row.cpf, []);
+    groups.get(row.cpf).push(row);
+  }
+  const batches = [];
+  let batch = [];
+  for (const rows of groups.values()) {
+    if (batch.length && batch.length + rows.length > 100) {
+      batches.push(batch);
+      batch = [];
+    }
+    batch.push(...rows);
+  }
+  if (batch.length) batches.push(batch);
+  const total = {clientes:0, clientes_novos:0, clientes_atualizados:0, consultas:0};
+  let completed = 0;
+  for (let index = 0; index < batches.length; index++) {
+    const bytes = new Uint8Array(await crypto.subtle.digest(
+      'SHA-256', new TextEncoder().encode(requestId + ':' + index)
+    ));
+    bytes[6] = (bytes[6] & 15) | 80;
+    bytes[8] = (bytes[8] & 63) | 128;
+    const hex = [...bytes.slice(0,16)].map(value=>value.toString(16).padStart(2,'0')).join('');
+    const id = [hex.slice(0,8),hex.slice(8,12),hex.slice(12,16),hex.slice(16,20),hex.slice(20)].join('-');
+    onProgress(completed, payload.p_rows.length);
+    try {
+      const result = await crmConfirmWithReceipt('crm_confirm_import', {
+        ...payload, p_rows:batches[index], p_request_id:id,
+        p_arquivo:filename
+      }, id);
+      for (const key of Object.keys(total)) total[key] += Number(result[key] || 0);
+    } catch (error) {
+      throw Error(completed + ' de ' + payload.p_rows.length +
+        ' registros confirmados nesta tentativa. Mantenha esta janela aberta e clique em Confirmar importação para retomar. ' +
+        (error.name === 'TimeoutError' ? 'O servidor excedeu o tempo de resposta.' : error.message));
+    }
+    completed += batches[index].length;
+  }
+  onProgress(completed, payload.p_rows.length);
+  return total;
+}
 const crmStates = {
   AC:'Acre', AL:'Alagoas', AP:'Amapá', AM:'Amazonas', BA:'Bahia', CE:'Ceará',
   DF:'Distrito Federal', ES:'Espírito Santo', GO:'Goiás', MA:'Maranhão',
@@ -9,7 +73,7 @@ const crmStates = {
 
 async function crmReadClientFile(file, uf, convenio, convenioNome = convenio, services = null) {
   if (!/\.(csv|tsv|xlsx|xls)$/i.test(file.name)) throw Error('Envie um arquivo CSV, TSV, XLSX ou XLS.');
-  if (file.size > 2_000_000) throw Error('O arquivo deve ter até 2 MB.');
+  if (file.size > 8_000_000) throw Error('O arquivo deve ter até 8 MB.');
   let rows, date1904 = false;
   if (/\.xlsx?$/i.test(file.name)) {
     const book = XLSX.read(await file.arrayBuffer(), {type:'array', sheetRows:10002, cellFormula:false, cellHTML:false});
@@ -18,13 +82,13 @@ async function crmReadClientFile(file, uf, convenio, convenioNome = convenio, se
     if (!sheet) throw Error('A planilha está vazia.');
     rows = XLSX.utils.sheet_to_json(sheet, {header:1, raw:true, defval:'', blankrows:false});
     const range = sheet['!fullref'] || sheet['!ref'];
-    if (range && XLSX.utils.decode_range(range).e.r > 10000) throw Error('Envie até 10.000 clientes por arquivo.');
+    if (range && XLSX.utils.decode_range(range).e.r > 20000) throw Error('Envie até 20.000 clientes por arquivo.');
   } else {
     const data = (await file.text()).replace(/^\uFEFF/,'').replace(/^sep=[;,]\r?\n/i,'');
     if (data.includes('\uFFFD')) throw Error('Salve o CSV com codificação UTF-8.');
     rows = csvParse(data);
   }
-  if (rows.length < 2 || rows.length > 10001) throw Error('O arquivo deve ter um cabeçalho e entre 1 e 10.000 clientes.');
+  if (rows.length < 2 || rows.length > 20001) throw Error('O arquivo deve ter um cabeçalho e entre 1 e 20.000 clientes.');
   const headers = rows.shift().map(value => importHeader(String(value)));
   if (!headers.includes('cpf') || new Set(headers).size !== headers.length) throw Error('Inclua uma coluna CPF e use cabeçalhos únicos.');
   const normalize = value => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
@@ -172,14 +236,15 @@ const crmPlannedServices = {
   digimais_saldo:'Saldo e parcela · Digi+'
 };
 
-async function crmOpenClientImport() {
+async function crmOpenClientImport(amigozCampaign=false) {
   const epoch = authEpoch;
-  const {dialog, form} = crmDialog('Importar base de clientes');
+  const {dialog, form} = crmDialog(amigozCampaign?'Nova campanha Amigoz':'Importar base de clientes');
   dialog.classList.add('crm-import-dialog');
   const heading = dialog.querySelector('h2');
   heading.id = 'crmImportTitle';
   dialog.setAttribute('aria-labelledby', heading.id);
   form.innerHTML = `
+    ${amigozCampaign?'<label>Nome da campanha<input name="nomeCampanha" required maxlength="160"></label>':''}
     <p class="crm-import-intro">Escolha o convênio e marque as consultas para iniciar automaticamente após importar. Sem opções marcadas, a planilha atualiza o cadastro sem iniciar consultas.</p>
     <ol class="crm-import-steps" aria-label="Etapas da importação">
       <li>Estado</li><li>Convênio</li><li>Consultas e planilha</li>
@@ -194,7 +259,7 @@ async function crmOpenClientImport() {
       </fieldset>
       <div class="crm-import-file" hidden>
         <label>Planilha de clientes<input name="arquivo" type="file" accept=".csv,.tsv,.xlsx,.xls" required disabled></label>
-        <small>CPF obrigatório. O modelo do convênio indica os campos disponíveis. Até 2 MB e 10.000 clientes.</small>
+        <small>CPF obrigatório. O modelo do convênio indica os campos disponíveis. Até 8 MB e 20.000 clientes.</small>
         <p data-agreement-info></p>
         <div class="crm-import-downloads">
           <button type="button" data-model>Baixar modelo Excel</button>
@@ -205,6 +270,7 @@ async function crmOpenClientImport() {
     <div data-preview></div>
     <div data-errors></div>
     <button type="button" data-history>Histórico de importações</button>
+    <progress class="crm-import-progress" max="4" value="0" aria-label="Etapas da importação" style="width:100%" hidden></progress>
     <p role="status" class="crm-import-status"></p>
     <footer><button type="button" data-cancel>Cancelar</button><button type="submit" class="primary" disabled>Importar clientes</button></footer>`;
   const uf = form.elements.uf, convenio = form.elements.convenio;
@@ -217,6 +283,8 @@ async function crmOpenClientImport() {
   const previewPanel=form.querySelector('[data-preview]');
   const errorPanel=form.querySelector('[data-errors]');
   form.querySelector('[data-history]').onclick=crmOpenImportHistory;
+  const progress=form.querySelector('progress');
+  function importProgress(step){progress.hidden=false;progress.value=step;}
   function showErrors(errors){
     errorPanel.replaceChildren();
     if(!errors?.length)return;
@@ -240,6 +308,7 @@ async function crmOpenClientImport() {
   status.textContent = 'Carregando convênios cadastrados…';
   try {
     catalog = await crmGetImportCatalog();
+    if(amigozCampaign)catalog=catalog.map(row=>({...row,servicos:row.servicos.filter(service=>['amigoz_margem','amigoz_saque'].includes(service))})).filter(row=>row.servicos.length);
     if (!dialog.open || authEpoch !== epoch) return;
     const states = [...new Set(catalog.map(row => row.uf))];
     states.sort((a,b) => (crmStates[a] || a).localeCompare(crmStates[b] || b,'pt-BR'));
@@ -284,7 +353,7 @@ async function crmOpenClientImport() {
     file.closest('.crm-import-file').hidden = !selectedAgreement();
     const selected = [...serviceList.querySelectorAll('input:checked')].map(input => input.value);
     submit.disabled = saving || file.disabled || !rows.length;
-    submit.textContent = previewFingerprint ? 'Confirmar importação' : 'Conferir importação';
+    submit.textContent = previewFingerprint ? (amigozCampaign?'Criar campanha':'Confirmar importação') : 'Conferir importação';
     const step = !uf.value ? 0 : !convenio.value.trim() ? 1 : 2;
     steps.forEach((item,index)=>{
       if(index===step) item.setAttribute('aria-current','step');
@@ -331,14 +400,17 @@ async function crmOpenClientImport() {
     const request = ++generation;
     previewFingerprint=null;previewPanel.replaceChildren();showErrors([]);
     rows = [];
+    progress.hidden=true;
     refresh();
     if (!file.files.length) { status.textContent = ''; return; }
-    status.textContent = 'Validando a planilha…';
+    importProgress(0);
+    status.textContent = 'Etapa 1 de 4 · Validando a planilha…';
     try {
       const agreement = selectedAgreement();
       const parsed = await crmReadClientFile(file.files[0], agreement.uf, agreement.codigo, agreement.nome, agreement.servicos);
       if (request !== generation) return;
       rows = parsed;
+      importProgress(1);
       status.textContent = rows.length.toLocaleString('pt-BR') + ' clientes prontos para cadastrar.';
     } catch (error) {
       if (request === generation) {status.textContent=error.message;showErrors(error.rows);}
@@ -355,9 +427,13 @@ async function crmOpenClientImport() {
     status.textContent = 'Salvando clientes e agendando consultas…';
     try {
       const selected = [...serviceList.querySelectorAll('input:checked')].map(input => input.value);
+      if(amigozCampaign&&!selected.length){status.textContent='Selecione margem ou saque complementar.';return;}
+      const campaignName=form.elements.nomeCampanha?.value.trim();
       const payload = {p_uf:uf.value,p_convenio:convenio.value,p_rows:rows,p_servicos:selected};
-      const fingerprint = JSON.stringify(payload);
+      const fingerprint = JSON.stringify([payload,campaignName]);
       if(previewFingerprint!==fingerprint){
+        importProgress(1);
+        status.textContent='Etapa 2 de 4 · Validando os registros no servidor…';
         const preview=await crmRpc('crm_preview_import',payload);
         if(authEpoch!==epoch || !dialog.open)return;
         if(!preview.valido){
@@ -373,20 +449,32 @@ async function crmOpenClientImport() {
         for(const item of preview.oportunidades||[])previewPanel.append(crmElement('p','',
           (crmProducts[item.produto]||item.produto)+' · '+item.criadas+' novas · '+item.atualizadas+' atualizadas'));
         previewFingerprint=fingerprint;
+        importProgress(2);
         status.textContent='Revise os dados e confirme a importação.';
         return;
       }
       if (submitted && submitted !== fingerprint) requestId = crypto.randomUUID();
       submitted = fingerprint;
-      const result = await crmRpc('crm_confirm_import', {...payload,p_request_id:requestId,p_arquivo:file.files[0]?.name});
+      importProgress(2);
+      status.textContent='Etapa 3 de 4 · Salvando clientes e agendando consultas…';
+      const result = amigozCampaign
+        ? await crmConfirmWithReceipt('crm_criar_campanha_amigoz',{...payload,p_id:requestId,p_nome:campaignName,p_arquivo:file.files[0]?.name},requestId)
+        : await crmConfirmImportBatches(payload, requestId, file.files[0]?.name, (done,total)=>{
+            status.textContent='Etapa 3 de 4 · '+done.toLocaleString('pt-BR')+' de '+total.toLocaleString('pt-BR')+' registros confirmados. Mantenha esta janela aberta.';
+          });
       if (authEpoch !== epoch) return;
-      dialog.close();
+      if(amigozCampaign){dialog.close();toast('Campanha Amigoz criada · '+result.consultas+' leads na fila.');refreshAmigozCampaignList();return;}
+      importProgress(3);
+      status.textContent='Etapa 4 de 4 · Atualizando a lista de clientes…';
       closeCrmHistory();
       $('#crmSearch').reset();
       crmFilters = {p_query:'',p_uf:'',p_convenio:'',p_servico:''};
       crmCursors = [''];
       await Promise.all([loadCrmClients(0),loadCrmFilterOptions()]);
-      if (currentPage === 'clients' && authEpoch === epoch) toast(result.clientes + ' clientes cadastrados. ' + (result.consultas ? result.consultas + ' consultas na fila. Acompanhe em Ver histórico.' : 'Nenhuma consulta selecionada.'));
+      if(authEpoch!==epoch)return;
+      importProgress(4);
+      dialog.close();
+      if (currentPage === 'clients' && authEpoch === epoch) toast((result.clientes_novos==null ? result.clientes + ' clientes processados. ' : result.clientes_novos + ' novos · ' + result.clientes_atualizados + ' atualizados. ') + (result.consultas ? result.consultas + ' consultas na fila. Acompanhe em Ver histórico.' : 'Nenhuma consulta selecionada.'));
     } catch (error) {
       if (authEpoch === epoch) status.textContent = error.message || 'Não foi possível importar a base.';
     } finally {
@@ -406,7 +494,7 @@ async function crmGetImportCatalog() {
   return crmImportCatalog;
 }
 
-$('#crmImportClients').onclick = crmOpenClientImport;
+$('#crmImportClients').onclick = ()=>crmOpenClientImport();
 
 function crmAddPlannedActions(item, client, agreement, planned) {
   const buttons = crmElement('div','crm-planned-actions');

@@ -40,6 +40,21 @@ def session_actor(auth):
  if not actor:raise AdminError(401,'invalid_session','Sessão inválida.')
  return actor
 
+def minio_admin(auth,method,path,payload):
+ import minio_settings
+
+ actor=session_actor(auth)
+ try:
+  supabase_call('/rest/v1/rpc/admin_partner_manage',dict(p_actor=actor,p_action='check',p_input={}))
+ except urllib.error.HTTPError as error:
+  if error.code in (401,403):raise AdminError(403,'admin_required','Apenas administradores podem configurar o MinIO.') from error
+  raise
+ try:
+  return 200,{'data':minio_settings.handle_settings(method,path,payload)}
+ except minio_settings.SettingsError as error:
+  raise AdminError(error.status,'minio_settings',str(error)) from None
+
+
 def partner_admin(auth,method,path,payload):
  actor=session_actor(auth)
  def manage(action,data=None):return supabase_call('/rest/v1/rpc/admin_partner_manage',dict(p_actor=actor,p_action=action,p_input=data or {}))
@@ -103,6 +118,8 @@ def partner_admin(auth,method,path,payload):
    raise
  raise AdminError(404,'not_found','Rota não encontrada.')
 
+AMIGOZ_REQUESTS=threading.BoundedSemaphore(3)
+
 def amigoz_admin(auth,method,path,payload):
  import amigoz_api as amigoz
  actor=session_actor(auth)
@@ -151,7 +168,15 @@ def amigoz_admin(auth,method,path,payload):
      if error.code==429:raise AdminError(429,'daily_limit','Limite diário de consultas atingido.') from None
      if error.code in (401,403):raise AdminError(403,'amigoz_access_denied','Acesso Amigoz não liberado.') from None
      raise
-   result=amigoz.consultation(config,payload,before_request=begin)
+   diagnostics=None
+   if payload.get('modo') in ('margem','ambos'):
+    try:
+     access=supabase_call('/rest/v1/rpc/admin_partner_manage',dict(p_actor=actor,p_action='check',p_input={}))
+     if isinstance(access,dict) and access.get('admin') is True:
+      diagnostics={}
+    except Exception:
+     pass  # Diagnostics fail closed. The customer result remains available.
+   result=amigoz.consultation(config,payload,before_request=begin,diagnostics=diagnostics)
    if execution:
     operations=[result[key] for key in ('saque','margem') if key in result]
     failures=sum(operation.get('status')!='respondido' for operation in operations)
@@ -165,6 +190,8 @@ def amigoz_admin(auth,method,path,payload):
      saved=False
     result['consulta_id']=execution['id']
     result['salvo_no_historico']=saved is True
+   if diagnostics:
+    result['diagnostico_admin']=diagnostics
    return 200,{'data':result}
   raise AdminError(404,'not_found','Rota não encontrada.')
  except amigoz.AmigozError as error:
@@ -198,14 +225,17 @@ class Handler(BaseHTTPRequestHandler):
  def handle_route(self):
   self.request_id=str(uuid.uuid4());target=urlsplit(self.path)
   if self.command=='GET' and target.path=='/api/health':
-   return self.send_json(200,{'status':'ok','version':'1'})
+   return self.send_json(200,{'status':'ok','version':'1','session_gateway':True})
+  if target.path.startswith('/api/session/'):
+   import auth_session
+   return auth_session.handle(self,target.path)
   if not target.path.startswith(('/api/v1/','/api/admin/')) or '%' in target.path:return self.error(404,'not_found','Rota não encontrada.')
   auth=self.headers.get('Authorization','')
   admin=target.path.startswith('/api/admin/')
   if not admin and not re.fullmatch(r'Bearer apc_[a-f0-9]{64}',auth):return self.error(401,'invalid_token','Envie Authorization: Bearer SEU_TOKEN.')
   token=auth[7:];payload={}
   if self.headers.get('Transfer-Encoding'):return self.error(400,'invalid_body','Envie Content-Length e JSON.')
-  if self.command=='POST':
+  if self.command in ('POST','PATCH'):
    if self.headers.get('Content-Type','').split(';')[0].strip().lower()!='application/json':return self.error(415,'content_type','Use application/json.')
    try:length=int(self.headers.get('Content-Length','0'))
    except ValueError:return self.error(400,'invalid_length','Content-Length inválido.')
@@ -220,15 +250,24 @@ class Handler(BaseHTTPRequestHandler):
    if re.fullmatch(r'/api/v1/campanhas/[^/]+/leads',target.path):allowed+=('all',)
    if target.path=='/api/v1/clientes/convenios':allowed=('uf',)
    if target.path=='/api/v1/clientes/importacoes':allowed=('offset',)
-   if target.path=='/api/v1/oportunidades':allowed=('page','page_size','etapa','tipos','exportaveis')
+   if target.path=='/api/v1/oportunidades':allowed=('page','page_size','etapa','etapa_id','tipos','exportaveis')
+   if re.fullmatch(r'/api/v1/oportunidades/[0-9a-fA-F-]{36}',target.path):allowed=('include',)
    if any(k not in allowed or len(v)!=1 for k,v in query.items()):return self.error(422,'invalid_filter','Filtros inválidos. CPF deve ser enviado por POST /leads/buscar.')
    payload={k:v[0] for k,v in query.items()}
+   if 'include' in payload and payload['include']!='cliente':return self.error(422,'invalid_include','Use include=cliente.')
   key=self.headers.get('Idempotency-Key')
   if key is not None and (not 1<=len(key)<=128 or not re.fullmatch(r'[A-Za-z0-9_.:-]+',key)):return self.error(400,'invalid_idempotency_key','Use chave de 1 a 128 caracteres: letras, números, ponto, dois-pontos, hífen ou sublinhado.')
   try:
    if admin:
-    handler=amigoz_admin if target.path.startswith('/api/admin/amigoz/') else partner_admin
-    status,body=handler(auth,self.command,target.path,payload);body['request_id']=self.request_id;return self.send_json(status,body)
+    if target.path in ('/api/admin/minio','/api/admin/minio/test'):handler=minio_admin
+    else:handler=amigoz_admin if target.path.startswith('/api/admin/amigoz/') else partner_admin
+    limited=handler is amigoz_admin and target.path.rsplit('/',1)[-1] in ('consultar','testar')
+    if limited and not AMIGOZ_REQUESTS.acquire(blocking=False):
+     return self.error(503,'amigoz_busy','A Amigoz está ocupada. Os outros serviços continuam disponíveis.')
+    try:status,body=handler(auth,self.command,target.path,payload)
+    finally:
+     if limited:AMIGOZ_REQUESTS.release()
+    body['request_id']=self.request_id;return self.send_json(status,body)
    result=rpc(dict(p_hash=hashlib.sha256(token.encode()).hexdigest(),p_method=self.command,p_route=target.path[len('/api/v1'):],p_payload=payload,p_key=key))
    status=int(result['status']);body=result['body'];body['request_id']=self.request_id
    format_cpf_field(body)
@@ -247,10 +286,16 @@ class Handler(BaseHTTPRequestHandler):
  def do_OPTIONS(self):self.request_id=str(uuid.uuid4());self.error(405,'method_not_allowed','Método não permitido. Integre pelo servidor, sem expor seu token no navegador público.')
  def do_PUT(self):self.do_OPTIONS()
  def do_DELETE(self):self.do_OPTIONS()
- def do_PATCH(self):self.do_OPTIONS()
+ def do_PATCH(self):
+  if re.fullmatch(r'/api/v1/crm/etapas/[0-9a-fA-F-]{36}',self.path):self.handle_route()
+  else:self.do_OPTIONS()
 
 if __name__=='__main__':
- import amigoz_queue
- queue_stop=amigoz_queue.start(supabase_call)
+ queue_stop=threading.Event()
+ try:
+  import amigoz_queue
+  queue_stop=amigoz_queue.start(supabase_call)
+ except Exception as error:
+  print(f'Amigoz | executor indisponível ({type(error).__name__}).',flush=True)
  try:Server(('127.0.0.1',8877),Handler).serve_forever()
  finally:queue_stop.set()

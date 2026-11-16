@@ -515,3 +515,15 @@ A resposta `201` traz `data.clientes`, `data.consultas` e `data.campanhas`. O co
 - `GET /api/v1/clientes/importacoes/{id}` consulta um lote da própria conta.
 
 Use uma linha por CPF, matrícula e instituição. Informe `margem_beneficio` e `margem_consignado` para identificar o tipo de cartão. O campo opcional `data_dados` recebe uma data ISO ou um horário RFC 3339 com fuso. Quando omitido, vale o horário da importação.
+
+### Buscar cliente por CPF ou telefone
+
+Envie `POST /api/v1/clientes/buscar` com autorização `crm:read` ou `read`. Informe um dos campos no JSON, por exemplo `{"cpf":"000.000.001-23"}` ou `{"telefone":"+55 (71) 99999-0000"}`. O telefone precisa ter DDD. Se houver mais de um cliente com o mesmo telefone na conta, a API retorna `409` e a busca deve ser feita pelo CPF. O campo `data.oportunidades[].id` contém o ID de cada oportunidade no funil.
+
+### Convênio na criação de campanhas
+
+Em `POST /api/v1/campanhas`, envie `convenio` com o nome ou código do convênio no Digi+. O campo é opcional. O convênio aparece na resposta da criação, na listagem e nos detalhes da campanha. Para ConsigX, use o código do convênio aceito pelo serviço.
+
+```json
+{"nome":"Polícia Militar SP","servico":"digimais_saldo_parcela","convenio":"amigoz_33"}
+```

@@ -1,11 +1,11 @@
 [
   {
-    "method": "GET",
     "path": "/servicos",
+    "method": "GET",
     "summary": "Serviços disponíveis",
     "scope": "read",
+    "status": "200",
     "body": null,
-    "status": 200,
     "response": {
       "data": [
         {
@@ -30,15 +30,17 @@
           ]
         }
       ]
-    }
+    },
+    "tag": "Consultas e campanhas",
+    "idempotency": false
   },
   {
-    "method": "GET",
     "path": "/campanhas",
+    "method": "GET",
     "summary": "Listar campanhas",
     "scope": "read",
+    "status": "200",
     "body": null,
-    "status": 200,
     "response": {
       "data": [
         {
@@ -54,33 +56,37 @@
         "page_size": 50,
         "total": 1
       }
-    }
+    },
+    "tag": "Consultas e campanhas",
+    "idempotency": false
   },
   {
-    "method": "POST",
     "path": "/campanhas",
+    "method": "POST",
     "summary": "Criar campanha pausada",
     "scope": "campanhas:write",
+    "status": "201",
     "body": {
       "nome": "Campanha de exemplo",
       "servico": "digimais_saldo_parcela"
     },
-    "status": 201,
     "response": {
       "id": "00000000-0000-4000-8000-000000000001",
       "nome": "Campanha de exemplo",
       "servico": "digimais_saldo_parcela",
       "convenio": null,
       "paused": true
-    }
+    },
+    "tag": "Consultas e campanhas",
+    "idempotency": true
   },
   {
-    "method": "GET",
     "path": "/campanhas/{id}",
+    "method": "GET",
     "summary": "Andamento e relatório",
     "scope": "read",
+    "status": "200",
     "body": null,
-    "status": 200,
     "response": {
       "id": "00000000-0000-4000-8000-000000000001",
       "nome": "Campanha de exemplo",
@@ -96,15 +102,17 @@
         "aguardando": 1,
         "processando": 0
       }
-    }
+    },
+    "tag": "Consultas e campanhas",
+    "idempotency": false
   },
   {
-    "method": "GET",
     "path": "/campanhas/{id}/leads",
-    "summary": "Leads da campanha (use ?all=true para todos)",
+    "method": "GET",
+    "summary": "Leads da campanha",
     "scope": "read",
+    "status": "200",
     "body": null,
-    "status": 200,
     "response": {
       "data": [
         {
@@ -125,15 +133,47 @@
         "page_size": 50,
         "total": 1
       }
-    }
+    },
+    "tag": "Consultas e campanhas",
+    "idempotency": false
   },
   {
-    "method": "GET",
+    "path": "/campanhas/{id}/leads",
+    "method": "POST",
+    "summary": "Adicionar leads à campanha pausada",
+    "scope": "campanhas:write",
+    "status": "200",
+    "body": {
+      "leads": [
+        {
+          "nome": "Cliente de exemplo",
+          "cpf": "000.000.000-00",
+          "telefone": "11999999999",
+          "referencia_externa": "contato-123"
+        }
+      ]
+    },
+    "response": {
+      "accepted": [
+        {
+          "linha": 1,
+          "id": "00000000-0000-4000-8000-000000000002",
+          "cpf": "000.000.000-00"
+        }
+      ],
+      "duplicates": [],
+      "rejected": []
+    },
+    "tag": "Consultas e campanhas",
+    "idempotency": true
+  },
+  {
     "path": "/campanhas/{id}/leads/status/{status}",
-    "summary": "Listar todos os leads com um status (ex.: concluida)",
+    "method": "GET",
+    "summary": "Listar todos os leads com um status",
     "scope": "read",
+    "status": "200",
     "body": null,
-    "status": 200,
     "response": {
       "data": [
         {
@@ -150,79 +190,59 @@
         }
       ],
       "total": 1
-    }
-  },
-  {
-    "method": "POST",
-    "path": "/campanhas/{id}/leads",
-    "summary": "Adicionar leads à campanha pausada",
-    "scope": "campanhas:write",
-    "body": {
-      "leads": [
-        {
-          "nome": "Cliente de exemplo",
-          "cpf": "000.000.000-00",
-          "telefone": "11999999999",
-          "referencia_externa": "contato-123"
-        }
-      ]
     },
-    "status": 200,
-    "response": {
-      "accepted": [
-        {
-          "linha": 1,
-          "id": "00000000-0000-4000-8000-000000000002",
-          "cpf": "000.000.000-00"
-        }
-      ],
-      "duplicates": [],
-      "rejected": []
-    }
+    "tag": "Consultas e campanhas",
+    "idempotency": false
   },
   {
-    "method": "POST",
     "path": "/campanhas/{id}/iniciar",
+    "method": "POST",
     "summary": "Iniciar ou retomar campanha",
     "scope": "campanhas:write",
+    "status": "200",
     "body": {},
-    "status": 200,
     "response": {
       "id": "00000000-0000-4000-8000-000000000001",
       "paused": false
-    }
+    },
+    "tag": "Consultas e campanhas",
+    "idempotency": true
   },
   {
-    "method": "POST",
     "path": "/campanhas/{id}/pausar",
+    "method": "POST",
     "summary": "Pausar novas consultas",
     "scope": "campanhas:write",
+    "status": "200",
     "body": {},
-    "status": 200,
     "response": {
       "id": "00000000-0000-4000-8000-000000000001",
       "paused": true
-    }
+    },
+    "tag": "Consultas e campanhas",
+    "idempotency": true
   },
   {
-    "method": "POST",
     "path": "/campanhas/{id}/repetir-revisoes",
+    "method": "POST",
     "summary": "Reenfileirar erros e revisões",
     "scope": "campanhas:write",
+    "status": "202",
     "body": {},
-    "status": 202,
     "response": {
       "reenfileirados": 1,
       "paused": true
-    }
+    },
+    "tag": "Consultas e campanhas",
+    "idempotency": true
   },
   {
-    "method": "GET",
     "path": "/leads/{id}",
+    "method": "GET",
     "summary": "Registro individual e resultado",
     "scope": "read",
+    "status": "200",
     "body": null,
-    "status": 200,
     "response": {
       "id": "00000000-0000-4000-8000-000000000002",
       "campanha_id": "00000000-0000-4000-8000-000000000001",
@@ -234,17 +254,19 @@
         "total_parcelas": null,
         "valor_parcela": null
       }
-    }
+    },
+    "tag": "Consultas e campanhas",
+    "idempotency": false
   },
   {
-    "method": "POST",
     "path": "/leads/buscar",
+    "method": "POST",
     "summary": "Buscar registros por CPF",
     "scope": "read",
+    "status": "200",
     "body": {
       "cpf": "000.000.000-00"
     },
-    "status": 200,
     "response": {
       "data": [
         {
@@ -265,33 +287,37 @@
         "page_size": 50,
         "total": 1
       }
-    }
+    },
+    "tag": "Consultas e campanhas",
+    "idempotency": false
   },
   {
-    "method": "POST",
     "path": "/consultas",
+    "method": "POST",
     "summary": "Solicitar consulta individual",
     "scope": "consultas:create",
+    "status": "202",
     "body": {
       "servico": "tjba_margem",
       "convenio": "tjba",
       "cpf": "000.000.000-00",
       "referencia_externa": "contato-123"
     },
-    "status": 202,
     "response": {
       "id": "00000000-0000-4000-8000-000000000002",
       "campanha_id": "00000000-0000-4000-8000-000000000001",
       "status": "aguardando"
-    }
+    },
+    "tag": "Consultas e campanhas",
+    "idempotency": true
   },
   {
-    "method": "GET",
     "path": "/consultas/{id}",
+    "method": "GET",
     "summary": "Acompanhar consulta individual",
     "scope": "read",
+    "status": "200",
     "body": null,
-    "status": 200,
     "response": {
       "id": "00000000-0000-4000-8000-000000000002",
       "campanha_id": "00000000-0000-4000-8000-000000000001",
@@ -303,69 +329,129 @@
         "total_parcelas": null,
         "valor_parcela": null
       }
-    }
+    },
+    "tag": "Consultas e campanhas",
+    "idempotency": false
   },
   {
-    "method": "GET",
     "path": "/oportunidades",
+    "method": "GET",
     "summary": "Listar oportunidades",
-    "scope": "read",
+    "scope": "crm:read ou read",
+    "status": "200",
     "body": null,
-    "status": 200,
     "response": {
       "data": [
         {
           "id": "00000000-0000-4000-8000-000000000001",
+          "cliente_id": "00000000-0000-4000-8000-000000000004",
           "cpf": "000.000.000-00",
-          "produto": "margem",
-          "etapa": "novo"
+          "produto": "recompra",
+          "etapa_id": "00000000-0000-4000-8000-000000000003",
+          "etapa": "00000000-0000-4000-8000-000000000003",
+          "etapa_nome": "Simulação enviada",
+          "convenio": "amigoz_23"
         }
       ],
       "pagination": {
         "page": 1,
         "page_size": 50,
-        "total": 1
+        "total": 1,
+        "clientes_unicos": 1
       }
-    }
-  },
-  {
-    "method": "GET",
-    "path": "/oportunidades/{id}",
-    "summary": "Consultar oportunidade",
-    "scope": "read",
-    "body": null,
-    "status": 200,
-    "response": {
-      "data": {
-        "id": "00000000-0000-4000-8000-000000000001",
-        "cpf": "000.000.000-00",
-        "produto": "margem",
-        "etapa": "novo"
-      }
-    }
-  },
-  {
-    "method": "POST",
-    "path": "/oportunidades/{id}/etapa",
-    "summary": "Mover oportunidade",
-    "scope": "campanhas:write",
-    "body": {
-      "etapa": "contato",
-      "etapa_original": "novo"
     },
-    "status": 200,
+    "tag": "Oportunidades",
+    "idempotency": false
+  },
+  {
+    "path": "/oportunidades/{id}",
+    "method": "GET",
+    "summary": "Consultar oportunidade",
+    "scope": "crm:read ou read",
+    "status": "200",
+    "body": null,
     "response": {
       "data": {
         "id": "00000000-0000-4000-8000-000000000001",
-        "etapa": "contato"
+        "cliente_id": "00000000-0000-4000-8000-000000000004",
+        "cpf": "000.000.000-00",
+        "produto": "recompra",
+        "etapa_id": "00000000-0000-4000-8000-000000000003",
+        "etapa": "00000000-0000-4000-8000-000000000003",
+        "etapa_nome": "Simulação enviada",
+        "convenio": "amigoz_23",
+        "cliente": {
+          "cliente_id": "00000000-0000-4000-8000-000000000004",
+          "cpf": "000.000.000-00",
+          "nome": "Cliente exemplo",
+          "telefone": "71999990000",
+          "convenios": [
+            {
+              "uf": "SP",
+              "convenio": "amigoz_23"
+            }
+          ],
+          "vinculos": [],
+          "margens": [
+            {
+              "produto": "cartao",
+              "valor": 125.5
+            }
+          ],
+          "resultados": [
+            {
+              "tipo": "saldo_parcela",
+              "instituicao": "digimais",
+              "dados": {
+                "saldo": 6000,
+                "parcela": 230
+              }
+            }
+          ],
+          "oportunidades": [
+            {
+              "id": "00000000-0000-4000-8000-000000000001",
+              "cliente_id": "00000000-0000-4000-8000-000000000004",
+              "cpf": "000.000.000-00",
+              "produto": "recompra",
+              "etapa_id": "00000000-0000-4000-8000-000000000003",
+              "etapa": "00000000-0000-4000-8000-000000000003",
+              "etapa_nome": "Simulação enviada",
+              "convenio": "amigoz_23"
+            }
+          ]
+        }
       }
-    }
+    },
+    "tag": "Oportunidades",
+    "idempotency": false
   },
   {
+    "path": "/oportunidades/{id}/etapa",
     "method": "POST",
+    "summary": "Mover oportunidade",
+    "scope": "crm:write ou campanhas:write",
+    "status": "200",
+    "body": {
+      "etapa_original_id": "00000000-0000-4000-8000-000000000002",
+      "etapa_id": "00000000-0000-4000-8000-000000000003"
+    },
+    "response": {
+      "data": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "etapa_id": "00000000-0000-4000-8000-000000000003",
+        "etapa": "00000000-0000-4000-8000-000000000003"
+      }
+    },
+    "tag": "Oportunidades",
+    "idempotency": true
+  },
+  {
     "path": "/oportunidades/exportacao",
+    "method": "POST",
     "summary": "Confirmar exportação de oportunidades",
-    "scope": "campanhas:write",
+    "scope": "crm:write ou campanhas:write",
+    "status": "200",
     "body": {
       "itens": [
         {
@@ -374,21 +460,22 @@
         }
       ]
     },
-    "status": 200,
     "response": {
       "movidas": 1,
       "ids": [
         "00000000-0000-4000-8000-000000000001"
       ]
-    }
+    },
+    "tag": "Oportunidades",
+    "idempotency": true
   },
   {
-    "method": "GET",
     "path": "/clientes/convenios",
-    "summary": "Catálogo e requisitos de importação",
+    "method": "GET",
+    "summary": "Listar convênios e requisitos de importação",
     "scope": "read",
+    "status": "200",
     "body": null,
-    "status": 200,
     "response": {
       "data": [
         {
@@ -412,13 +499,16 @@
           "requisitos_servicos": {}
         }
       ]
-    }
+    },
+    "tag": "Clientes",
+    "idempotency": false
   },
   {
-    "method": "POST",
     "path": "/clientes/importacoes",
+    "method": "POST",
     "summary": "Importar clientes de um convênio",
     "scope": "campanhas:write",
+    "status": "201",
     "body": {
       "uf": "BA",
       "convenio": "saeb",
@@ -434,13 +524,284 @@
         }
       ]
     },
-    "status": 201,
     "response": {
       "data": {
         "clientes": 1,
         "consultas": 0,
         "campanhas": []
       }
-    }
+    },
+    "tag": "Clientes",
+    "idempotency": true
+  },
+  {
+    "path": "/clientes/importacoes",
+    "method": "GET",
+    "summary": "Listar histórico de importações",
+    "scope": "read",
+    "status": "200",
+    "body": null,
+    "response": {},
+    "tag": "Clientes",
+    "idempotency": false
+  },
+  {
+    "path": "/clientes/importacoes/previa",
+    "method": "POST",
+    "summary": "Conferir importação",
+    "scope": "read",
+    "status": "200",
+    "body": null,
+    "response": {},
+    "tag": "Clientes",
+    "idempotency": true
+  },
+  {
+    "path": "/clientes/importacoes/{id}",
+    "method": "GET",
+    "summary": "Consultar lote de importação",
+    "scope": "read",
+    "status": "200",
+    "body": null,
+    "response": {},
+    "tag": "Clientes",
+    "idempotency": false
+  },
+  {
+    "path": "/crm/etapas",
+    "method": "GET",
+    "summary": "Listar etapas",
+    "scope": "crm:read ou read",
+    "status": "200",
+    "body": null,
+    "response": {
+      "data": [
+        {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "codigo": "00000000-0000-4000-8000-000000000003",
+          "nome": "Simulação enviada",
+          "posicao": 40,
+          "tipo": "aberta",
+          "inicial": false,
+          "destino_exportacao": false,
+          "arquivada": false
+        }
+      ]
+    },
+    "tag": "Etapas do CRM",
+    "idempotency": false
+  },
+  {
+    "path": "/crm/etapas",
+    "method": "POST",
+    "summary": "Criar etapa",
+    "scope": "crm:write ou campanhas:write",
+    "status": "201",
+    "body": {
+      "nome": "Simulação enviada",
+      "posicao": 40
+    },
+    "response": {
+      "data": {
+        "id": "00000000-0000-4000-8000-000000000003",
+        "codigo": "00000000-0000-4000-8000-000000000003",
+        "nome": "Simulação enviada",
+        "posicao": 40,
+        "tipo": "aberta",
+        "inicial": false,
+        "destino_exportacao": false,
+        "arquivada": false
+      }
+    },
+    "tag": "Etapas do CRM",
+    "idempotency": true
+  },
+  {
+    "path": "/crm/etapas/{id}",
+    "method": "PATCH",
+    "summary": "Editar ou arquivar etapa",
+    "scope": "crm:write ou campanhas:write",
+    "status": "200",
+    "body": {
+      "nome": "Simulação enviada",
+      "posicao": 45
+    },
+    "response": {
+      "data": {
+        "id": "00000000-0000-4000-8000-000000000003",
+        "codigo": "00000000-0000-4000-8000-000000000003",
+        "nome": "Simulação enviada",
+        "posicao": 40,
+        "tipo": "aberta",
+        "inicial": false,
+        "destino_exportacao": false,
+        "arquivada": false
+      }
+    },
+    "tag": "Etapas do CRM",
+    "idempotency": true
+  },
+  {
+    "path": "/clientes/buscar",
+    "method": "POST",
+    "summary": "Buscar perfil consolidado pelo CPF",
+    "scope": "crm:read ou read",
+    "status": "200",
+    "body": {
+      "cpf": "000.000.000-00"
+    },
+    "response": {
+      "data": {
+        "cliente_id": "00000000-0000-4000-8000-000000000004",
+        "cpf": "000.000.000-00",
+        "nome": "Cliente exemplo",
+        "telefone": "71999990000",
+        "convenios": [
+          {
+            "uf": "SP",
+            "convenio": "amigoz_23"
+          }
+        ],
+        "vinculos": [],
+        "margens": [
+          {
+            "produto": "cartao",
+            "valor": 125.5
+          }
+        ],
+        "resultados": [
+          {
+            "tipo": "saldo_parcela",
+            "instituicao": "digimais",
+            "dados": {
+              "saldo": 6000,
+              "parcela": 230
+            }
+          }
+        ],
+        "oportunidades": [
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "cliente_id": "00000000-0000-4000-8000-000000000004",
+            "cpf": "000.000.000-00",
+            "produto": "recompra",
+            "etapa_id": "00000000-0000-4000-8000-000000000003",
+            "etapa": "00000000-0000-4000-8000-000000000003",
+            "etapa_nome": "Simulação enviada",
+            "convenio": "amigoz_23"
+          }
+        ]
+      }
+    },
+    "tag": "Clientes",
+    "idempotency": false
+  },
+  {
+    "path": "/clientes/{id}",
+    "method": "GET",
+    "summary": "Consultar perfil pelo ID do cliente",
+    "scope": "crm:read ou read",
+    "status": "200",
+    "body": null,
+    "response": {
+      "data": {
+        "cliente_id": "00000000-0000-4000-8000-000000000004",
+        "cpf": "000.000.000-00",
+        "nome": "Cliente exemplo",
+        "telefone": "71999990000",
+        "convenios": [
+          {
+            "uf": "SP",
+            "convenio": "amigoz_23"
+          }
+        ],
+        "vinculos": [],
+        "margens": [
+          {
+            "produto": "cartao",
+            "valor": 125.5
+          }
+        ],
+        "resultados": [
+          {
+            "tipo": "saldo_parcela",
+            "instituicao": "digimais",
+            "dados": {
+              "saldo": 6000,
+              "parcela": 230
+            }
+          }
+        ],
+        "oportunidades": [
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "cliente_id": "00000000-0000-4000-8000-000000000004",
+            "cpf": "000.000.000-00",
+            "produto": "recompra",
+            "etapa_id": "00000000-0000-4000-8000-000000000003",
+            "etapa": "00000000-0000-4000-8000-000000000003",
+            "etapa_nome": "Simulação enviada",
+            "convenio": "amigoz_23"
+          }
+        ]
+      }
+    },
+    "tag": "Clientes",
+    "idempotency": false
+  },
+  {
+    "path": "/clientes/{id}/consultas",
+    "method": "GET",
+    "summary": "Listar consultas do cliente",
+    "scope": "crm:read ou read",
+    "status": "200",
+    "body": null,
+    "response": {
+      "data": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "servico": "digimais_saldo_parcela",
+          "status": "concluida",
+          "saldo_liquidacao": 6000,
+          "valor_parcela": 230
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "page_size": 50,
+        "total": 1
+      }
+    },
+    "tag": "Clientes",
+    "idempotency": false
+  },
+  {
+    "path": "/oportunidades/{id}/movimentacoes",
+    "method": "GET",
+    "summary": "Listar movimentações da oportunidade",
+    "scope": "crm:read ou read",
+    "status": "200",
+    "body": null,
+    "response": {
+      "data": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "oportunidade_id": "00000000-0000-4000-8000-000000000001",
+          "etapa_anterior_id": "00000000-0000-4000-8000-000000000002",
+          "etapa_id": "00000000-0000-4000-8000-000000000003",
+          "nome_anterior": "Novo",
+          "nome_destino": "Simulação enviada",
+          "origem": "api",
+          "alterado_em": "2026-01-01T10:00:00Z"
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "page_size": 50,
+        "total": 1
+      }
+    },
+    "tag": "Oportunidades",
+    "idempotency": false
   }
 ]

@@ -8,7 +8,7 @@ EXISTING=0
 if [[ -f "$APP/.env" && -f "$APP/vps/worker.py" && -x "$APP/.venv/bin/python" ]]; then EXISTING=1; fi
 printf '\033[1;32m\n╔══════════════════════════════════════════╗\n║       APOIARCRED · INSTALADOR MVP        ║\n╚══════════════════════════════════════════╝\033[0m\n'
 if (( EXISTING )); then
-    printf '\nInstância encontrada: %s\n\n  1) Atualizar pelo GitHub\n  2) Trocar conexão/API do Supabase\n  3) Diagnosticar robô Digi+ (sem consulta de CPF)\n  4) Diagnosticar ambiente TJBA (sem login e sem CPF)\n  5) Configurar ou remover proxy TJBA\n  0) Sair\n\n' "$APP"
+    printf '\nInstância encontrada: %s\n\n  1) Atualizar pelo GitHub\n  2) Trocar conexão/API do Supabase\n  3) Diagnosticar robô Digi+ (sem consulta de CPF)\n  4) Diagnosticar ambiente TJBA (sem login e sem CPF)\n  5) Configurar ou remover proxy TJBA\n  6) Interromper imediatamente e devolver consultas à fila\n  7) Atualizar login, backend e interface\n  0) Sair\n\n' "$APP"
 else
     printf '\nNenhuma instância completa encontrada.\n\n  1) Instalar nova instância\n  0) Sair\n\n'
 fi
@@ -24,24 +24,44 @@ case "$OPTION" in
         exec 9>/run/lock/apoiarcred-instalar.lock
         flock -n 9 || { echo 'Outra operação está em andamento.'; exit 1; }
         printf '\nA troca não transfere dados nem usuários. O projeto de destino precisa do schema do MVP.\n'
+        python3 "$SOURCE/scripts/configure_supabase.py" --app "$APP" --show-current
+        read -r -p 'Continuar com a troca? [s/N]: ' CONFIRM
+        [[ "$CONFIRM" =~ ^[sS]$ ]] || exit 0
         CURRENT_URL=$(python3 "$SOURCE/scripts/configure_supabase.py" --app "$APP" --show-url)
         read -r -p "URL do Supabase [$CURRENT_URL]: " SB_URL
         SB_URL=${SB_URL:-$CURRENT_URL}
         read -r -s -p 'Chave publishable (ou anon) do painel: ' PUBLIC_KEY; printf '\n'
         read -r -s -p 'Chave secret/service_role do robô: ' SECRET_KEY; printf '\n'
-        WAS_ACTIVE=0
-        if systemctl is-active --quiet apoiarcred-robo; then WAS_ACTIVE=1; fi
-        systemctl stop apoiarcred-robo
-        # O helper valida a conexão antes de alterar os arquivos.
+        ACTIVE_SERVICES=()
+        for service in apoiarcred-robo apoiarcred-api apoiarcred-webhooks apoiarcred-monitor; do
+            if systemctl is-active --quiet "$service"; then ACTIVE_SERVICES+=("$service"); fi
+        done
+        restore_services() {
+            local result=$?
+            trap - EXIT
+            unset PUBLIC_KEY SECRET_KEY
+            for service in "${ACTIVE_SERVICES[@]}"; do
+                systemctl start "$service" || result=1
+            done
+            exit "$result"
+        }
+        trap restore_services EXIT
+        for service in "${ACTIVE_SERVICES[@]}"; do systemctl stop "$service"; done
         if printf '%s\n%s\n%s\n' "$SB_URL" "$PUBLIC_KEY" "$SECRET_KEY" | python3 "$SOURCE/scripts/configure_supabase.py" --app "$APP"; then
             unset PUBLIC_KEY SECRET_KEY
-            if systemctl is-enabled --quiet apoiarcred-monitor 2>/dev/null; then systemctl restart apoiarcred-monitor; fi
-            if (( WAS_ACTIVE )); then systemctl start apoiarcred-robo; fi
-            printf '\nConexão atualizada no painel e no robô. Recarregue o navegador e entre novamente.\n'
+            python3 "$SOURCE/scripts/configure_supabase.py" --app "$APP" --check-runtime
+            for service in "${ACTIVE_SERVICES[@]}"; do
+                systemctl start "$service"
+                systemctl is-active --quiet "$service"
+                printf 'Serviço atualizado: %s\n' "$service"
+            done
+            python3 "$SOURCE/scripts/configure_supabase.py" --app "$APP" --check-services
+            trap - EXIT
+            printf '\nConexão aplicada ao painel, API, robôs, monitor e webhooks: %s\n' "$SB_URL"
+            printf 'Serviços anteriormente parados permanecem parados e usarão a nova configuração ao iniciar.\n'
+            printf 'Recarregue o navegador e entre novamente.\n'
         else
-            unset PUBLIC_KEY SECRET_KEY
-            if (( WAS_ACTIVE )); then systemctl start apoiarcred-robo; fi
-            echo 'Conexão não alterada. Confira as informações e tente novamente.'; exit 1
+            echo 'A configuração não foi aplicada. Confira as informações e tente novamente.'; exit 1
         fi
         ;;
     3)
@@ -62,6 +82,16 @@ case "$OPTION" in
         "$APP/.venv/bin/python" "$APP/vps/tjba_proxy.py"
         if systemctl is-active --quiet apoiarcred-robo; then systemctl restart apoiarcred-robo; fi
         echo 'Configuração aplicada. Execute a opção 4 para validar o formulário pelo proxy.'
+        ;;
+    6)
+        (( EXISTING )) || { echo 'Instale o sistema primeiro.'; exit 1; }
+        exec 9>/run/lock/apoiarcred-instalar.lock
+        flock -n 9 || { echo 'Outra operação está em andamento.'; exit 1; }
+        exec python3 "$SOURCE/scripts/stop-consultas.py" --app "$APP"
+        ;;
+    7)
+        (( EXISTING )) || { echo 'Instale o sistema primeiro.'; exit 1; }
+        exec bash "$SOURCE/scripts/update-auth.sh"
         ;;
     *) echo 'Opção inválida.'; exit 1 ;;
 esac

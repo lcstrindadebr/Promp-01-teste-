@@ -18,7 +18,7 @@ const assert=require('assert'),vm=require('vm');
  assert.equal(t.get('#total').textContent,1);assert(t.get('#campaignList').innerHTML.includes('5 consultas'));
  vm.runInContext("activeCampaign='campaign';renderCampaigns()",t.ctx);
  const n=JSON.parse(vm.runInContext('JSON.stringify(campaignStats(campaignRecords(activeCampaign)))',t.ctx));
- assert.deepEqual(n,{total:5,clients:1,nonclients:1,errors:1,review:1,interrupted:0,waiting:1});
+ assert.deepEqual(n,{total:5,clients:1,nonclients:1,errors:1,sold:0,review:1,interrupted:0,waiting:1});
  assert.equal(t.get('#retryCampaign').disabled,false);
  vm.runInContext("download=(name,content)=>{window.lastDownload={name,content}}",t.ctx);
  t.get('#exportCampaign').onclick();assert(!t.ctx.window.lastDownload.content.includes('Individual somente'));assert(t.ctx.window.lastDownload.content.includes('Campanha 0'));

@@ -2,7 +2,7 @@
 const amigozEstimateRates = [3, 3.25, 3.5, 3.75, 3.98, 4.5];
 const amigozEstimateHeaders = [
   ...amigozEstimateRates.map(rate => 'Saque líquido estimado · '+rate.toFixed(2).replace('.', ',')+'% a.m.'),
-  'Base da simulação', 'Margem agregada', 'Prazo da simulação', 'Situação da estimativa', 'Versão dos coeficientes'
+  'Base da simulação', 'Margem agregada', 'Prazo da simulação', 'Situação da estimativa', 'Versão dos coeficientes', 'Estimativas por tabela'
 ];
 let amigozContext = null;
 let amigozSource = null;
@@ -22,7 +22,13 @@ amigozControls.innerHTML = `
  <label class="field" for="amigozQueryRegistration">Matrícula (opcional)</label><input id="amigozQueryRegistration" maxlength="256">
  <label class="field" for="amigozQueryPassword">Senha do servidor (se exigida pelo convênio)</label><input id="amigozQueryPassword" type="password" autocomplete="off" maxlength="256">
  <button id="amigozQueryMargin" type="button">Consultar margem do cliente</button>
- <p id="amigozQueryMarginStatus" role="status"></p></details>`;
+ <p id="amigozQueryMarginStatus" role="status"></p>
+ <button id="amigozOpenMarginDiagnostic" type="button" hidden aria-haspopup="dialog">Ver resposta da API</button>
+ <dialog id="amigozMarginDiagnostic" aria-labelledby="amigozMarginDiagnosticTitle">
+  <div class="heading"><h2 id="amigozMarginDiagnosticTitle">Resposta da API Amigoz</h2>
+  <button id="amigozCloseMarginDiagnostic" type="button" autofocus>Fechar</button></div>
+  <pre class="log-code" tabindex="0" aria-label="Corpo da resposta"><code id="amigozMarginDiagnosticText"></code></pre>
+ </dialog></details>`;
 document.querySelector('.amigoz-disclaimer').textContent = 'Simulação preliminar com coeficientes observados e IOF estimado. Valores sujeitos à confirmação no banco.';
 
 function coefficientRequest(name, body) {
@@ -46,12 +52,13 @@ function coefficientResultCards(result) {
  return result.tabelas.map(table => {
   const title={limite_insuficiente:'Limite insuficiente',pre_aprovada_sem_troco:'Pré-aprovada sem troco',pre_aprovada_com_troco:'Pré-aprovada com troco',quitacao_pendente:'Quitação pendente'}[table.situacao]||'Simulação indisponível';
   return `<article class="card amigoz-option">
-    <div class="amigoz-option-top"><h4>${Number(table.taxa).toFixed(2).replace('.',',')}% <small>a.m.</small></h4></div>
+    <div class="amigoz-option-top"><h4>${table.nome_tabela?escapeHTML(table.nome_tabela)+' · ':''}${Number(table.taxa).toFixed(2).replace('.',',')}% <small>a.m.</small></h4></div>
     <p class="amigoz-option-term">96 parcelas · simulação preliminar</p><p><strong>${title}</strong></p><dl>
     <div class="amigoz-troco"><dt>Troco estimado</dt><dd class="amigoz-cash">${table.troco==null?'Pendente':brl(table.troco)}</dd></div>
     <div class="amigoz-amount-row"><dt>Limite do cartão</dt><dd>${brl(table.limite)}</dd></div>
     <div class="amigoz-amount-row"><dt>Valor da quitação</dt><dd>${table.quitacao == null ? 'Não informado' : brl(table.quitacao)}</dd></div>
     <div class="amigoz-amount-row"><dt>Limite restante após quitação</dt><dd>${table.limite_restante==null?'Pendente':brl(table.limite_restante)}</dd></div>
+    ${table.comissao!=null?`<div class="amigoz-commission"><dt>Comissão estimada (${Number(table.percentual).toLocaleString('pt-BR')}%)</dt><dd>${brl(table.comissao)}</dd></div>`:''}
     </dl><p>${escapeHTML(table.motivo||'')}</p></article>`;
  }).join('');
 }
@@ -67,13 +74,14 @@ async function loadCoefficientContext() {
     });
     if (generation !== amigozGeneration || !authenticated) return;
     amigozContext = context;
-    const agreements = context.config.eligibilidade;
-    $('#amigozAgreement').replaceChildren(new Option('Selecione o convênio', ''));
+    const agreements = context.convenios || context.config.eligibilidade;
+    const select = $('#amigozAgreement');
+    select.replaceChildren(new Option('Selecione o convênio', ''));
     for (const agreement of agreements) {
-      const label = agreement.nome || (agreement.convenio==='amigoz_23' ? 'Governo de São Paulo' : agreement.convenio);
-      $('#amigozAgreement').add(new Option(label, agreement.convenio));
+      select.add(new Option(agreement.nome || agreement.convenio, agreement.convenio));
     }
-    $('#amigozAgreement').value = context.convenio || '';
+    select.value = context.convenio_assumido ? '' : (context.convenio || '');
+    if (select.selectedIndex < 0) select.value='';
     $('#amigozMarginSelect').replaceChildren(new Option('Selecione a margem e o vínculo', ''));
     const products = {beneficio:'Cartão benefício', consignado:'Cartão consignado', cartao:'Cartão', emprestimo:'Empréstimo'};
     for (const margin of context.margens.filter(margin => margin.elegivel)) {
@@ -88,16 +96,48 @@ async function loadCoefficientContext() {
     $('#amigozBaseMode').value = amigozSource.margin ? 'margin' : original > 0 ? 'original' : 'margin';
     $('#amigozManualTotal').value = original || '';
     coefficientMarginFields();
-    $('#amigozMarginInfo').textContent = 'Parcela atual '+(original == null ? 'não informada' : brl(original))+
-      (context.convenio_assumido ? ' · Convênio padrão Governo de São Paulo. Confirme antes de simular.' : '');
-    $('#amigozStatus').textContent = context.elegivel ? 'Selecione a base para simular.' : 'Escolha um convênio com produto Amigoz habilitado.';
+    $('#amigozMarginInfo').textContent = 'Parcela atual '+(original == null ? 'não informada' : brl(original));
+    $('#amigozStatus').textContent = !select.value ? 'Selecione o convênio do cliente.' : context.elegivel ? 'Selecione a base para simular.' : 'Este convênio ainda não tem tabela de simulação configurada.';
   } catch (error) {
     if (generation === amigozGeneration) $('#amigozStatus').textContent = error.message;
   } finally {
     if (generation === amigozGeneration) setCoefficientBusy(false);
   }
 }
+const amigozMarginDialog=$('#amigozMarginDiagnostic');
+const amigozMarginLogButton=$('#amigozOpenMarginDiagnostic');
+const amigozMarginLogText=$('#amigozMarginDiagnosticText');
+function canViewAmigozMarginDiagnostic() {
+ return Boolean(authenticated && currentAccess?.active && currentAccess.role === 'admin');
+}
+function clearAmigozMarginDiagnostic() {
+ if(amigozMarginDialog.open)amigozMarginDialog.close();
+ amigozMarginLogButton.hidden=true;
+ amigozMarginLogText.textContent='';
+}
+function showAmigozMarginDiagnostic(diagnostic,convenio,consultaId) {
+ if(!canViewAmigozMarginDiagnostic())return;
+ const http=diagnostic?.http_status ? 'HTTP '+diagnostic.http_status : '';
+ const metadata=[http,diagnostic?.rota,diagnostic?.codigo].filter(Boolean).join(' · ');
+ amigozMarginLogText.textContent=[
+  metadata||'Consulta de margem', 'Convênio '+convenio, consultaId&&'Consulta '+consultaId,
+  '', diagnostic?.resposta||'O corpo da resposta da Amigoz não está disponível para esta tentativa.'
+ ].filter(line=>line!=null&&line!==false).join('\n');
+ amigozMarginLogButton.hidden=false;
+}
+amigozMarginLogButton.onclick=()=>{
+ if(!canViewAmigozMarginDiagnostic()){clearAmigozMarginDiagnostic();return;}
+ if(!amigozMarginLogButton.hidden&&!amigozMarginDialog.open)amigozMarginDialog.showModal();
+};
+$('#amigozCloseMarginDiagnostic').onclick=()=>amigozMarginDialog.close();
+const amigozMarginPreviousAccess=applyAccessUi;
+applyAccessUi=function(){
+ amigozMarginPreviousAccess();
+ if(!canViewAmigozMarginDiagnostic())clearAmigozMarginDiagnostic();
+};
+
 async function openAmigozClient(cpf, convenio='', jobId=null, name='', margin=false) {
+  clearAmigozMarginDiagnostic();
   $('#amigozQueryMarginStatus').textContent='';
   $('#amigozQueryRegistration').value='';$('#amigozQueryPassword').value='';
   amigozSource = {cpf:String(cpf).replace(/\D/g,''), convenio, job_id:jobId, margin};
@@ -120,6 +160,7 @@ amigozAction = function(row) {
   return `<button data-simulate="${escapeHTML(row.id)}">Simular Amigoz</button>`;
 };
 resetAmigoz = function() {
+  clearAmigozMarginDiagnostic();
   amigozGeneration++;
   amigozCurrent = null;
   amigozContext = null;
@@ -129,13 +170,10 @@ resetAmigoz = function() {
   $('#amigozPanel').hidden = true;
   $('#appShell').inert = false;
   $('#amigozCards').innerHTML = '';
-  modelAdmin.hidden = true;
-  $('#amigozModelJSON').value = '';
-  $('#amigozSaveModel').disabled = true;
-  for(const rate of amigozRates) $('#commission-'+String(rate).replace('.','_')).value='';
 };
 const coefficientPreviousClose=closeAmigoz;
 closeAmigoz=function(){
+ clearAmigozMarginDiagnostic();
  amigozGeneration++;amigozSource=null;amigozBusy=false;
  $('#amigozQueryPassword').value='';
  coefficientPreviousClose();
@@ -145,6 +183,8 @@ $('#amigozQueryMargin').onclick=async()=>{
  if(!amigozSource||amigozBusy)return;
  const source=amigozSource,generation=amigozGeneration,epoch=authEpoch;
  const convenio=$('#amigozAgreement').value;
+ clearAmigozMarginDiagnostic();
+ if(!convenio){$('#amigozQueryMarginStatus').textContent='Selecione o convênio do cliente.';return;}
  const payload={cpf:source.cpf,convenio,matricula:$('#amigozQueryRegistration').value.trim(),senha:$('#amigozQueryPassword').value};
  $('#amigozQueryPassword').value='';
  amigozBusy=true;setCoefficientBusy(true);
@@ -154,18 +194,26 @@ $('#amigozQueryMargin').onclick=async()=>{
   if(typeof window.consultarMargemAmigozSimulador!=='function')throw Error('Integração Amigoz indisponível. Recarregue o painel.');
   const result=await window.consultarMargemAmigozSimulador(payload);
   if(epoch!==authEpoch||generation!==amigozGeneration||source!==amigozSource||!authenticated)return;
+  showAmigozMarginDiagnostic(result.diagnostico_admin?.margem,convenio,result.consulta_id);
   if(result.salvo_no_historico===false){$('#amigozQueryMarginStatus').textContent='Consulta realizada, mas não foi salva no banco. Não repita; confira o histórico e o diagnóstico.';return;}
-  if(result.margem?.status!=='respondido')throw Error(result.margem?.mensagem||'A API não retornou a margem.');
+  if(result.margem?.status!=='respondido')throw Error('Não foi possível consultar a margem. Confira o convênio e os dados informados.');
   await loadCoefficientContext();
   if(epoch!==authEpoch||source!==amigozSource||!authenticated)return;
   $('#amigozQueryMarginStatus').textContent=amigozContext?.margens.some(m=>m.elegivel)
    ?'Margem atualizada. Selecione a base e o vínculo para recalcular a comparação.'
    :'Consulta finalizada, mas nenhuma margem elegível foi registrada para este convênio. Confira o cadastro e o retorno da API.';
- }catch(error){if(epoch===authEpoch&&generation===amigozGeneration)$('#amigozQueryMarginStatus').textContent=error.message;}
+ }catch(error){
+  if(epoch===authEpoch&&generation===amigozGeneration&&source===amigozSource){
+   if(amigozMarginLogButton.hidden)showAmigozMarginDiagnostic(null,convenio);
+   $('#amigozQueryMarginStatus').textContent='Não foi possível consultar a margem. Confira o convênio e os dados informados.';
+  }
+ }
  finally{payload.senha='';if(epoch===authEpoch&&source===amigozSource){amigozBusy=false;setCoefficientBusy(false);}}
 };
 $('#amigozAgreement').onchange = async () => {
   if (!amigozSource) return;
+  clearAmigozMarginDiagnostic();
+  $('#amigozQueryMarginStatus').textContent='';
   amigozSource.convenio = $('#amigozAgreement').value;
   await loadCoefficientContext();
 };
@@ -175,6 +223,7 @@ $('#amigozCoefficientCalculate').onclick = async () => {
   const generation = amigozGeneration;
   const agreement = $('#amigozAgreement').value;
   if (!agreement) {$('#amigozStatus').textContent = 'Selecione o convênio.';return;}
+  if(!amigozContext?.elegivel){$('#amigozStatus').textContent='Este convênio ainda não tem tabela de simulação configurada.';return;}
   amigozBusy = true;
   setCoefficientBusy(true);
   $('#amigozStatus').textContent = 'Calculando as tabelas…';
@@ -207,7 +256,8 @@ async function amigozExportEstimates(inputs) {
     if(results.some(result=>!coefficientTablesValidated(result)))throw Error('Atualize o cálculo Amigoz no banco antes de exportar estimativas.');
     for (const result of results) rows.push([
       ...amigozEstimateRates.map(rate => result.tabelas.find(table => Number(table.taxa) === rate)?.troco ?? ''),
-      result.base ?? '', result.margem_adicional ?? '', result.prazo ?? '', result.motivo || '', result.version_id ?? ''
+      result.base ?? '', result.margem_adicional ?? '', result.prazo ?? '', result.motivo || '', result.version_id ?? '',
+      result.tabelas.map(table=>[table.nome_tabela||Number(table.taxa).toLocaleString('pt-BR')+'% a.m.',table.troco==null?'Quitação pendente':brl(table.troco)].join(': ')).join(' · ')
     ]);
   }
   return rows;
@@ -216,35 +266,6 @@ async function amigozAppendExport(rows, inputs) {
   const values = await amigozExportEstimates(inputs);
   return [rows[0].concat(amigozEstimateHeaders), ...rows.slice(1).map((row,index) => row.concat(values[index]))];
 }
-
-const modelAdmin = document.createElement('section');
-modelAdmin.className = 'card';modelAdmin.hidden = true;
-modelAdmin.innerHTML = `<h2>Coeficientes da simulação Amigoz</h2><p>Configuração técnica dos coeficientes observados, IOF histórico e elegibilidade por convênio. Cada gravação cria uma versão.</p><button type="button" id="amigozLoadModel">Carregar configuração atual</button><label class="field" for="amigozModelJSON">Tabela e regras de elegibilidade</label><textarea id="amigozModelJSON" rows="18" style="width:100%;font-family:monospace" spellcheck="false"></textarea><button type="button" id="amigozSaveModel" disabled>Salvar nova versão</button><p id="amigozModelStatus" role="status"></p>`;
-$('#settings-commissions').appendChild(modelAdmin);
-const coefficientAccess = applyAccessUi;
-applyAccessUi = function() {
-  coefficientAccess();
-  modelAdmin.hidden = !(authenticated && currentAccess?.active && currentAccess.role === 'admin');
-};
-$('#amigozLoadModel').onclick = async () => {
-  const epoch=authEpoch;
-  try {
-    const [row] = await sbRequest('/rest/v1/amigoz_model_versions?order=id.desc&limit=1');
-    if (epoch !== authEpoch) return;
-    $('#amigozModelJSON').value = JSON.stringify(row.config,null,2);
-    $('#amigozModelStatus').textContent = 'Versão '+row.id;
-    $('#amigozSaveModel').disabled = false;
-  } catch (error) {if(epoch===authEpoch) $('#amigozModelStatus').textContent=error.message;}
-};
-$('#amigozSaveModel').onclick = async () => {
-  const epoch=authEpoch;
-  $('#amigozSaveModel').disabled=true;
-  try {
-    const version=await coefficientRequest('amigoz_save_model',{p_config:JSON.parse($('#amigozModelJSON').value)});
-    if(epoch===authEpoch) $('#amigozModelStatus').textContent='Versão '+version+' salva.';
-  } catch(error) {if(epoch===authEpoch) $('#amigozModelStatus').textContent=error.message;}
-  finally {if(epoch===authEpoch) $('#amigozSaveModel').disabled=false;}
-};
 
 const coefficientExportResults = exportResults;
 exportResults = async function(items, filename='consultas.csv') {
@@ -280,6 +301,7 @@ refreshAmigoz = async function() {
 setInterval(refreshAmigoz,15000);
 
 $('#amigozPanel').onkeydown = event => {
+  if(amigozMarginDialog.open)return;
   if(event.key==='Escape') {event.preventDefault();closeAmigoz();return;}
   if(event.key!=='Tab') return;
   const controls=[...$('#amigozPanel').querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled)')].filter(element=>element.offsetParent!==null);
