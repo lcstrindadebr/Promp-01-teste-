@@ -1207,7 +1207,7 @@ $('#crmCustomize').onclick=async()=>{
   try{
     const settings=await crmLoadSettings(),fields=structuredClone(settings.fields);
     const {dialog,form}=crmDialog('Personalizar cartões');
-    form.append(crmElement('p','muted','Escolha o que aparece nos cartões. Saldo e margem permanecem protegidos. A configuração é salva na sua conta.'));
+    form.append(crmElement('p','muted','Escolha o que aparece nos cartões. Saldo e margem permanecem protegidos. A configuração vale para toda a empresa.'));
     const density=document.createElement('select');density.add(new Option('Confortável','comfortable'));density.add(new Option('Compacto','compact'));density.value=settings.density||'comfortable';crmLabeled(form,'Espaçamento dos cartões',density);
     const visible={};for(const [key,label] of Object.entries(crmBuiltinFields)){
       const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.checked=settings.visible.includes(key);visible[key]=checkbox;crmLabeled(form,label,checkbox);
@@ -1250,7 +1250,7 @@ crmManageStages.onclick=async()=>{
    if(!active())return;
    list.replaceChildren();
    status.textContent='';
-   const admin=currentAccess?.active&&currentAccess.role==='admin';
+   const admin=currentAccess?.active&&(currentAccess.role==='admin'||Boolean(currentAccess.tenant?.permissions?.includes('funil.configurar')));
    for(const stage of [...stages,null]){
     if(!stage&&!admin)continue;
     const section=crmElement('section','card crm-stage-admin-item');
