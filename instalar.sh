@@ -8,7 +8,7 @@ EXISTING=0
 if [[ -f "$APP/.env" && -f "$APP/vps/worker.py" && -x "$APP/.venv/bin/python" ]]; then EXISTING=1; fi
 printf '\033[1;32m\n╔══════════════════════════════════════════╗\n║       APOIARCRED · INSTALADOR MVP        ║\n╚══════════════════════════════════════════╝\033[0m\n'
 if (( EXISTING )); then
-    printf '\nInstância encontrada: %s\n\n  1) Atualizar pelo GitHub\n  2) Trocar conexão/API do Supabase\n  3) Diagnosticar robô Digi+ (sem consulta de CPF)\n  4) Diagnosticar ambiente TJBA (sem login e sem CPF)\n  5) Configurar ou remover proxy TJBA\n  6) Interromper imediatamente e devolver consultas à fila\n  7) Atualizar login, backend e interface\n  0) Sair\n\n' "$APP"
+    printf '\nInstância encontrada: %s\n\n  1) Atualizar pelo GitHub\n  2) Trocar conexão/API do Supabase\n  3) Diagnosticar robô Digi+ (sem consulta de CPF)\n  4) Diagnosticar ambiente TJBA (sem login e sem CPF)\n  5) Configurar ou remover proxy TJBA\n  6) Interromper imediatamente e devolver consultas à fila\n  7) Atualizar somente o painel (sem mexer nos robôs)\n  0) Sair\n\n' "$APP"
 else
     printf '\nNenhuma instância completa encontrada.\n\n  1) Instalar nova instância\n  0) Sair\n\n'
 fi
@@ -91,7 +91,7 @@ case "$OPTION" in
         ;;
     7)
         (( EXISTING )) || { echo 'Instale o sistema primeiro.'; exit 1; }
-        exec bash "$SOURCE/scripts/update-auth.sh"
+        exec bash "$SOURCE/atualizar.sh" painel
         ;;
     *) echo 'Opção inválida.'; exit 1 ;;
 esac

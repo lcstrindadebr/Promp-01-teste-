@@ -2,8 +2,8 @@
 import json,os,pathlib,subprocess,tempfile,unittest
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 class UpdateTests(unittest.TestCase):
- def test_downloaded_updater_deploys_robot_panel_and_service(self):
-  with tempfile.TemporaryDirectory() as d:
+ def run_update(self,d,pip_status=0):
+  if True:
    base=pathlib.Path(d);origin=base/'remote';repo=base/'source';app=base/'app';bin=base/'bin';bin.mkdir();origin.mkdir();units=base/'systemd';units.mkdir()
    env={**os.environ,'GIT_AUTHOR_NAME':'Test','GIT_AUTHOR_EMAIL':'test@example.com','GIT_COMMITTER_NAME':'Test','GIT_COMMITTER_EMAIL':'test@example.com'}
    def git(*args,cwd=origin):return subprocess.check_output(['/usr/bin/git',*args],cwd=cwd,env=env,stderr=subprocess.DEVNULL,text=True).strip()
@@ -31,11 +31,21 @@ class UpdateTests(unittest.TestCase):
    original_env='SUPABASE_URL=https://aaaaaaaaaaaaaaaaaaaa.supabase.co\nSUPABASE_SERVICE_ROLE_KEY=sb_secret_do_not_copy\nROBOT_MODE=live\n';(app/'.env').write_text(original_env)
    public={'url':'https://aaaaaaaaaaaaaaaaaaaa.supabase.co','key':'sb_publishable_custom'};(app/'supabase-public.json').write_text(json.dumps(public))
    def executable(path,content):path.write_text('#!/bin/bash\n'+content);path.chmod(0o755)
-   executable(app/'.venv/bin/python','exit 0\n');executable(app/'.venv/bin/pip','exit 0\n');executable(app/'.venv/bin/playwright','exit 0\n')
+   executable(app/'.venv/bin/python','exit 0\n');executable(app/'.venv/bin/pip',f'exit {pip_status}\n');executable(app/'.venv/bin/playwright','exit 0\n')
    executable(bin/'git',f'if [[ "$1 $2 $3" == "remote get-url origin" ]]; then echo https://github.com/lcstrindadebr/Promp-01-teste-.git; else exec /usr/bin/git "$@"; fi\n')
-   executable(bin/'python3','if [[ "$1" == - ]]; then cat >/dev/null; exit 0; fi\nif [[ "$*" == *--check-runtime* || "$*" == *drain_queue.py* || "$*" == *configure_api.py* ]]; then exit 0; fi\nexec /usr/bin/python3 "$@"\n')
-   executable(bin/'systemctl',f'echo "$*" >> "{base}/service.log"\nexit 0\n');executable(bin/'nginx','exit 0\n')
+   executable(bin/'python3','if [[ "$1" == - ]]; then cat >/dev/null; exit 0; fi\nif [[ "$*" == *--check-runtime* || "$*" == *drain_queue.py* || "$*" == *configure_api.py* || "$*" == *stop-consultas.py* ]]; then exit 0; fi\nexec /usr/bin/python3 "$@"\n')
+   executable(bin/'systemctl',f'echo "$*" >> "{base}/service.log"\nexit 0\n');executable(bin/'nginx','exit 0\n');executable(bin/'sleep','exit 0\n')
    run=subprocess.run(['bash',str(launcher)],env={**env,'PATH':str(bin)+':'+env['PATH']},capture_output=True,text=True)
+   return run,app,base,units,original_env
+ def test_failed_step_restores_previous_code_and_restarts_robots(self):
+  with tempfile.TemporaryDirectory() as d:
+   run,app,base,units,original_env=self.run_update(d,pip_status=1)
+   self.assertNotEqual(run.returncode,0)
+   self.assertEqual((app/'dist/index.html').read_text(),'OLD PANEL');self.assertEqual((app/'vps/robot.py').read_text(),'# OLD ROBOT')
+   self.assertIn('start apoiarcred-robo',(base/'service.log').read_text());self.assertIn('Versão anterior restaurada',run.stderr)
+ def test_downloaded_updater_deploys_robot_panel_and_service(self):
+  with tempfile.TemporaryDirectory() as d:
+   run,app,base,units,original_env=self.run_update(d)
    self.assertEqual(run.returncode,0,run.stdout+run.stderr);self.assertEqual((app/'dist/index.html').read_text(),'NEW PANEL');self.assertIn('NEW ROBOT',(app/'vps/robot.py').read_text());self.assertTrue((app/'vps/chat_browser.py').exists());self.assertTrue((app/'vps/diagnose.py').exists());self.assertEqual((app/'.env').read_text(),original_env)
    self.assertIn('sb_publishable_custom',(app/'dist/supabase-config.js').read_text());self.assertNotIn('sb_secret',(app/'dist/supabase-config.js').read_text());self.assertTrue((units/'apoiarcred-robo.service').exists());self.assertTrue((units/'apoiarcred-monitor.service').exists());self.assertTrue((app/'vps/monitor.py').exists());self.assertIn('restart apoiarcred-monitor',(base/'service.log').read_text());self.assertIn('daemon-reload',(base/'service.log').read_text());self.assertTrue((units/'apoiarcred-webhooks.service').exists());self.assertIn('restart apoiarcred-webhooks',(base/'service.log').read_text());self.assertTrue((app/'vps/webhooks.py').exists())
 if __name__=='__main__':unittest.main()
