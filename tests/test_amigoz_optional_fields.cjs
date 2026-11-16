@@ -24,6 +24,9 @@ test('simulator margin adapter reuses authenticated route and validates agreemen
  const ctx=vm.createContext({window:{},amigozCanConsult:()=>allowed,amigozCatalog:[],amigozRequest:async(route,payload)=>{
   calls.push({route,payload});return route==='convenios'?[{id:23,averbadora:9,senha_servidor:false}]:{salvo_no_historico:true,margem:{status:'respondido'}};
  }});
+ // The adapter reads the agreement list through loadAmigozCatalog (same file); use the real one.
+ ctx.localAmigozCatalog=[];
+ vm.runInContext(source.match(/async function loadAmigozCatalog\(\)\{[\s\S]*?\n\}/)[0],ctx);
  vm.runInContext(source.slice(start,end),ctx);
  await ctx.window.consultarMargemAmigozSimulador({cpf:'00000000191',convenio:'amigoz_23',senha:'discard'});
  assert.equal(calls.length,2);assert.equal(calls[1].route,'consultar');
@@ -33,5 +36,6 @@ test('simulator margin adapter reuses authenticated route and validates agreemen
  allowed=true;
  await assert.rejects(ctx.window.consultarMargemAmigozSimulador({convenio:'tjba'}),/Selecione/);
  await assert.rejects(ctx.window.consultarMargemAmigozSimulador({convenio:'amigoz_999'}),/indisponível/);
- assert.equal(calls.length,2);
+ // Invalid or unauthorized requests never reach the margin consultation itself.
+ assert.equal(calls.filter(call=>call.route==='consultar').length,1);
 });

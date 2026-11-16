@@ -28,7 +28,7 @@ class EmergencyStopTests(unittest.TestCase):
     def test_only_processing_rows_requeued_without_quota(self):
         request = Mock(return_value=[])
         module.requeue(request)
-        self.assertEqual(request.call_count, 6)
+        self.assertEqual(request.call_count, 3)  # one check per queue; nothing to requeue
         for call in request.call_args_list:
             path = call.args[0]
             self.assertIn("status=eq.processando", path)

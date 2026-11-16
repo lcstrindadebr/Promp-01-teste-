@@ -1,4 +1,4 @@
-const {setup,response}=require('./test_frontend.cjs');
+const {setup,response,syncResponse}=require('./test_frontend.cjs');
 const assert=require('assert'),vm=require('vm');
 (async()=>{
  const t=setup();
@@ -9,11 +9,11 @@ const assert=require('assert'),vm=require('vm');
   if(u.includes('/token?'))return response({access_token:'test',refresh_token:'test',expires_in:3600,user:{id:'owner',email:'test@example.com'}});
   if(u.includes('/rpc/create_consulta_campaign')){const data=JSON.parse(o.body);creates.push(data);return response('campaign')}
   if(u.includes('/rpc/retry_consulta_campaign')){let n=0;jobs.forEach(j=>{if(j.lote_id==='campaign'&&['erro','revisao'].includes(j.status)){j.status='aguardando';n++}});return response(n)}
-  if(u.includes('/consulta_jobs?'))return response(jobs);
-  if(u.includes('/consulta_lotes?'))return response(lots);
+  if(u.includes('/rpc/painel_consultas_sync'))return syncResponse(jobs,lots);
   return response([]);
  });
- await t.get('#login').onsubmit({preventDefault(){}});await new Promise(setImmediate);
+ t.get('#email').value='test@example.com';t.get('#password').value='password';
+ await t.get('#login').onsubmit({preventDefault(){}});await new Promise(r=>setTimeout(r,20));
  assert(t.get('#rows').innerHTML.includes('Individual somente'));assert(!t.get('#rows').innerHTML.includes('Campanha 0'));
  assert.equal(t.get('#total').textContent,1);assert(t.get('#campaignList').innerHTML.includes('5 consultas'));
  vm.runInContext("activeCampaign='campaign';renderCampaigns()",t.ctx);

@@ -1,0 +1,11 @@
+{
+  "name": "apoiarcred-tests",
+  "private": true,
+  "description": "Dependências só para os testes do painel (jsdom). O painel em dist/ não usa build.",
+  "scripts": {
+    "test:frontend": "for t in tests/*.cjs; do node \"$t\" || exit 1; done"
+  },
+  "devDependencies": {
+    "jsdom": "25.0.1"
+  }
+}

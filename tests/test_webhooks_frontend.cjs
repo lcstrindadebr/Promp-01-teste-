@@ -2,6 +2,8 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const {setup}=require('./test_frontend.cjs');
 (async()=>{
  const t=setup(),source=fs.readFileSync('dist/webhooks.js','utf8');
+ // Containers that webhooks.js builds inside Configurações → Integrações on the real page.
+ t.window.document.body.insertAdjacentHTML('beforeend','<div id="whList"></div><div id="whHistoryHook"></div>');
  const mutate=source.slice(source.indexOf('async function whMutate('),source.indexOf("$('#whForm').onsubmit="));
  vm.runInContext("let webhookBusy=false,webhookGeneration=0,integrationAllowed=true;function hasIntegrationAccess(){return integrationAllowed;}let seenSecret=null,successCount=0,loadCount=0;function whShowSecret(s){seenSecret=s;}async function loadWebhooks(){loadCount++;}",t.ctx);
  vm.runInContext(mutate,t.ctx);let finish;t.ctx.deferWebhook=()=>new Promise(r=>{finish=r});t.ctx.button={disabled:false};

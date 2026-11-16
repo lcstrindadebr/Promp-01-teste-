@@ -95,14 +95,16 @@ class AmigozTests(unittest.TestCase):
   config.assert_not_called()
 
  def test_partner_consultation_checks_access_and_consumes_one_shared_unit(self):
-  with patch.object(api,'supabase_call',side_effect=[{'id':'fixture'},True,[{'id':'job','lease':'lease'}],True]) as rpc,patch.object(amigoz,'configuration',return_value=CONFIG),patch.object(amigoz,'call',side_effect=[[],{}]) as provider:
+  with patch.object(api,'supabase_call',side_effect=[{'id':'fixture'},True,{'admin':False},{'id':'job','lease':'lease'},True]) as rpc,patch.object(amigoz,'configuration',return_value=CONFIG),patch.object(amigoz,'call',side_effect=[[],{}]) as provider:
    status,result=api.amigoz_admin('Bearer fixture','POST','/api/admin/amigoz/consultar',
     {'modo':'ambos','cpf':'00000000001','convenio_id':23,'numero_matricula':'1'})
   self.assertEqual(status,200)
   self.assertEqual(provider.call_count,2)
   self.assertEqual(rpc.call_args_list[1].args[1]['p_consume'],False)
-  self.assertEqual(rpc.call_args_list[2].args[0],'/rest/v1/rpc/start_amigoz_individual')
-  self.assertEqual(rpc.call_args_list[3].args[1]['p_resultado']['margem']['status'],'respondido')
+  # Margin requests first ask whether the caller is an admin (diagnostics are admin-only).
+  self.assertEqual(rpc.call_args_list[2].args[0],'/rest/v1/rpc/admin_partner_manage')
+  self.assertEqual(rpc.call_args_list[3].args[0],'/rest/v1/rpc/start_amigoz_individual')
+  self.assertEqual(rpc.call_args_list[4].args[1]['p_resultado']['margem']['status'],'respondido')
   self.assertTrue(result['data']['salvo_no_historico'])
 
  def test_exhausted_partner_never_contacts_provider(self):

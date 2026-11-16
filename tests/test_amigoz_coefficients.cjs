@@ -5,12 +5,7 @@ const {setup,response} = require('./test_frontend.cjs');
 
 (async () => {
   const t = setup();
-  t.ctx.document.createElement = () => ({hidden:false,innerHTML:'',className:''});
-  t.ctx.Option = function(text,value) {this.text=text;this.value=value;};
-  t.ctx.setInterval = () => {};
-  const ids = ['#amigozAgreement','#amigozMarginSelect','#amigozCards','#amigozClose'];
-  for (const id of ids) Object.assign(t.get(id), {replaceChildren(){},add(){},focus(){},setAttribute(){}});
-  t.get('#settings-commissions').appendChild = () => {};
+  // jsdom provides real elements, options and dialogs; no DOM stubs needed.
   vm.runInContext('function applyAccessUi(){};function exportResults(){};',t.ctx);
   vm.runInContext(fs.readFileSync('dist/amigoz.js','utf8'),t.ctx);
   vm.runInContext(fs.readFileSync('dist/amigoz-coefficients.js','utf8'),t.ctx);
@@ -34,7 +29,7 @@ const {setup,response} = require('./test_frontend.cjs');
   await t.get('#amigozCoefficientCalculate').onclick();
   assert.equal(JSON.parse(t.calls.at(-1)[1].body).p_input.manual,229.37);
   const rows=await vm.runInContext("amigozAppendExport([['CPF'],['000.000.001-91']],[{cpf:'00000000191'}])",t.ctx);
-  assert.equal(rows[0].length,12);assert.equal(rows[1].length,12);assert.equal(rows[1][1],4938.77);
+  assert.equal(rows[0].length,13);assert.equal(rows[1].length,13);assert.equal(rows[1][1],4938.77);
   assert.equal(rows[1][2],''); // An unavailable rate must not become a numeric zero.
   const originalCard=result.tabelas[0];
   for(const [state,limit,debt,label] of [
@@ -43,7 +38,7 @@ const {setup,response} = require('./test_frontend.cjs');
     result.tabelas=[{...originalCard,situacao:state,troco:0,limite:limit,quitacao:debt}];
     await t.get('#amigozCoefficientCalculate').onclick();
     assert(t.get('#amigozCards').innerHTML.includes(label));
-    assert(t.get('#amigozCards').innerHTML.includes('R$ 0,00'));
+    assert(/R\$\s0,00/.test(t.get('#amigozCards').textContent)); // innerHTML would show the non-breaking space as &nbsp;
   }
   result.tabelas=[{...originalCard,regra_calculo:undefined}];
   await t.get('#amigozCoefficientCalculate').onclick();

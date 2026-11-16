@@ -1,5 +1,7 @@
 begin;
-create temp table crm_test_users as select id,row_number() over(order by id) as n from auth.users order by id limit 2;
+-- Two fixture accounts of its own (the test must not depend on users already in the database).
+insert into auth.users(id,aud,role,email) select gen_random_uuid(),'authenticated','authenticated','kanban-'||n||'@kanban-test.invalid' from generate_series(1,2) n;
+create temp table crm_test_users as select id,row_number() over(order by email) as n from auth.users where email like '%@kanban-test.invalid';
 grant select on crm_test_users to authenticated;
 insert into public.crm_cadastros(user_id,cpf,nome,ultima_atividade)
  select id,'00000000001','CRM test rollback',now() from crm_test_users on conflict do nothing;

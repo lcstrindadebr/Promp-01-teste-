@@ -19,8 +19,9 @@ def format_cpf(value):
 
 
 class FlowStopped(Exception):
- def __init__(self,code,reason):
-  self.code=code;self.reason=reason
+ def __init__(self,code,reason,cause=None):
+  # cause: the last underlying error when a stage gave up after its retries.
+  self.code=code;self.reason=reason;self.cause=cause
   super().__init__(reason)
 
 
@@ -100,6 +101,7 @@ class ApiSession:
    cookie='; '.join(m.OutputString() for m in jar.values())
    return data,set_cookies
   async def call(path,body=None,limit=None,validate=None):
+   last=None
    for attempt,delay in enumerate((0,4,2),1):
     if delay:
      events.append({'horario':datetime.now(timezone.utc).isoformat(),'etapa':stage,'status':'nova tentativa','tentativa':attempt,'espera_segundos':delay})
@@ -110,9 +112,10 @@ class ApiSession:
      return data,cookies
     except (FlowStopped,CpfFormatError):
      raise
-    except Exception:
+    except Exception as error:
+     last=error
      if attempt==3:
-      raise FlowStopped('TENTATIVAS_ESGOTADAS','Falha na etapa '+stage+' após 3 tentativas da mesma chamada.')
+      raise FlowStopped('TENTATIVAS_ESGOTADAS','Falha na etapa '+stage+' após 3 tentativas da mesma chamada.',last)
   def validate_login(data):
    if not isinstance(data,dict) or not data.get('userId'):
     raise ValueError('Login sem usuário')
@@ -170,21 +173,29 @@ class ApiSession:
    return result
   except Exception as error:
    # Persist only classified errors, never exception text, URLs or cookies.
-   diagnostic=diagnose(error,'digimais_api')
-   reason=(error.reason if isinstance(error,FlowStopped) else
-    'CPF inválido: informe 11 dígitos' if isinstance(error,CpfFormatError) else
-    'Resposta JSON inválida do atendimento' if isinstance(error,json.JSONDecodeError) else
-    'Opção esperada não encontrada no menu de '+kind if isinstance(error,ValueError) else
-    'Autenticação retornou resposta sem usuário' if isinstance(error,RuntimeError) else diagnostic['codigo'])
+   # After exhausted retries, report the last underlying cause (e.g. HTTP_429) while keeping
+   # the TENTATIVAS_ESGOTADAS code that hands the job over to the robot.
+   retried=isinstance(error,FlowStopped) and error.cause is not None
+   cause=error.cause if retried else error
+   diagnostic=diagnose(cause,'digimais_api')
+   reason=(cause.reason if isinstance(cause,FlowStopped) else
+    'CPF inválido: informe 11 dígitos' if isinstance(cause,CpfFormatError) else
+    'Resposta JSON inválida do atendimento' if isinstance(cause,json.JSONDecodeError) else
+    'Opção esperada não encontrada no menu de '+kind if isinstance(cause,ValueError) else
+    'Autenticação retornou resposta sem usuário' if isinstance(cause,RuntimeError) else diagnostic['codigo'])
+   detail=(cause.reason if isinstance(cause,FlowStopped) else ('HTTP '+str(cause.code)) if isinstance(cause,urllib.error.HTTPError)
+           else ('Opção esperada não encontrada' if isinstance(cause,ValueError) else 'Falha na comunicação com o atendimento'))
    mark(stage,'interrompida')
-   return {'sucesso':False,'etapa':stage,'motivo_interrupcao':reason,'codigo':error.code if isinstance(error,FlowStopped) else diagnostic['codigo'],'eventos':events,'erro':error.reason if isinstance(error,FlowStopped) else ('HTTP '+str(error.code)) if isinstance(error,urllib.error.HTTPError) else ('Opção esperada não encontrada' if isinstance(error,ValueError) else 'Falha na comunicação com o atendimento'),
-    'http_status':error.code if isinstance(error,urllib.error.HTTPError) else None,
+   return {'sucesso':False,'etapa':stage,'motivo_interrupcao':reason,'codigo':error.code if isinstance(error,FlowStopped) else diagnostic['codigo'],'eventos':events,
+    'erro':error.reason+' Último erro: '+detail if retried else detail,
+    'http_status':cause.code if isinstance(cause,urllib.error.HTTPError) else None,
     'todasMensagens':[m.get('contentText') or m.get('content') or m.get('text') or '' for m in items]}
 
  async def run(self,job,on_progress=None,on_checkpoint=None):
   if on_progress:await on_progress(5,'API experimental · saldo')
   first=await self.flow(job,'saldo')
-  result={'resultado_saldo':first,'saldo_liquidacao':money(first.get('valorSaldo')),
+  # valor_parcela starts empty so an early stop always clears it explicitly in the saved row.
+  result={'resultado_saldo':first,'saldo_liquidacao':money(first.get('valorSaldo')),'valor_parcela':None,
    'total_parcelas':int(first['totalParcelas']) if first.get('totalParcelas') else None,
    'status':'processando','progress':50,'stage':'API experimental · fora do horário' if first.get('codigo')=='FORA_HORARIO_ATENDIMENTO' else 'API experimental · parcela'}
   if first.get('codigo') in BUSINESS_RESULTS:
@@ -198,7 +209,8 @@ class ApiSession:
    reason=(first.get('motivo_interrupcao') or first.get('erro') or
     ('O atendimento informou saldo de liquidação de R$ 0,00.' if confirmed_zero else 'O atendimento não confirmou um saldo de liquidação positivo.'))
    result.update(status='interrompida' if confirmed_zero else 'revisao',progress=100,
-    stage='API · parcela não iniciada',message=reason+' A parcela não foi consultada.')
+    stage='API · fora do horário · parcela não iniciada' if outside_hours else 'API · parcela não iniciada',
+    message=reason+' A parcela não foi consultada.')
    result['resultado_parcela']={'sucesso':False,'etapa':'parcela não iniciada',
     'motivo_interrupcao':reason,'nao_executada':True}
    return result

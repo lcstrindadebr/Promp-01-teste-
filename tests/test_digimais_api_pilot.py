@@ -49,12 +49,14 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
    def __exit__(self,*args):pass
    def read(self):return json.dumps(self.data).encode()
   api=ApiSession({'baseUrl':'https://example.invalid','code':'private','accountUid':'fixture'})
-  with patch('digimais_api.urllib.request.urlopen',side_effect=[Response({'userId':'fixture'}),Response({}),Response([])]),patch('digimais_api.asyncio.sleep',new_callable=AsyncMock):
+  with patch('digimais_api.urllib.request.urlopen',side_effect=[Response({'userId':'fixture'}),Response({}),*[Response([])]*3]),patch('digimais_api.asyncio.sleep',new_callable=AsyncMock):
+   # The menu is fetched up to 3 times; it stays empty on every attempt.
    result=await api.flow({'nome':'Fixture','cpf':'00000000000','telefone':'11999999999'},'saldo')
   self.assertFalse(result['sucesso'])
   self.assertEqual(result['etapa'],'menu de cobrança')
   self.assertIn('Opção esperada não encontrada',result['motivo_interrupcao'])
-  self.assertEqual([e['etapa'] for e in result['eventos'][:-1]],['autenticação','criação da sessão','menu de cobrança'])
+  self.assertEqual(list(dict.fromkeys(e['etapa'] for e in result['eventos'][:-1])),['autenticação','criação da sessão','menu de cobrança'])
+  self.assertEqual(result['codigo'],'TENTATIVAS_ESGOTADAS')
 
  def test_wrapped_messages_and_incoming_text(self):
   self.assertEqual(messages({'body':{'items':[{'contentText':'fixture'}]}}),[{'contentText':'fixture'}])
@@ -97,7 +99,8 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
   self.assertIn('session=after',requests[2].get_header('Cookie'))
   self.assertIn('auth=login',requests[2].get_header('Cookie'))
   self.assertNotIn('session=before',requests[2].get_header('Cookie'))
-  self.assertEqual(progress.await_count,1);checkpoint.assert_awaited_once()
+  # Stopped at the balance: the worker saves the final result directly, no intermediate checkpoint.
+  self.assertEqual(progress.await_count,1);checkpoint.assert_not_awaited()
 
  async def test_definitive_chat_replies_before_option_lookup(self):
   cases=[
@@ -135,11 +138,21 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
 
  async def test_sequential_checkpoint_and_referral(self):
   api=ApiSession({});events=[]
-  async def flow(job,kind):
+  async def save(data):events.append('saved')
+  # Without a confirmed positive balance the installment is not queried (no checkpoint either).
+  async def unconfirmed(job,kind):
    events.append(kind)
    return {'sucesso':False,'todasMensagens':['Contrato em assessoria de cobrança MAXISERV']}
-  api.flow=flow
-  async def save(data):events.append('saved')
+  api.flow=unconfirmed
+  r=await api.run({},on_checkpoint=save)
+  self.assertEqual(events,['saldo']);self.assertEqual(r['status'],'revisao');self.assertIn('parcela não foi consultada',r['message'])
+  # With a positive balance: checkpoint first, then the installment; a referral message is reported.
+  events.clear()
+  async def confirmed(job,kind):
+   events.append(kind)
+   if kind=='saldo':return {'sucesso':True,'valorSaldo':'1.000,00','todasMensagens':[]}
+   return {'sucesso':False,'todasMensagens':['Contrato em assessoria de cobrança MAXISERV']}
+  api.flow=confirmed
   r=await api.run({},on_checkpoint=save)
   self.assertEqual(events,['saldo','saved','parcela']);self.assertEqual(r['status'],'revisao');self.assertIn('assessoria',r['message'])
  async def test_failed_checkpoint_does_not_start_parcela(self):
@@ -181,18 +194,21 @@ if __name__=='__main__':unittest.main()
 
 class ApiPoolTests(unittest.IsolatedAsyncioTestCase):
  async def test_fifty_clients_no_requery_when_saving_fails(self):
-  import importlib.util,os,threading
+  import importlib.util,os,tempfile,threading
   with patch.dict(os.environ,{'SUPABASE_URL':'https://example.invalid','SUPABASE_SERVICE_ROLE_KEY':'fake','ROBOT_MODE':'live'}):
    spec=importlib.util.spec_from_file_location('pilot_worker',Path(__file__).resolve().parents[1]/'vps/worker.py');worker=importlib.util.module_from_spec(spec);spec.loader.exec_module(worker)
-  cap=worker.ApiCapacity();self.assertEqual(cap.target,50)
+  cap=worker.ApiCapacity();self.assertEqual(cap.target,cap.maximum);self.assertEqual(cap.maximum,100)
+  cap.target=50
   lock=threading.Lock();claimed=set();saved=set();processed=[];failed=False;barrier=asyncio.Event()
   def request(route,payload=None,method='POST',timeout=30):
    nonlocal failed
    with lock:
-    if route.startswith('rpc/claim'):
-     i=payload['p_slot']
-     if i in claimed:return []
-     claimed.add(i);return [{'id':str(i),'attempts':1}]
+    if route=='rpc/claim_consulta_jobs_for_api':
+     # One job per idle slot; each client is reserved only once.
+     jobs=[]
+     for i in payload['p_slots']:
+      if i not in claimed:claimed.add(i);jobs.append({'id':str(i),'attempts':1,'api_slot':i})
+     return jobs
     if method=='PATCH':
      if not failed:failed=True;raise OSError()
      saved.add(route);return None
@@ -204,8 +220,11 @@ class ApiPoolTests(unittest.IsolatedAsyncioTestCase):
    return {'status':'concluida','saldo_liquidacao':1,'valor_parcela':2}
   real_sleep=asyncio.sleep
   async def quick(_):await real_sleep(.001)
-  with patch.object(worker,'request',side_effect=request),patch.object(worker,'process_digimais',side_effect=process),patch.object(worker.asyncio,'sleep',side_effect=quick):
-   tasks=[asyncio.create_task(worker.api_loop(i,cap,Slot('api-'+str(i)),{})) for i in range(50)]
+  dispatcher=worker.ApiDispatcher(cap)
+  with tempfile.TemporaryDirectory() as spool,patch.object(worker,'SPOOL_DIR',Path(spool)),patch.object(worker,'request',side_effect=request),\
+       patch.object(worker,'process_digimais',side_effect=process),patch.object(worker.asyncio,'sleep',side_effect=quick):
+   tasks=[asyncio.create_task(worker.api_loop(i,cap,Slot('api-'+str(i)),{},dispatcher)) for i in range(50)]
+   tasks.append(asyncio.create_task(dispatcher.run()))
    try:
     async with asyncio.timeout(5):
      while len(saved)<50:await real_sleep(.005)
@@ -214,4 +233,4 @@ class ApiPoolTests(unittest.IsolatedAsyncioTestCase):
     await asyncio.gather(*tasks,return_exceptions=True)
   self.assertEqual(len(processed),50);self.assertEqual(len(set(processed)),50)
   low={'total':2048*1024**2,'available':200*1024**2}
-  cap=worker.ApiCapacity();cap.observe(low,40);self.assertEqual(cap.target,49)
+  cap=worker.ApiCapacity();cap.observe(low,40);self.assertEqual(cap.target,cap.maximum-1)

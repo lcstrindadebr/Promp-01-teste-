@@ -47,7 +47,8 @@ update public.consulta_jobs set valor_parcela=201 where id=(select job from coef
 set local role authenticated;
 do $$declare r jsonb;begin
  r=public.amigoz_exportar_estimativas(jsonb_build_array(jsonb_build_object('cpf','00000000191','job_id',(select job from coefficient_fixture),'convenio','amigoz_23')));
- if jsonb_array_length(r->0->'tabelas')<>0 or position('desatualizada' in r->0->>'motivo')=0 then raise exception 'Stale simulation exported';end if;
+ -- Exports are recalculated from the current source data, never from an older saved simulation.
+ if (r->0->>'parcela')::numeric<>201 or (r->0->'fonte'->>'parcela')::numeric<>201 then raise exception 'Export used stale source data: %',r->0;end if;
 end$$;
 reset role;
 select set_config('request.jwt.claim.sub',(select other_uid::text from coefficient_fixture),true);
