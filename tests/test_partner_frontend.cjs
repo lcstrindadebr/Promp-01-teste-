@@ -1,6 +1,6 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');const {setup,response}=require('./test_frontend.cjs');
 (async()=>{
- const t=setup();vm.runInContext(fs.readFileSync('dist/partners.js','utf8').split('const quotaBox=')[0],t.ctx);
+ const t=setup();
  vm.runInContext("authenticated=true;session={access_token:'x',expires_at:Date.now()/1000+3600,user:{id:'p'}};currentAccess={role:'partner',active:true,services:[{id:'digimais_saldo_parcela',enabled:true,allow_individual:true,daily_limit:2,remaining:1,allow_campaign:false}]}",t.ctx);
  vm.runInContext("assertCanSubmit('digimais_saldo_parcela','individual')",t.ctx);
  assert.throws(()=>vm.runInContext("assertCanSubmit('digimais_saldo_parcela','campaign')",t.ctx),/Campanhas/);
@@ -23,7 +23,7 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');const {setup,re
  vm.runInContext("currentAccess.remaining=0",t.ctx);
  assert.throws(()=>vm.runInContext("assertCanSubmit('digimais_saldo_parcela','campaign')",t.ctx),/Limite diário/);
  vm.runInContext("currentAccess.daily_limit=null;currentAccess.remaining=null",t.ctx);
- assert.equal(vm.runInContext('campaignImportLimit()',t.ctx),10000);
+ assert.equal(vm.runInContext('campaignImportLimit()',t.ctx),11000);
  vm.runInContext("currentAccess.trial_expired=true",t.ctx);
  assert.throws(()=>vm.runInContext("assertCanSubmit('digimais_saldo_parcela','individual')",t.ctx),/período de teste terminou/);
  console.log('PASS: partner service/campaign/quota/integration guards and atomic individual submission');

@@ -2,6 +2,8 @@ begin;
 create temporary table pilot_fixture as select gen_random_uuid() uid,gen_random_uuid() lot;
 insert into auth.users(id,aud,role,email) select uid,'authenticated','authenticated',uid::text||'@pilot-test.invalid' from pilot_fixture;
 insert into apoiarcred_private.user_profiles(user_id,role,name,email) select uid,'admin','Pilot fixture',uid::text||'@pilot-test.invalid' from pilot_fixture on conflict(user_id) do update set role='admin',active=true;
+-- The API configuration exists once the VPS installer saved it.
+insert into apoiarcred_private.digimais_api_config(config) values('{}') on conflict(id) do nothing;
 select set_config('request.jwt.claim.sub',(select uid::text from pilot_fixture),true);
 set local role authenticated;
 select public.manage_digimais_pilot('api',false,12);

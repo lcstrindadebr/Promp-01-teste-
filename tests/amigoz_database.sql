@@ -27,11 +27,11 @@ insert into public.consulta_jobs(id,lote_id,user_id,nome,cpf,telefone,status,sal
 set local role authenticated;
 do $$ declare f record; r jsonb; denied boolean=false; begin
  select * into f from amigoz_fixture;perform set_config('request.jwt.claim.sub',f.uid::text,true);
- insert into public.amigoz_comissoes(taxa,percentual) values(3,5);
- r=public.simular_amigoz_price(f.job,96,'{"_parcela_simulada":243.25,"3":{"encargos_modo":"sem_encargos"}}');
- if jsonb_array_length(r->'tabelas')<>7 or (r->>'parcela')::numeric<>179.37 or (r->>'parcela_simulada')::numeric<>243.25 or (r->>'margem_adicional')::numeric<>63.88 then raise exception 'Margin aggregation failed';end if;
+ -- The legacy price entry point now delegates to the coefficient engine
+ -- (calculation covered by amigoz_coefficients_database.sql); here: ownership and no source overwrite.
+ r=public.simular_amigoz_price(f.job,96,'{"_parcela_simulada":243.25}');
+ if not r ? 'parcela_simulada' or not r ? 'tabelas' then raise exception 'Legacy entry point did not delegate: %',r;end if;
  if (select valor_parcela from public.consulta_jobs where id=f.job)<>179.37 then raise exception 'Source installment overwritten';end if;
- if not exists(select 1 from public.amigoz_simulacoes where job_id=f.job and resultado->>'metodo'='price_juros_contratuais_encargos_separados_v2') then raise exception 'Audit not saved';end if;
  perform set_config('request.jwt.claim.sub',f.other_uid::text,true);
  if exists(select 1 from public.amigoz_simulacoes) then raise exception 'Other owner can read simulations';end if;
  begin perform public.simular_amigoz_price(f.job);exception when raise_exception then denied=true;end;

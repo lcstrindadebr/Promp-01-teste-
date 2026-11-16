@@ -9,8 +9,9 @@ class ConcurrentDigiTests(unittest.IsolatedAsyncioTestCase):
   path=Path(__file__).resolve().parents[1]/'vps/worker.py'
   with patch.dict(os.environ,{'SUPABASE_URL':'https://example.invalid','SUPABASE_SERVICE_ROLE_KEY':'fake','ROBOT_WORKERS':'4'}):
    spec=importlib.util.spec_from_file_location('worker_parallel_test',path);worker=importlib.util.module_from_spec(spec);spec.loader.exec_module(worker)
-  jobs=[{'id':'a','cpf':'00000000191','servico':'digimais_saldo_parcela'},{'id':'b','cpf':'00000000272','servico':'digimais_saldo_parcela'}]
-  consigx=[{'id':key,'cpf':'00000000191','servico':'tjba_margem','user_id':key} for key in ('c','d')]
+  jobs=[{'id':'a','cpf':'00000000191','servico':'digimais_saldo_parcela','attempts':1},{'id':'b','cpf':'00000000272','servico':'digimais_saldo_parcela','attempts':1}]
+  consigx=[{'id':key,'cpf':'00000000191','servico':'tjba_margem','user_id':key,'attempts':1} for key in ('c','d')]
+  import tempfile;spool=tempfile.TemporaryDirectory();self.addCleanup(spool.cleanup)
   lock=threading.Lock();barrier=asyncio.Event();processed=[];saved=set();fail_once=True
   def request(route,data=None,method='POST',timeout=30):
    nonlocal fail_once
@@ -33,6 +34,7 @@ class ConcurrentDigiTests(unittest.IsolatedAsyncioTestCase):
    capacity.target=capacity.maximum
    await asyncio.Future()
   with patch.object(worker.RobotCapacity,'watch',full_capacity),patch('robot_metrics.RobotMetrics.publish_loop',new=AsyncMock()),patch.object(worker,'request',side_effect=request),patch.object(worker,'process_digimais',side_effect=process),patch.object(worker,'process_tjba',side_effect=process),patch.object(worker.asyncio,'sleep',side_effect=short_sleep),patch.dict(os.environ,{'ROBOT_WORKERS':'4'}):
+   worker.SPOOL_DIR=Path(spool.name)
    task=asyncio.create_task(worker.main_async())
    try:
     async with asyncio.timeout(5):
@@ -40,12 +42,12 @@ class ConcurrentDigiTests(unittest.IsolatedAsyncioTestCase):
    finally:
     task.cancel()
     with self.assertRaises(asyncio.CancelledError):await task
-  self.assertCountEqual(processed,['a','b','c','d']);self.assertEqual(saved,{'consulta_jobs?id=eq.a','consulta_jobs?id=eq.b','tjba_jobs?id=eq.c','tjba_jobs?id=eq.d'});self.assertEqual(len({id(adapter) for adapter in adapters}),4);self.assertEqual([s.snapshot()['finished_last_hour'] for s in worker.robot_metrics.slots],[1,1,1,1])
+  self.assertCountEqual(processed,['a','b','c','d']);self.assertEqual(saved,{t+'?id=eq.'+k+'&status=eq.processando&attempts=eq.1' for t,k in (('consulta_jobs','a'),('consulta_jobs','b'),('tjba_jobs','c'),('tjba_jobs','d'))});self.assertEqual(len({id(adapter) for adapter in adapters}),4);self.assertEqual([s.snapshot()['finished_last_hour'] for s in worker.robot_metrics.slots],[1,1,1,1])
  async def test_single_worker_setting_does_not_start_extra_executor(self):
   path=Path(__file__).resolve().parents[1]/'vps/worker.py'
   with patch.dict(os.environ,{'SUPABASE_URL':'https://example.invalid','SUPABASE_SERVICE_ROLE_KEY':'fake','ROBOT_WORKERS':'1'}):
    spec=importlib.util.spec_from_file_location('worker_serial_test',path);worker=importlib.util.module_from_spec(spec);spec.loader.exec_module(worker)
-   with patch.object(worker,'api_supervisor',new=AsyncMock()),patch.object(worker,'robot_loop',new=AsyncMock()) as loop,patch.object(worker.RobotCapacity,'watch',new=AsyncMock()),patch('robot_metrics.RobotMetrics.publish_loop',new=AsyncMock()):
+   with patch.object(worker,'api_supervisor',new=AsyncMock()),patch.object(worker,'robot_loop',new=AsyncMock()) as loop,patch.object(worker,'dispatch_robot_jobs',new=AsyncMock()),patch.object(worker.RobotCapacity,'watch',new=AsyncMock()),patch('robot_metrics.RobotMetrics.publish_loop',new=AsyncMock()):
     await worker.main_async()
    loop.assert_awaited_once()
    self.assertEqual(len(worker.robot_metrics.slots),1)

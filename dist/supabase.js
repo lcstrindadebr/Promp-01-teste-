@@ -8,7 +8,7 @@ function showLogin(message=''){
  $('#password').required=true;$('#loginSubmit').textContent='Entrar';$('#loginSwitchAccount').hidden=true;
  digimaisCampaignUpload=null;authenticated=false;session=null;currentAccess=null;accessRefreshing=false;accessCheckedAt=0;authEpoch++;if(typeof resetPartnerSettings==='function')resetPartnerSettings();if(typeof resetApiSettings==='function')resetApiSettings();if(typeof resetWebhooks==='function')resetWebhooks();if(typeof resetTjbaSettings==='function')resetTjbaSettings();importGeneration++;readingImport=false;importError='';if(typeof resetAmigoz==='function')resetAmigoz();if(typeof resetMonitoring==='function')resetMonitoring();cloudSnapshot=null;cloudRows.clear();setCloudLoading(null);cloudLoadAgain=false;cloudSyncErrorAt=0;cloudSyncRetryAt=0;cloudSyncFailures=0;records=[];pending=[];campaigns=[];activeCampaign=null;retryingCampaign=false;$('#campaignName').value='';navigate("home");
  $('#consultationLogPanel').open=false;$('#consultationLogRobot').value='';authStore.clear();$('#appShell').hidden=true;$('#loginPage').hidden=false;
- $('#loginStatus').textContent='';$('#loginError').textContent=message;$('#preview').classList.add('hide');$('#file').value='';$('#import').disabled=true;render();
+ $('#loginStatus').textContent='';$('#loginError').textContent=message;$('#preview').classList.add('hide');$('#file').value='';$('#import').disabled=true;renderLogs();render(); // renderLogs clears the previous account's log text.
 }
 const authStore={
  get(){try{return localStorage.getItem(storageKey)||sessionStorage.getItem(storageKey)}catch{return null}},

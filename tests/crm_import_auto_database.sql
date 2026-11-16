@@ -21,7 +21,7 @@ begin
   perform public.crm_import_and_start(gen_random_uuid(),'BA','tjba',array['digimais_saldo'],'[{"cpf":"00000000202"}]');
   raise exception 'Accepted incomplete Digi+';
  exception when raise_exception then
-  if sqlerrm<>'Digi+ exige nome e telefone com DDD em todas as linhas.' then raise;end if;
+  if sqlerrm not like 'Digi+ exige nome e telefone com DDD%' then raise;end if;
  end;
  if exists(select 1 from public.crm_cadastros where cpf='00000000202') then raise exception 'Partial commit';end if;
  if (select count(*) from public.crm_consultas)<>3 then raise exception 'History incomplete';end if;

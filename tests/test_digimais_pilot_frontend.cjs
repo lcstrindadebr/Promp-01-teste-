@@ -1,14 +1,17 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');const {setup,response}=require('./test_frontend.cjs');
 (async()=>{
- const t=setup();t.ctx.document.createElement=()=>({hidden:false,innerHTML:'',className:''});t.get('#settings-robots').prepend=()=>{};t.get('#settings-digimais-api').append=()=>{};t.get('#digiPilotMode').setAttribute=()=>{};t.get('#consultationLogPanel').addEventListener=()=>{};
+ const t=setup();
+ // The real settings.js builds the Configurações sections this module fills.
+ vm.runInContext('function loadAmigozTables(){};function tickMonitoring(){};function loadApiTokens(){};function loadApiDocs(){};',t.ctx);
+ vm.runInContext(fs.readFileSync('dist/settings.js','utf8'),t.ctx);
  vm.runInContext('function applyAccessUi(){};function switchSettings(){};function resetApiSettings(){};function renderMonitoring(){};function robotDuration(v){return String(v)};let monitoringSnapshot=null;',t.ctx);
  vm.runInContext(fs.readFileSync('dist/digimais-pilot.js','utf8'),t.ctx);
  vm.runInContext("authenticated=true;session={access_token:'fixture',expires_at:Date.now()/1000+3600};currentAccess={active:true,role:'partner'}",t.ctx);
  await vm.runInContext('loadDigiPilot()',t.ctx);assert.equal(t.calls.length,0);assert.equal(vm.runInContext('digiPilot.hidden',t.ctx),true);
  t.handler(async()=>response({mode:'api',paused:false,max_concurrency:12}));vm.runInContext("currentAccess.role='admin'",t.ctx);await vm.runInContext('loadDigiPilot()',t.ctx);
  assert.equal(vm.runInContext('digiPilot.hidden',t.ctx),false);assert.equal(t.get('#digiPilotMode').value,'1');assert.equal(t.get('#digiPilotMax').value,12);
- assert.match(vm.runInContext('digiPilot.innerHTML',t.ctx),/max="50"/);
- assert.match(vm.runInContext('digiApiLog.innerHTML',t.ctx),/value="50">API 50/);
+ assert.match(vm.runInContext('digiPilot.innerHTML',t.ctx),/max="100"/);
+ assert.match(vm.runInContext('digiApiLog.innerHTML',t.ctx),/value="100">API 100/);
  t.get('#digiPilotPaused').checked=true;t.get('#digiPilotMax').value=50;
  await t.get('#digiPilotForm').onsubmit({preventDefault(){}});
  assert.deepEqual(JSON.parse(t.calls.at(-1)[1].body),{p_mode:'api',p_paused:true,p_max:50});
