@@ -207,3 +207,73 @@ begin
 end $$;
 revoke all on function public.admin_move_member(uuid,uuid,text) from public,anon;
 grant execute on function public.admin_move_member(uuid,uuid,text) to authenticated;
+
+-- 5. Conferência da importação do CRM (versão leve da produção) pela empresa: permissões do
+-- usuário e cota única da empresa, sem ler as tabelas antigas.
+create or replace function public.crm_preview_import(
+ p_uf text,p_convenio text,p_servicos text[],p_rows jsonb
+) returns jsonb
+language plpgsql stable security definer set search_path='' set statement_timeout='45s'
+as $function$
+declare
+ uid uuid:=auth.uid();
+ account_access jsonb;
+ admin boolean;
+ errors jsonb;
+ clients integer;
+ existing_clients integer;
+ consultations integer:=0;
+ company_limit integer;
+ used_today integer;
+ service_id text;
+begin
+ if uid is null then raise insufficient_privilege;end if;
+ account_access:=apoiarcred_private.access_for(uid);
+ if not coalesce((account_access->>'active')::boolean,false)
+    or coalesce((account_access->>'trial_expired')::boolean,false) then
+  raise insufficient_privilege using message='Importação indisponível para esta conta.';
+ end if;
+ admin:=apoiarcred_private.is_admin(uid);
+
+ errors:=apoiarcred_private.crm_import_errors(p_uf,p_convenio,p_servicos,p_rows);
+ if errors<>'[]' then return jsonb_build_object('valido',false,'erros',errors);end if;
+
+ select count(*),count(c.cpf) into clients,existing_clients
+ from (select distinct item->>'cpf' as cpf from jsonb_array_elements(p_rows) item) imported
+ left join public.crm_cadastros c on c.user_id=uid and c.cpf=imported.cpf;
+
+ for service_id in
+  select service from (values ('digimais_saldo','digimais_saldo_parcela'),
+                              ('consigx_margem','tjba_margem')) s(option_name,service)
+  where option_name=any(p_servicos)
+ loop
+  consultations:=consultations+clients;
+  if not admin and not apoiarcred_private.has_permission(uid,apoiarcred_private.consult_key(service_id,'campanha')) then
+   raise insufficient_privilege using message='Campanhas não estão habilitadas para este tipo de higienização.';
+  end if;
+ end loop;
+
+ if p_servicos && array['amigoz_margem','amigoz_saque'] then
+  consultations:=consultations+jsonb_array_length(p_rows);
+  if not admin and not apoiarcred_private.has_permission(uid,'consulta.amigoz.individual') then
+   raise insufficient_privilege using message='Acesso Amigoz não liberado.';
+  end if;
+ end if;
+
+ select t.daily_limit,coalesce(u.used,0) into company_limit,used_today
+ from apoiarcred_private.tenants t
+ left join apoiarcred_private.tenant_daily_usage u on u.tenant_id=t.id and u.day=apoiarcred_private.today_sp()
+ where t.id=apoiarcred_private.user_tenant(uid);
+ if not admin and consultations>0 and company_limit is not null and used_today+consultations>company_limit then
+  raise sqlstate 'PT429' using message='A planilha excede o saldo de consultas da cota diária da empresa.';
+ end if;
+
+ return jsonb_build_object('valido',true,'uf',p_uf,'convenio',p_convenio,
+  'registros',jsonb_array_length(p_rows),'clientes',clients,
+  'clientes_novos',clients-existing_clients,'clientes_atualizados',existing_clients,
+  'consultas',consultations);
+exception when raise_exception or insufficient_privilege or sqlstate 'PT429' then
+ return jsonb_build_object('valido',false,'erros',
+  jsonb_build_array(jsonb_build_object('linha',0,'mensagem',sqlerrm)));
+end
+$function$;

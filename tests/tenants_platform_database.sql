@@ -33,6 +33,31 @@ begin
 end $$;
 reset role;
 
+-- Import preview follows the company: ConsigX campaigns allowed, quota of 30 checked.
+set local role authenticated;
+do $$
+declare f tp; r jsonb; rows jsonb='[{"cpf":"00000000892","numero_matricula":"000123","margem_emprestimo":1}]';
+begin
+ select * into f from tp;
+ perform set_config('request.jwt.claim.sub',f.p1::text,true);
+ r:=public.crm_preview_import('BA','saeb',array['consigx_margem'],rows);
+ if not (r->>'valido')::boolean or (r->>'consultas')::int<>1 then raise exception 'Preview by company failed: %',r;end if;
+end $$;
+reset role;
+insert into apoiarcred_private.tenant_daily_usage(tenant_id,day,used)
+ select apoiarcred_private.user_tenant(p1),apoiarcred_private.today_sp(),30 from tp;
+set local role authenticated;
+do $$
+declare f tp; r jsonb;
+begin
+ select * into f from tp;
+ perform set_config('request.jwt.claim.sub',f.p1::text,true);
+ r:=public.crm_preview_import('BA','saeb',array['consigx_margem'],'[{"cpf":"00000000892","numero_matricula":"000123"}]');
+ if (r->>'valido')::boolean or r->'erros'->0->>'mensagem' not like '%cota diária da empresa%' then raise exception 'Company quota not checked: %',r;end if;
+end $$;
+reset role;
+delete from apoiarcred_private.tenant_daily_usage where tenant_id=(select apoiarcred_private.user_tenant(p1) from tp);
+
 -- Parceiro 2 has a lot and two CRM cards: one in "contato", one in a custom stage.
 insert into public.crm_cadastros(user_id,cpf,nome,ultima_atividade) select p2,'00000000191','CLIENTE P2',now() from tp;
 set local role authenticated;
