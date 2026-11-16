@@ -41,6 +41,12 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');const {setup,re
  assert(t.get('#rows').innerHTML.includes('000123'));assert(t.get('#rows').innerHTML.includes('0,00'));assert(/-R\$[^<]*10,25/.test(t.get('#rows').innerHTML));assert(!t.get('#rows').innerHTML.includes('DIGI'));assert(!t.get('#rows').innerHTML.includes('Simular Amigoz'));
  t.get('#filter').value='tjba:revisao_matricula';vm.runInContext('render()',t.ctx);assert(!t.get('#rows').innerHTML.includes('000123'));
  t.get('#serviceSelect').value='digimais_saldo_parcela';t.get('#serviceSelect').onchange();assert(t.get('#rows').innerHTML.includes('DIGI'));assert(!t.get('#rows').innerHTML.includes('000123'));assert.equal(t.get('#telefone').required,true);
+ // Company access: a member without acesso.portais sees it but cannot edit.
+ vm.runInContext("currentAccess={role:'partner',active:true}",t.ctx);
+ metadata.shared={configured:true,username:'empresa',enabled:true,can_edit:false};metadata.robots=[];
+ await vm.runInContext('loadTjbaSettings()',t.ctx);
+ assert(t.get('#editTjbaAccess').hidden);assert.match(t.get('#tjbaCredentialStatus').textContent,/Acesso ativo · empresa · Acesso da empresa/);
+ metadata.shared.can_edit=true;await vm.runInContext('loadTjbaSettings()',t.ctx);assert(!t.get('#editTjbaAccess').hidden);
  vm.runInContext('showLogin()',t.ctx);assert.equal(t.get('#tjbaUsername').value,'');
  console.log('PASS: TJBA selection, CPF-only import, normalized leading zeros, separate campaign RPC, password clearing, zero/negative margins, no Digi+ mixing, subtype filter and logout');
 })().catch(e=>{console.error(e);process.exitCode=1});
