@@ -4,7 +4,14 @@ const campaignPageSize=50;
 let campaignPage=1,campaignPageKey='';
 function orderedClients(rows){return [...rows].sort((a,b)=>Number(a.queue_order??Number.MAX_SAFE_INTEGER)-Number(b.queue_order??Number.MAX_SAFE_INTEGER)||new Date(a.created_at||a.date)-new Date(b.created_at||b.date)||String(a.id).localeCompare(String(b.id)));}
 const originalCampaignRecords=campaignRecords;
-campaignRecords=function(id){return orderedClients(originalCampaignRecords(id));};
+// Ordered copy cached per campaign array, so sorting happens once per sync, not once per call.
+const orderedCampaignCache=new WeakMap();
+campaignRecords=function(id){
+ const rows=originalCampaignRecords(id);
+ let ordered=orderedCampaignCache.get(rows);
+ if(!ordered){ordered=orderedClients(rows);orderedCampaignCache.set(rows,ordered);}
+ return ordered;
+};
 function campaignPhase(c,rows){return c.paused?(rows.some(r=>r.status==='Processando')?'active':'paused'):rows.some(r=>['Aguardando','Processando'].includes(r.status))?'active':'done';}
 function campaignPhaseLabel(c,rows){const running=rows.filter(r=>r.status==='Processando').length;return c.paused?(running?'Pausando · consultas em andamento terminando':'Pausada'):campaignPhase(c,rows)==='done'?'Finalizada':running?'Em andamento':'Na fila';}
 function campaignEta(campaign, rows, pending, running, now=Date.now()){

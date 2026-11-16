@@ -73,9 +73,27 @@ function renderLogs(){
  }));
 }
 $('#consultationLogRobot').onchange=()=>renderLogs();
-function campaignRecords(id){return records.filter(r=>r.lote_id===id)}
+$('#consultationLogPanel').addEventListener?.('toggle',()=>{if($('#consultationLogPanel').open)renderLogs();});
+// Records grouped by campaign, rebuilt only when the records array itself is replaced
+// (each sync or deletion assigns a new array). Avoids a full scan per campaign per render.
+let recordIndexSource=null,recordIndex=new Map();
+function recordsByCampaign(){
+ if(recordIndexSource!==records){
+  recordIndex=new Map();
+  for(const r of records){const list=recordIndex.get(r.lote_id);if(list)list.push(r);else recordIndex.set(r.lote_id,[r]);}
+  recordIndexSource=records;
+ }
+ return recordIndex;
+}
+const noRecords=Object.freeze([]);
+function campaignRecords(id){return recordsByCampaign().get(id)||noRecords}
 function individualRecords(){const ids=new Set(campaigns.map(c=>c.id));return records.filter(r=>!ids.has(r.lote_id)&&(r.servico||'digimais_saldo_parcela')===selectedService())}
+const campaignStatsCache=new WeakMap();
 function campaignStats(rows){
+ if(campaignStatsCache.has(rows))return campaignStatsCache.get(rows);
+ const stats=computeCampaignStats(rows);campaignStatsCache.set(rows,stats);return stats;
+}
+function computeCampaignStats(rows){
  return {total:rows.length,clients:rows.filter(r=>r.saldo!=null||r.valorParcela!=null||r.emprestimo_disponivel!=null||r.cartao_disponivel!=null||r.matricula!=null||r.status==='Concluída').length,nonclients:rows.filter(r=>['Não é cliente','Não encontrado'].includes(r.status)).length,errors:rows.filter(r=>r.status==='Erro').length,sold:rows.filter(r=>r.status==='Já vendeu').length,review:rows.filter(r=>r.status==='Revisão').length,interrupted:rows.filter(r=>r.status==='Consulta interrompida').length,waiting:rows.filter(r=>['Aguardando','Processando'].includes(r.status)).length};
 }
 function rowsHTML(rows){return rows.map(r=>`<tr><td><b>${escapeHTML(r.nome)}</b><br><span class="muted">${escapeHTML(r.cpf)}</span></td><td><span class="pill ${r.status==='Concluída'?'ok':['Erro','Revisão','Consulta interrompida'].includes(r.status)?'err':r.status==='Processando'?'run':''}">${escapeHTML(statusLabel(r.status))}</span><div class="progress-line"><progress max="100" value="${Math.max(0,Math.min(100,Number(r.progress)||(['Concluída','Não é cliente'].includes(r.status)?100:0)))}" aria-label="Progresso da consulta"></progress><small>${Math.max(0,Math.min(100,Number(r.progress)||(['Concluída','Não é cliente'].includes(r.status)?100:0)))}%</small></div>${resultMessage(r)?`<small class="muted">${escapeHTML(resultMessage(r))}</small>`:''}</td><td>${r.saldo==null?'—':r.saldo.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</td><td>${r.parcelas??'—'}</td><td>${r.valorParcela==null?'—':r.valorParcela.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</td><td><span class="service-tag">${escapeHTML(serviceLabel(r.servico))}</span><br><span class="muted">${new Date(r.date).toLocaleString('pt-BR')}</span></td><td>${['Erro','Revisão','Consulta interrompida'].includes(r.status)?`<button data-retry="${r.id}">Tentar novamente</button>`:'—'}<br>${typeof amigozAction==='function'?amigozAction(r):''}<button class="danger" data-delete-job="${escapeHTML(r.id)}">Excluir</button></td></tr>`).join('')||'<tr><td colspan="7" class="empty">Nenhuma consulta encontrada.</td></tr>'}
@@ -100,7 +118,9 @@ $('#individualNext').onclick=()=>{individualPage++;render();};
 function render(){
  if(typeof refreshAmigoz==='function')refreshAmigoz();
  if(typeof setTableHead==='function')setTableHead(selectedService(),'individualHead');
- renderLogs();renderCampaigns();
+ // The robot log rebuilds text for every record: only while its panel is open.
+ if($('#consultationLogPanel').open)renderLogs();
+ renderCampaigns();
  const rows=individualRecords(),q=$('#search').value.toLowerCase(),filter=$('#filter').value;
  $('#total').textContent=rows.length;
  $('#waiting').textContent=rows.filter(r=>['Aguardando','Processando'].includes(r.status)).length;
