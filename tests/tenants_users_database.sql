@@ -8,8 +8,10 @@ insert into auth.users(id,aud,role,email)
 insert into apoiarcred_private.user_profiles(user_id,role,name,email)
  select owner,'partner','Empresa A',owner::text||'@tenant-users.invalid' from tu
  union all select other_owner,'partner','Empresa B',other_owner::text||'@tenant-users.invalid' from tu;
-insert into apoiarcred_private.partner_permissions(user_id,service,enabled,allow_individual,allow_campaign,daily_limit)
- select owner,'digimais_saldo_parcela',true,true,true,10 from tu;
+insert into apoiarcred_private.tenant_grants(tenant_id,permission_key)
+ select m.tenant_id,p.key from tu join apoiarcred_private.tenant_members m on m.user_id=tu.owner
+ join apoiarcred_private.permissions p on p.service='digimais_saldo_parcela';
+update apoiarcred_private.tenants set daily_limit=10 where legacy_owner_id=(select owner from tu);
 
 set local role service_role;
 do $$

@@ -112,13 +112,13 @@ function clearPartnerForm(){
 async function loadPartners(){
  if(currentAccess?.role!=='admin')return;const epoch=authEpoch;$('#partnerAdminStatus').textContent='Carregando parceiros…';
  try{const result=await partnerRequest('');if(epoch!==authEpoch)return;partnersList=result.data;
- $('#partnerList').innerHTML=partnersList.length?partnersList.map(p=>`<article class="partner-list-item"><div class="heading"><strong>${escapeHTML(p.name)}</strong><span class="pill ${p.active?'ok':''}">${p.active?'Ativo':'Inativo'}</span></div><p>${escapeHTML(p.email)}</p><small>Integrações: ${p.allow_integrations?'liberadas':'não liberadas'}</small><small>Amigoz: ${p.allow_amigoz?'liberado':'não liberado'}</small>${p.trial_until?'<small>Teste até '+escapeHTML(p.trial_until.split('-').reverse().join('/'))+'</small>':''}${p.shared_quota?'<small>'+escapeHTML(sharedQuotaText(p.access))+'</small>':''}${p.access.services.map(r=>`<small>${escapeHTML(partnerServices.find(s=>s[0]===r.id)?.[1]||r.id)}: ${!r.enabled?'não liberado':`${r.allow_individual?(p.shared_quota?'individuais liberadas':r.used+' / '+r.daily_limit+' individuais hoje'):'sem individuais'} · ${r.allow_campaign?'campanhas liberadas':'sem campanhas'}`}</small>`).join('')}<button type="button" data-edit-partner="${escapeHTML(p.user_id)}">Editar permissões</button></article>`).join(''):'<p class="muted">Nenhum parceiro cadastrado. Crie o primeiro acesso ao lado.</p>';
+ $('#partnerList').innerHTML=partnersList.length?partnersList.map(p=>`<article class="partner-list-item"><div class="heading"><strong>${escapeHTML(p.name)}</strong><span class="pill ${p.active?'ok':''}">${p.active?'Ativo':'Inativo'}</span></div><p>${escapeHTML(p.email)}</p><small>Integrações: ${p.allow_integrations?'liberadas':'não liberadas'}</small><small>Amigoz: ${p.allow_amigoz?'liberado':'não liberado'}</small>${p.trial_until?'<small>Teste até '+escapeHTML(p.trial_until.split('-').reverse().join('/'))+'</small>':''}${p.shared_quota?'<small>'+escapeHTML(sharedQuotaText(p.access))+'</small>':''}${p.access.services.map(r=>`<small>${escapeHTML(partnerServices.find(s=>s[0]===r.id)?.[1]||r.id)}: ${!r.enabled?'não liberado':`${r.allow_individual?(p.shared_quota?'individuais liberadas':r.used+' / '+r.daily_limit+' individuais hoje'):'sem individuais'} · ${r.allow_campaign?'campanhas liberadas':'sem campanhas'}`}</small>`).join('')}${p.members!=null?'<small>Usuários ativos: '+escapeHTML(p.members)+'</small>':''}<div class="actions"><button type="button" data-edit-partner="${escapeHTML(p.user_id)}">Editar permissões</button>${partnersList.length>1?`<button type="button" data-move-partner="${escapeHTML(p.user_id)}">Juntar a outra empresa</button>`:''}</div></article>`).join(''):'<p class="muted">Nenhum parceiro cadastrado. Crie o primeiro acesso ao lado.</p>';
  $('#partnerAdminStatus').textContent='';
  }catch(e){if(epoch===authEpoch)$('#partnerAdminStatus').textContent=e.message;}
 }
 const partnerSwitchSettings=switchSettings;switchSettings=function(id){if(id==='minio'&&!minioAdmin()||id==='partners'&&currentAccess?.role!=='admin'||id==='integrations'&&!hasIntegrationAccess())return;partnerSwitchSettings(id);if(id==='partners')loadPartners();if(id==='minio')requestMinio('load');};
 $('#newPartner').onclick=clearPartnerForm;$('#cancelPartnerEdit').onclick=clearPartnerForm;$('#reloadPartners').onclick=loadPartners;
-$('#partnerList').onclick=e=>{const id=e.target.dataset.editPartner,p=partnersList.find(p=>p.user_id===id);if(!p)return;clearPartnerForm();$('#partnerEditId').value=id;$('#partnerName').value=p.name;$('#partnerEmail').value=p.email;$('#partnerEmail').disabled=true;$('#partnerPassword').required=false;$('#partnerPasswordField').hidden=true;$('#partnerActive').checked=p.active;$('#partnerIntegrations').checked=p.allow_integrations===true;$('#partnerAmigoz').checked=p.allow_amigoz===true;
+$('#partnerList').onclick=e=>{if(e.target.dataset.movePartner)return movePartner(e.target.dataset.movePartner);const id=e.target.dataset.editPartner,p=partnersList.find(p=>p.user_id===id);if(!p)return;clearPartnerForm();$('#partnerEditId').value=id;$('#partnerName').value=p.name;$('#partnerEmail').value=p.email;$('#partnerEmail').disabled=true;$('#partnerPassword').required=false;$('#partnerPasswordField').hidden=true;$('#partnerActive').checked=p.active;$('#partnerIntegrations').checked=p.allow_integrations===true;$('#partnerAmigoz').checked=p.allow_amigoz===true;
  for(const r of p.access.services){$('#partnerEnabled-'+r.id).checked=r.enabled;$('#partnerIndividual-'+r.id).checked=r.allow_individual;$('#partnerCampaign-'+r.id).checked=r.allow_campaign;$('#partnerLimit-'+r.id).value=r.daily_limit;}
  $('#partnerAccessType').value=p.trial_until?'trial':'regular';$('#partnerTrialUntil').value=p.trial_until||'';$('#partnerQuotaMode').value=p.shared_quota?(p.shared_daily_limit==null?'unlimited':'limited'):'legacy';$('#partnerSharedLimit').value=p.shared_daily_limit??100;syncPartnerQuotaFields();
  $('#partnerFormTitle').textContent='Editar parceiro';$('#savePartner').textContent='Salvar permissões';$('#partnerName').focus();};
@@ -135,6 +135,35 @@ $('#partnerForm').onsubmit=async e=>{
  finally{$('#partnerPassword').value='';partnerSaving=false;$('#savePartner').disabled=false;}
 };
 applyAccessUi();
+
+// Juntar parceiros: o responsável (e os dados dele) passa a fazer parte de outra empresa.
+const partnerMoveDialog=document.createElement('dialog');partnerMoveDialog.setAttribute('aria-labelledby','partnerMoveTitle');
+partnerMoveDialog.innerHTML=`<form id="partnerMoveForm"><h2 id="partnerMoveTitle">Juntar a outra empresa</h2><p id="partnerMoveText" class="muted"></p>
+<label class="field" for="partnerMoveTarget">Empresa de destino</label><select id="partnerMoveTarget" required></select>
+<label class="field" for="partnerMoveRole">Papel na empresa de destino</label><select id="partnerMoveRole"><option value="gestor">Gestor</option><option value="operador">Operador</option><option value="leitura">Leitura</option><option value="administrador">Administrador</option></select>
+<p class="muted">Consultas, campanhas, clientes e cartões do CRM vão junto. Acessos ConsigX, Digi+ e webhooks ficam na empresa antiga, que é desativada se ficar sem usuários. Cartões em etapas que só existem na empresa antiga vão para a etapa inicial.</p>
+<p id="partnerMoveStatus" role="status"></p><div class="actions"><button id="partnerMoveSave" class="primary">Juntar</button><button type="button" id="partnerMoveCancel">Cancelar</button></div></form>`;
+document.body.append(partnerMoveDialog);
+$('#partnerMoveCancel').onclick=()=>partnerMoveDialog.close();
+function movePartner(id){
+ const partner=partnersList.find(p=>p.user_id===id);if(!partner)return;
+ $('#partnerMoveText').textContent=`${partner.name} (${partner.email}) passa a ser usuário da empresa escolhida.`;
+ const select=$('#partnerMoveTarget');select.replaceChildren();
+ for(const p of partnersList)if(p.user_id!==id&&p.active)select.add(new Option(p.name,p.user_id));
+ $('#partnerMoveStatus').textContent=select.options.length?'':'Nenhuma empresa ativa para receber o parceiro.';
+ $('#partnerMoveSave').disabled=!select.options.length;$('#partnerMoveForm').dataset.user=id;
+ partnerMoveDialog.showModal();
+}
+$('#partnerMoveForm').onsubmit=async e=>{
+ e.preventDefault();const epoch=authEpoch,user=e.target.dataset.user,target=$('#partnerMoveTarget');
+ if(!confirm(`Juntar à empresa ${target.selectedOptions[0]?.text}? Esta ação não tem botão de desfazer.`))return;
+ $('#partnerMoveSave').disabled=true;$('#partnerMoveStatus').textContent='Movendo dados…';
+ try{
+  const r=await sbRequest('/rest/v1/rpc/admin_move_member',{method:'POST',body:JSON.stringify({p_user:user,p_target_user:target.value,p_role:$('#partnerMoveRole').value})});
+  if(epoch!==authEpoch)return;partnerMoveDialog.close();toast(`Parceiro movido com ${r.registros} registros.`);await loadPartners();
+ }catch(error){if(epoch===authEpoch)$('#partnerMoveStatus').textContent=error.message||'Não foi possível juntar.';}
+ finally{$('#partnerMoveSave').disabled=false;}
+};
 
 const partnerDigiCard=document.createElement('section');
 partnerDigiCard.className='card';

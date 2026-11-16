@@ -7,8 +7,9 @@ insert into auth.users(id,aud,role,email)
 insert into apoiarcred_private.user_profiles(user_id,role,name,email,shared_quota,shared_daily_limit)
  select a,'partner','Empresa A',a::text||'@tenant-access.invalid',true,100 from ta
  union all select other,'partner','Empresa B',other::text||'@tenant-access.invalid',true,100 from ta;
-insert into apoiarcred_private.partner_permissions(user_id,service,enabled,allow_individual,allow_campaign,daily_limit)
- select x,'digimais_saldo_parcela',true,true,true,0 from ta,unnest(array[a,other]) x;
+insert into apoiarcred_private.tenant_grants(tenant_id,permission_key)
+ select m.tenant_id,p.key from ta,unnest(array[a,other]) x join apoiarcred_private.tenant_members m on m.user_id=x
+ join apoiarcred_private.permissions p on p.service in ('digimais_saldo_parcela');
 -- Company A: Administrador (a), Gestor (b), Operador (c).
 insert into apoiarcred_private.tenant_members(tenant_id,user_id,role_id)
  select m.tenant_id,x.id,r.id from ta join apoiarcred_private.tenant_members m on m.user_id=ta.a

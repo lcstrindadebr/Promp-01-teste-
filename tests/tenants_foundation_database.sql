@@ -5,13 +5,14 @@ grant select on tf to authenticated;
 insert into auth.users(id,aud,role,email)
  select x,'authenticated','authenticated',x::text||'@tenant-test.invalid' from tf,unnest(array[a,b,c,other]) x;
 
--- Profiles created by the current partner screen provision a company each, kept in sync with permissions.
+-- Each profile gets its own company; the platform screen then sets the ceiling, quota and access.
 insert into apoiarcred_private.user_profiles(user_id,role,name,email,shared_quota,shared_daily_limit)
  select a,'partner','Empresa A',a::text||'@tenant-test.invalid',false,null from tf
  union all select other,'partner','Empresa B',other::text||'@tenant-test.invalid',true,50 from tf;
-insert into apoiarcred_private.partner_permissions(user_id,service,enabled,allow_individual,allow_campaign,daily_limit)
- select a,'digimais_saldo_parcela',true,true,true,1000 from tf
- union all select a,'tjba_margem',false,false,false,0 from tf;
+select apoiarcred_private.platform_set_grants(m.tenant_id,
+ '[{"service":"digimais_saldo_parcela","enabled":true,"allow_individual":true,"allow_campaign":true},{"service":"tjba_margem","enabled":false}]',false,false)
+ from tf join apoiarcred_private.tenant_members m on m.user_id=tf.a;
+update apoiarcred_private.tenants set daily_limit=1000 where legacy_owner_id=(select a from tf);
 
 do $$
 declare ta uuid; tb uuid;
@@ -19,17 +20,15 @@ begin
  select tenant_id into ta from apoiarcred_private.tenant_members where user_id=(select a from tf);
  select tenant_id into tb from apoiarcred_private.tenant_members where user_id=(select other from tf);
  if ta is null or tb is null or ta=tb then raise exception 'Each profile must get its own company';end if;
- if (select daily_limit from apoiarcred_private.tenants where id=ta)<>1000 then raise exception 'Individual limit must become the company quota';end if;
  if (select daily_limit from apoiarcred_private.tenants where id=tb)<>50 then raise exception 'Shared quota must become the company quota';end if;
  if not exists(select 1 from apoiarcred_private.tenant_grants where tenant_id=ta and permission_key='consulta.digimais.campanha')
   or exists(select 1 from apoiarcred_private.tenant_grants where tenant_id=ta and permission_key like 'consulta.consigx.%')
-  or exists(select 1 from apoiarcred_private.tenant_grants where tenant_id=ta and permission_key='integracoes') then
-  raise exception 'Company ceiling must mirror the partner permissions';end if;
+  or exists(select 1 from apoiarcred_private.tenant_grants where tenant_id=ta and permission_key='integracoes')
+  or not exists(select 1 from apoiarcred_private.tenant_grants where tenant_id=ta and permission_key='dados.ver_empresa') then
+  raise exception 'Company ceiling wrong';end if;
+ if exists(select 1 from apoiarcred_private.tenant_grants where tenant_id=tb and permission_key like 'consulta.%') then
+  raise exception 'New company got services before the platform granted them';end if;
  if (select count(*) from apoiarcred_private.tenant_roles where tenant_id=ta)<>4 then raise exception 'Four built-in roles expected';end if;
- -- Changing permissions in the current screen updates the ceiling.
- update apoiarcred_private.partner_permissions set enabled=false where user_id=(select a from tf) and service='digimais_saldo_parcela';
- if exists(select 1 from apoiarcred_private.tenant_grants where tenant_id=ta and permission_key like 'consulta.digimais.%') then raise exception 'Ceiling not resynced';end if;
- update apoiarcred_private.partner_permissions set enabled=true where user_id=(select a from tf) and service='digimais_saldo_parcela';
  begin
   insert into apoiarcred_private.tenant_roles(tenant_id,code,name,builtin) values(ta,'supervisor','Supervisor',false);
   raise exception 'Custom role accepted';

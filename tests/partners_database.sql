@@ -6,8 +6,8 @@ grant select,update on partner_fixture to authenticated,service_role;
 set local role service_role;
 do $$declare f record;r jsonb;begin
  select * into f from partner_fixture;
- r=public.admin_partner_manage(f.admin_uid,'create',jsonb_build_object('user_id',f.partner_uid,'email',f.partner_uid||'@partner-test.invalid','name','Partner test','active',true,'allow_integrations',true,'permissions','[{"service":"digimais_saldo_parcela","enabled":true,"allow_individual":true,"daily_limit":1,"allow_campaign":false},{"service":"tjba_margem","enabled":true,"allow_individual":true,"daily_limit":1,"allow_campaign":true}]'::jsonb));
- -- Os limites por serviço viram a cota da empresa (1+1=2 por dia, para todos os serviços).
+ r=public.admin_partner_manage(f.admin_uid,'create',jsonb_build_object('user_id',f.partner_uid,'email',f.partner_uid||'@partner-test.invalid','name','Partner test','active',true,'allow_integrations',true,'shared_daily_limit',2,'permissions','[{"service":"digimais_saldo_parcela","enabled":true,"allow_individual":true,"daily_limit":1,"allow_campaign":false},{"service":"tjba_margem","enabled":true,"allow_individual":true,"daily_limit":1,"allow_campaign":true}]'::jsonb));
+ -- Cota da empresa: 2 por dia, para todos os serviços.
  if r->>'role'<>'partner' then raise exception 'Wrong role';end if;
 end $$;
 reset role;
@@ -56,7 +56,7 @@ do $$declare f record;r jsonb;begin
  if (select count(*) from public.consulta_lotes where user_id=f.partner_uid and tipo='individual')<>2 then raise exception 'Rejected requests left empty lots';end if;
  r=public.admin_partner_manage(f.admin_uid,'update',jsonb_build_object('user_id',f.partner_uid,'name','Updated partner','active',true,'permissions','[{"service":"digimais_saldo_parcela","enabled":false,"allow_individual":false,"daily_limit":2,"allow_campaign":false},{"service":"tjba_margem","enabled":true,"allow_individual":true,"daily_limit":1,"allow_campaign":false}]'::jsonb));
  begin perform public.admin_partner_manage(f.partner_uid,'list');raise exception 'Partner managed users';exception when insufficient_privilege then null;end;
- update apoiarcred_private.user_profiles set active=false where user_id=f.partner_uid;
+ update apoiarcred_private.tenants set active=false where id=apoiarcred_private.user_tenant(f.partner_uid);
  r=apoiarcred_private.access_for(f.partner_uid);if (r->>'active')::boolean or not (r->'services'->1->>'enabled')::boolean then raise exception 'Inactive account lost its configured permissions';end if;
 end $$;
 reset role;
