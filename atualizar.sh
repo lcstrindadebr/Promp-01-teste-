@@ -20,4 +20,5 @@ esac
 STAGE='download do GitHub'
 git pull --ff-only origin "$BRANCH"
 # Executar a lógica NOVA recebida do GitHub, não o script antigo já carregado.
+if [[ "${1:-}" == painel ]]; then exec bash "$REPO/scripts/update-auth.sh"; fi
 exec bash "$REPO/scripts/update-core.sh"

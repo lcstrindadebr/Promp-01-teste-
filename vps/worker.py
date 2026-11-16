@@ -1,5 +1,5 @@
 """Supabase queue worker. Service key remains exclusively on the VPS."""
-import asyncio,json,os,time,urllib.request,urllib.error
+import asyncio,json,os,random,time,urllib.request,urllib.error
 from datetime import datetime,timezone
 from collections import defaultdict
 from robot_failures import diagnose, label
@@ -130,6 +130,7 @@ async def run_with_recovery(process, job, session, name):
 
 async def dispatch_robot_jobs(capacity, waiting):
  """Reserve ConsigX work before offering Digi+ to the remaining idle robots."""
+ idle_rounds=0
  while True:
   # Each robot registers only after finishing and saving its previous job.
   batch=sorted(waiting.items())
@@ -150,10 +151,15 @@ async def dispatch_robot_jobs(capacity, waiting):
      future.set_result((service,jobs[0]))
      if service=='tjba':
       consigx_active=True
+  claimed=False
   for _,(future,_) in batch:
    if not future.done():
     future.set_result(None)
-  await asyncio.sleep(3)
+   elif not future.cancelled() and future.exception() is None and future.result():
+    claimed=True
+  # Idle robots back off from 3 s to 15 s while both queues stay empty.
+  idle_rounds=0 if claimed or not batch else idle_rounds+1
+  await asyncio.sleep(min(15,3*(1+idle_rounds//5)))
 
 async def robot_loop(index, capacity, sessions, waiting):
  from robot import DigiSession
@@ -282,16 +288,43 @@ def digimais_api_handoff(job, result, finished_at):
   },
  }
 
-async def api_loop(index,capacity,slot,config):
+class QueueIdleGate:
+ """Lets one idle executor probe an empty queue instead of every slot polling at once.
+
+ With 100 API slots polling every 5 s the empty queue alone produced ~20 requests/s and
+ exhausted the database's disk budget. While the queue is empty only one probe runs, with
+ a delay that grows from 5 s to 30 s; any successful claim wakes every slot again."""
+ MIN_DELAY=5;MAX_DELAY=30;BUSY_WINDOW=10
+ def __init__(self):self.until=0.0;self.delay=0.0;self.last_found=0.0
+ def remaining(self):return max(0.0,self.until-time.monotonic())
+ def reserve(self):self.until=time.monotonic()+self.MIN_DELAY
+ def found(self):self.delay=0.0;self.until=0.0;self.last_found=time.monotonic()
+ def empty(self):
+  now=time.monotonic()
+  if now-self.last_found<self.BUSY_WINDOW:
+   # Recent claims succeeded: an empty answer is lock contention, not an empty queue.
+   self.until=now+random.uniform(1,3);return
+  self.delay=min(self.MAX_DELAY,max(self.MIN_DELAY,self.delay*2))
+  self.until=now+self.delay*random.uniform(.8,1.2)
+
+api_idle_gate=QueueIdleGate()
+
+async def api_loop(index,capacity,slot,config,gate=None):
  from digimais_api import ApiSession
+ gate=gate or api_idle_gate
  adapter=ApiSession(config);adapter.telemetry=slot
  while True:
   try:
    if MODE!='live' or index>=capacity.target:
     slot.state='resource_paused';await asyncio.sleep(5);continue
+   wait=gate.remaining()
+   if wait>0:
+    slot.state='idle';await asyncio.sleep(min(wait,5));continue
+   gate.reserve()
    jobs=await asyncio.to_thread(request,'rpc/claim_consulta_job_for_api',{'p_slot':index+1})
    if not jobs:
-    slot.state='idle';await asyncio.sleep(5);continue
+    gate.empty();slot.state='idle';continue
+   gate.found()
    job=jobs[0];slot.begin('digimais_api')
    try:result=await process_digimais(job,adapter)
    except Exception as error:

@@ -15,7 +15,10 @@ for name in ('vps/api.py','vps/auth_session.py'):
 PY
 nginx -t
 BACKUP=$(mktemp -d /var/tmp/apoiarcred-auth.XXXXXX)
-FILES=(vps/auth_session.py vps/api.py dist/supabase.js dist/index.html)
+# Painel completo (HTML, JS, CSS, modelos) para que index.html nunca fique com arquivos de versões diferentes.
+# supabase-config.js fica de fora: é o da instalação, não o do repositório.
+mapfile -t PANEL < <(cd "$REPO" && find dist -type f ! -path dist/supabase-config.js | sort)
+FILES=(vps/auth_session.py vps/api.py "${PANEL[@]}")
 for file in "${FILES[@]}"; do
     mkdir -p "$BACKUP/$(dirname "$file")"
     if [[ -f "$APP/$file" ]]; then cp -a "$APP/$file" "$BACKUP/$file"; fi
@@ -50,10 +53,14 @@ for attempt in range(15):
             raise
         time.sleep(1)
 PY
-for file in dist/supabase.js dist/index.html; do
-    install -m 644 "$REPO/$file" "$APP/$file.new"
+# index.html por último: quando ele mudar, os arquivos que referencia já estão no lugar.
+for file in "${PANEL[@]}"; do
+    [[ "$file" == dist/index.html ]] && continue
+    install -D -m 644 "$REPO/$file" "$APP/$file.new"
     mv -f "$APP/$file.new" "$APP/$file"
 done
+install -m 644 "$REPO/dist/index.html" "$APP/dist/index.html.new"
+mv -f "$APP/dist/index.html.new" "$APP/dist/index.html"
 trap - ERR
-printf '\nLogin e interface publicados. Backend verificado. Backup: %s\n' "$BACKUP"
-echo 'Abra a Central com Ctrl+F5. Cada etapa de acesso permite até 60 segundos.'
+printf '\nPainel (%s arquivos) e backend HTTP publicados. Backend verificado. Backup: %s\n' "${#PANEL[@]}" "$BACKUP"
+echo 'Robôs não foram alterados. Abra a Central com Ctrl+F5.'
