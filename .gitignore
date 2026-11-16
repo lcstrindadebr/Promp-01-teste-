@@ -9,3 +9,7 @@ artifacts/
 
 tjba-proxy.json
 .tjba-proxy-*
+
+# CodeGraph: índice local e inclusão do frontend (dist/ é excluído por padrão)
+.codegraph/
+!dist/
