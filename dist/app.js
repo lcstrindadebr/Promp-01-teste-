@@ -144,7 +144,8 @@ function render(){
  $('#done').textContent=rows.filter(r=>r.status==='Concluída').length;
  $('#errors').textContent=rows.filter(r=>['Erro','Revisão','Consulta interrompida'].includes(r.status)).length;
  $('.modeNotice').textContent='Preencha os dados para consultar uma pessoa. Para uma lista de clientes, use Campanhas.';
- const filtered=rows.filter(r=>(!filter||r.status===filter||(filter.startsWith('tjba:')&&r.tjba_status===filter.slice(5)))&&matchesLeadSearch(r,q));
+ const groups={'grupo:fila':['Aguardando','Processando'],'grupo:atencao':['Erro','Revisão','Consulta interrompida']};
+ const filtered=rows.filter(r=>(!filter||r.status===filter||groups[filter]?.includes(r.status)||(filter.startsWith('tjba:')&&r.tjba_status===filter.slice(5)))&&matchesLeadSearch(r,q));
  const pages=Math.max(1,Math.ceil(filtered.length/individualPageSize));
  individualPage=Math.min(pages,Math.max(1,individualPage));
  const offset=(individualPage-1)*individualPageSize;

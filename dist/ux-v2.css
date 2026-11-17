@@ -87,3 +87,51 @@ aside footer small { color: #a9c7b6; }
 .campaign-group-phase > h4 { grid-column: 1 / -1; margin-bottom: 0; }
 .campaign-group-phase > .campaign-item { margin-top: 0; height: 100%; }
 #campaignList > .campaign-group, #campaignList > .empty { grid-column: 1 / -1; }
+
+/* 6. Início: resumo do que está acontecendo, o que precisa de atenção e atalhos (Fase 3) */
+#dashboard { display: flex; flex-direction: column; gap: 18px; }
+#dashboard.hide { display: none; }
+.dashboard-header { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; justify-content: space-between; }
+.dashboard-header h1 { margin: 0; }
+.dashboard-header p { margin: 4px 0 0; color: var(--crm-secondary); }
+body.on-dashboard .partner-quota-banner { display: none; }
+.dashboard-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.dashboard-quota { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border: 1px solid var(--crm-border); border-radius: 12px; background: var(--crm-surface-alt); }
+.dashboard-quota small { display: block; color: var(--crm-secondary); margin-top: 2px; }
+.dashboard-quota progress { width: min(260px, 100%); height: 8px; accent-color: var(--crm-action); }
+.dashboard-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.dashboard-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; min-width: 0;
+  padding: 16px 18px; background: #fff; border: 1px solid var(--crm-border); border-radius: 12px; cursor: pointer; }
+.dashboard-tile:hover { border-color: var(--crm-border-strong); }
+.dashboard-tile:focus-visible, .dashboard-row:focus-visible, .stat-filter:focus-visible { outline: 3px solid var(--crm-action); outline-offset: 2px; }
+.dashboard-tile span { font-size: 12px; font-weight: 600; color: var(--crm-secondary); }
+.dashboard-tile strong { font-size: 28px; line-height: 1.1; color: var(--crm-text); font-variant-numeric: tabular-nums; }
+.dashboard-tile small { font-size: 12px; color: var(--crm-secondary); }
+.dashboard-tile.attention.has-items { border-color: #e2b4b4; box-shadow: inset 4px 0 0 #b23b3b; }
+.dashboard-tile.attention.has-items strong { color: #9b2c2c; }
+.dashboard-panels { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.dashboard-panel .heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.dashboard-panel h2 { font-size: 16px; margin: 0; }
+.link-button { background: none; border: 0; padding: 4px 0; color: var(--crm-action); font-weight: 600; cursor: pointer; }
+.dashboard-row { display: flex; width: 100%; gap: 12px; align-items: center; justify-content: space-between; text-align: left;
+  padding: 10px 4px; background: none; border: 0; border-top: 1px solid var(--crm-border); border-radius: 0; cursor: pointer; }
+.dashboard-row:first-child { border-top: 0; }
+.dashboard-row:hover { background: var(--crm-surface-alt); }
+.dashboard-row-main { display: flex; flex-direction: column; min-width: 0; }
+.dashboard-row-main b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dashboard-row-main small, .dashboard-row-progress small { color: var(--crm-secondary); font-size: 12px; }
+.dashboard-row-progress { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.dashboard-row-progress progress { width: 120px; height: 6px; accent-color: var(--crm-action); }
+/* Contadores da consulta individual viram filtros */
+.stat-filter { display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.stat-filter:hover { border-color: var(--crm-border-strong); }
+.stat-filter[aria-pressed="true"] { border-color: var(--crm-action); box-shadow: inset 0 -3px 0 var(--crm-action); }
+@media (max-width: 900px) {
+  .dashboard-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dashboard-panels { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 420px) {
+  .dashboard-tile strong { font-size: 24px; }
+  .dashboard-row-progress progress { width: 84px; }
+}
