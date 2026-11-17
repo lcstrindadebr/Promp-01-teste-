@@ -27,5 +27,20 @@ const json=(data,status=200)=>({ok:status<400,status,json:async()=>data,text:asy
  t.window.confirm=()=>true;
  await t.get('#partnerMoveForm').onsubmit({preventDefault(){},target:t.get('#partnerMoveForm')});
  assert.deepEqual(moved,{p_user:'p2',p_target_user:'p1',p_role:'operador'});
+ // Delete a partner: the company name must be typed exactly.
+ let removed=null;
+ t.handler(async(url,options)=>{
+  if(String(url).endsWith('/excluir')){removed=[String(url),JSON.parse(options.body)];return json({data:{empresa:'Empresa Dois',usuarios:['p2'],registros:9}});}
+  if(String(url)==='/api/admin/parceiros')return json({data:companies});
+  return response([]);
+ });
+ run("deletePartner('p2')");
+ t.get('#partnerDeleteConfirm').value='Empresa 2';
+ await t.get('#partnerDeleteForm').onsubmit({preventDefault(){},target:t.get('#partnerDeleteForm')});
+ assert.equal(removed,null);assert.match(t.get('#partnerDeleteStatus').textContent,/não confere/);
+ t.get('#partnerDeleteConfirm').value='Empresa Dois';
+ await t.get('#partnerDeleteForm').onsubmit({preventDefault(){},target:t.get('#partnerDeleteForm')});
+ assert.deepEqual(removed,['/api/admin/parceiros/p2/excluir',{confirmacao:'Empresa Dois'}]);
+ assert.match(t.get('#partnerAdminStatus').textContent,/Empresa Dois excluído/);
  console.log('partner move frontend ok');
 })().catch(error=>{console.error(error);process.exit(1);});
