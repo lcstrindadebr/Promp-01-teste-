@@ -95,4 +95,30 @@ class CompanyUsersTests(unittest.TestCase):
   self.assertEqual(err.exception.status,422)
   self.assertFalse(any(c.args[0]=='/rest/v1/rpc/tenant_password_changed' for c in call.call_args_list))
 
+class CompanyUserDeleteTests(unittest.TestCase):
+ def test_delete_requires_typed_confirmation(self):
+  with patch.object(api,'supabase_call',side_effect=[{'id':ACTOR}]) as call:
+   with self.assertRaises(api.AdminError) as err:api.company_users('Bearer jwt','POST','/api/admin/usuarios/'+MEMBER+'/excluir',{'confirmacao':'sim'})
+  self.assertEqual(err.exception.status,422);self.assertEqual(call.call_count,1)
+
+ def test_database_first_then_login_removed(self):
+  order=[]
+  def upstream(path,payload=None,**kwargs):
+   if path=='/auth/v1/user':return {'id':ACTOR}
+   if path=='/rest/v1/rpc/tenant_user_delete':order.append('db');self.assertEqual(payload,{'p_actor':ACTOR,'p_user':MEMBER});return {'registros':12,'user_id':MEMBER}
+   if path=='/auth/v1/admin/users/'+MEMBER:order.append('auth');self.assertEqual(kwargs['method'],'DELETE');return None
+   raise AssertionError(path)
+  with patch.object(api,'supabase_call',side_effect=upstream):
+   status,body=api.company_users('Bearer jwt','POST','/api/admin/usuarios/'+MEMBER+'/excluir',{'confirmacao':'EXCLUIR'})
+  self.assertEqual(order,['db','auth']);self.assertTrue(body['data']['conta_removida']);self.assertEqual(body['data']['registros'],12)
+
+ def test_refused_in_database_keeps_login(self):
+  def upstream(path,payload=None,**kwargs):
+   if path=='/auth/v1/user':return {'id':ACTOR}
+   if path=='/rest/v1/rpc/tenant_user_delete':raise http_error(403,'O responsável pela empresa não pode ser excluído.')
+   raise AssertionError('Login removed after a refusal')
+  with patch.object(api,'supabase_call',side_effect=upstream):
+   with self.assertRaises(api.AdminError) as err:api.company_users('Bearer jwt','POST','/api/admin/usuarios/'+MEMBER+'/excluir',{'confirmacao':'EXCLUIR'})
+  self.assertEqual(err.exception.message,'O responsável pela empresa não pode ser excluído.')
+
 if __name__=='__main__':unittest.main()

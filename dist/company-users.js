@@ -79,14 +79,14 @@ function clearCompanyUserForm(){
 function renderCompanyUsers(){
  const list=$('#companyUserList');
  if(!companyUsers.length){list.innerHTML='<p class="muted">Nenhum usuário.</p>';return;}
- list.innerHTML=companyUsers.map(u=>`<article class="api-token-row"><div><strong>${escapeHTML(u.name)}</strong> <span class="pill ${u.active?'ok':''}">${u.active?escapeHTML(u.role_name):'Desativado'}</span>${u.owner?' <span class="pill">Responsável</span>':''}${u.must_change_password&&u.active?' <span class="pill">Aguardando troca de senha</span>':''}</div><p class="muted">${escapeHTML(u.email)}</p>${u.user_id===currentAccess?.user_id||u.owner?'':`<div class="actions"><button type="button" data-company-edit="${escapeHTML(u.user_id)}">Editar</button><button type="button" data-company-reset="${escapeHTML(u.user_id)}">Nova senha provisória</button></div>`}</article>`).join('');
+ list.innerHTML=companyUsers.map(u=>`<article class="api-token-row"><div><strong>${escapeHTML(u.name)}</strong> <span class="pill ${u.active?'ok':''}">${u.active?escapeHTML(u.role_name):'Desativado'}</span>${u.owner?' <span class="pill">Responsável</span>':''}${u.must_change_password&&u.active?' <span class="pill">Aguardando troca de senha</span>':''}</div><p class="muted">${escapeHTML(u.email)}</p>${u.user_id===currentAccess?.user_id||u.owner?'':`<div class="actions"><button type="button" data-company-edit="${escapeHTML(u.user_id)}">Editar</button><button type="button" data-company-reset="${escapeHTML(u.user_id)}">Nova senha provisória</button><button type="button" class="danger" data-company-delete="${escapeHTML(u.user_id)}">Excluir</button></div>`}</article>`).join('');
 }
-async function loadCompanyUsers(){
+async function loadCompanyUsers(done=''){
  if(!authenticated||!companyCan('usuarios.gerenciar'))return;
  const epoch=authEpoch,request=++companyUsersEpoch;$('#companyUserStatus').textContent='Carregando usuários…';
  try{
   const data=await companyRequest('usuarios');if(epoch!==authEpoch||request!==companyUsersEpoch)return;
-  companyInfo=data.empresa;companyUsers=data.usuarios;$('#companyUserStatus').textContent='';
+  companyInfo=data.empresa;companyUsers=data.usuarios;$('#companyUserStatus').textContent=done;
   if(!$('#companyUserId').value)clearCompanyUserForm();renderCompanyUsers();
  }catch(error){if(epoch===authEpoch)$('#companyUserStatus').textContent=error.message;}
 }
@@ -101,8 +101,9 @@ $('#reloadCompanyUsers').onclick=loadCompanyUsers;
 $('#copyCompanyUserCreated').onclick=async()=>{try{await navigator.clipboard.writeText($('#companyUserCreatedText').textContent);toast('Copiado.');}catch{toast('Não foi possível copiar. Selecione e copie o texto.');}};
 $('#dismissCompanyUserCreated').onclick=()=>{$('#companyUserCreatedText').textContent='';$('#companyUserCreated').hidden=true;};
 $('#companyUserList').onclick=async e=>{
- const editId=e.target.dataset.companyEdit,resetId=e.target.dataset.companyReset;
- const user=companyUsers.find(u=>u.user_id===(editId||resetId));if(!user||companyUsersBusy)return;
+ const editId=e.target.dataset.companyEdit,resetId=e.target.dataset.companyReset,deleteId=e.target.dataset.companyDelete;
+ const user=companyUsers.find(u=>u.user_id===(editId||resetId||deleteId));if(!user||companyUsersBusy)return;
+ if(deleteId)return openCompanyDelete(user);
  if(editId){
   clearCompanyUserForm();$('#companyUserId').value=user.user_id;$('#companyUserName').value=user.name;
   $('#companyUserCredentials').hidden=true;$('#companyUserEmail').required=$('#companyUserPassword').required=false;
@@ -114,7 +115,7 @@ $('#companyUserList').onclick=async e=>{
  if(!confirm(`Gerar nova senha provisória para ${user.name}? A senha atual deixa de valer.`))return;
  const password=companyTemporaryPassword(),epoch=authEpoch;companyUsersBusy=true;$('#companyUserStatus').textContent='Gerando senha provisória…';
  try{await companyRequest('usuarios/'+user.user_id+'/senha',{password});if(epoch!==authEpoch)return;
-  showCompanyCredentials(user,password);$('#companyUserStatus').textContent='Senha provisória gerada.';await loadCompanyUsers();}
+  showCompanyCredentials(user,password);await loadCompanyUsers('Senha provisória gerada.');}
  catch(error){if(epoch===authEpoch)$('#companyUserStatus').textContent=error.message;}
  finally{companyUsersBusy=false;}
 };
@@ -129,9 +130,34 @@ $('#companyUserForm').onsubmit=async e=>{
  try{
   const user=await companyRequest(id?'usuarios/'+id:'usuarios',payload);if(epoch!==authEpoch)return;
   clearCompanyUserForm();if(!id)showCompanyCredentials(user,password);
-  $('#companyUserStatus').textContent=id?'Usuário atualizado.':'Usuário criado.';await loadCompanyUsers();
+  await loadCompanyUsers(id?'Usuário atualizado.':'Usuário criado.');
  }catch(error){if(epoch===authEpoch)$('#companyUserStatus').textContent=error.message;}
  finally{$('#companyUserPassword').value='';companyUsersBusy=false;$('#saveCompanyUser').disabled=false;}
+};
+
+// Excluir usuário: apaga a conta e tudo o que ele criou. Confirmação digitando EXCLUIR.
+const companyDeleteDialog=document.createElement('dialog');companyDeleteDialog.id='companyDeleteDialog';
+companyDeleteDialog.setAttribute('aria-labelledby','companyDeleteTitle');
+companyDeleteDialog.innerHTML=`<form id="companyDeleteForm"><h2 id="companyDeleteTitle">Excluir usuário</h2><p id="companyDeleteText"></p>
+<p class="muted">As consultas, campanhas, clientes e cartões que ele criou serão apagados e não podem ser recuperados. Etapas do funil, acesso ConsigX e webhooks que ele cadastrou continuam na empresa.</p>
+<label class="field" for="companyDeleteConfirm">Digite EXCLUIR para confirmar</label><input id="companyDeleteConfirm" autocomplete="off" required>
+<p id="companyDeleteStatus" role="status"></p><div class="actions"><button id="companyDeleteSave" class="danger">Excluir usuário</button><button type="button" id="companyDeleteCancel">Cancelar</button></div></form>`;
+document.body.append(companyDeleteDialog);
+$('#companyDeleteCancel').onclick=()=>companyDeleteDialog.close();
+function openCompanyDelete(user){
+ $('#companyDeleteForm').reset();$('#companyDeleteForm').dataset.user=user.user_id;
+ $('#companyDeleteText').textContent=`${user.name} (${user.email}) perde o acesso na hora.`;$('#companyDeleteStatus').textContent='';
+ companyDeleteDialog.showModal();
+}
+$('#companyDeleteForm').onsubmit=async e=>{
+ e.preventDefault();const epoch=authEpoch,id=e.target.dataset.user;
+ if($('#companyDeleteConfirm').value.trim()!=='EXCLUIR'){$('#companyDeleteStatus').textContent='Digite EXCLUIR, em maiúsculas, para confirmar.';return;}
+ companyUsersBusy=true;$('#companyDeleteSave').disabled=true;$('#companyDeleteStatus').textContent='Excluindo…';
+ try{
+  const r=await companyRequest('usuarios/'+id+'/excluir',{confirmacao:'EXCLUIR'});if(epoch!==authEpoch)return;
+  companyDeleteDialog.close();if($('#companyUserId').value===id)clearCompanyUserForm();await loadCompanyUsers(`Usuário excluído, com ${r.registros} registros.`);
+ }catch(error){if(epoch===authEpoch)$('#companyDeleteStatus').textContent=error.message;}
+ finally{companyUsersBusy=false;$('#companyDeleteSave').disabled=false;}
 };
 
 // Primeiro acesso: a senha provisória precisa ser trocada antes de usar o painel.
@@ -166,7 +192,7 @@ function syncCompanyUsersUi(){
 function resetCompanyUsers(){
  companyUsersEpoch++;companyUsers=[];companyInfo=null;$('#companyUserList').innerHTML='';$('#companyUserStatus').textContent='';
  $('#companyUserCreatedText').textContent='';$('#companyUserCreated').hidden=true;$('#companyUserForm').reset();
- $('#settings-tab-users').hidden=true;$('#firstPasswordForm').reset();if(passwordDialog.open)passwordDialog.close();
+ $('#settings-tab-users').hidden=true;$('#firstPasswordForm').reset();if(passwordDialog.open)passwordDialog.close();if(companyDeleteDialog.open)companyDeleteDialog.close();
 }
 const companyBaseApply=applyAccessUi;
 applyAccessUi=function(){companyBaseApply();syncCompanyUsersUi();};

@@ -55,6 +55,17 @@ def minio_admin(auth,method,path,payload):
   raise AdminError(error.status,'minio_settings',str(error)) from None
 
 
+def delete_logins(user_ids):
+ """Apaga as contas de login depois de o banco já ter apagado os dados. Devolve quantas saíram."""
+ removed=0
+ for user_id in user_ids:
+  try:supabase_call('/auth/v1/admin/users/'+str(uuid.UUID(str(user_id))),method='DELETE');removed+=1
+  except urllib.error.HTTPError as error:
+   if error.code==404:removed+=1
+   else:print(f'Usuários | conta de login não removida ({error.code}).',flush=True)
+  except Exception as error:print(f'Usuários | conta de login não removida ({type(error).__name__}).',flush=True)
+ return removed
+
 def partner_admin(auth,method,path,payload):
  actor=session_actor(auth)
  def manage(action,data=None):return supabase_call('/rest/v1/rpc/admin_partner_manage',dict(p_actor=actor,p_action=action,p_input=data or {}))
@@ -64,6 +75,15 @@ def partner_admin(auth,method,path,payload):
   raise
  if method=='GET' and path=='/api/admin/parceiros':return 200,{'data':manage('list')}
  if method!='POST':raise AdminError(404,'not_found','Rota não encontrada.')
+ match=re.fullmatch(r'/api/admin/parceiros/([a-f0-9-]{36})/excluir',path)
+ if match:
+  confirmation=payload.get('confirmacao')
+  if not isinstance(confirmation,str) or not 1<=len(confirmation)<=160:raise AdminError(422,'confirmation_required','Digite o nome da empresa para confirmar.')
+  try:result=supabase_call('/rest/v1/rpc/admin_partner_delete',dict(p_actor=actor,p_user=str(uuid.UUID(match.group(1))),p_confirmation=confirmation))
+  except urllib.error.HTTPError as error:
+   if error.code in (400,403,404,409,422):raise AdminError(422,'partner_not_deleted',database_message(error,'Não foi possível excluir este parceiro.')) from None
+   raise
+  return 200,{'data':result|{'contas_removidas':delete_logins(result.get('usuarios') or [])}}
  name=payload.get('name');permissions=payload.get('permissions')
  if not isinstance(name,str) or not 1<=len(name.strip())<=160 or not isinstance(permissions,list) or len(permissions)!=2:
   raise AdminError(422,'invalid_partner','Informe nome e as permissões dos dois tipos de higienização.')
@@ -193,6 +213,16 @@ def company_users(auth,method,path,payload):
    raise
   return 201,{'data':result}
 
+ deletion=re.fullmatch(r'/api/admin/usuarios/([a-f0-9-]{36})/excluir',path)
+ if deletion:
+  if payload.get('confirmacao')!='EXCLUIR':raise AdminError(422,'confirmation_required','Digite EXCLUIR para confirmar.')
+  user_id=str(uuid.UUID(deletion.group(1)))
+  try:result=supabase_call('/rest/v1/rpc/tenant_user_delete',dict(p_actor=actor,p_user=user_id))
+  except urllib.error.HTTPError as error:
+   if error.code in (401,403):raise AdminError(403,'users_forbidden',database_message(error,'Você não pode excluir este usuário.')) from None
+   if error.code in (400,404,409,422):raise AdminError(422,'user_not_deleted',database_message(error,'Não foi possível excluir o usuário.')) from None
+   raise
+  return 200,{'data':result|{'conta_removida':delete_logins([user_id])==1}}
  match=re.fullmatch(r'/api/admin/usuarios/([a-f0-9-]{36})(/senha)?',path)
  if not match:raise AdminError(404,'not_found','Rota não encontrada.')
  user_id=str(uuid.UUID(match.group(1)))

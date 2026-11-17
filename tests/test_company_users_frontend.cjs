@@ -41,6 +41,7 @@ const json=(data,status=200)=>({ok:status<400,status,json:async()=>data,text:asy
  assert.equal(t.get('#companyUserCreated').hidden,false);
  assert.match(t.get('#companyUserCreatedText').textContent,new RegExp('Senha provisória: '+temporary));
  assert.equal(t.get('#companyUserPassword').value,'','Password field cleared after creating');
+ assert.equal(t.get('#companyUserStatus').textContent,'Usuário criado.','Message survives the list reload');
 
  // A Gestor with user management cannot pick Administrador.
  run("companyInfo={...companyInfo,actor_role:'gestor'};renderCompanyRoles('operador')");
@@ -56,6 +57,24 @@ const json=(data,status=200)=>({ok:status<400,status,json:async()=>data,text:asy
  await t.get('#firstPasswordForm').onsubmit({preventDefault(){}});
  const change=t.calls.at(-1);assert.equal(change[0],'/api/admin/minha-senha');assert.deepEqual(JSON.parse(change[1].body),{password:'Minha-senha-1'});
  assert.equal(t.get('#firstPasswordDialog').open,false);assert.equal(run('currentAccess.must_change_password'),false);
+
+ // Delete a user: typed confirmation, then the API call.
+ let deleted=null;
+ t.handler(async(url,options)=>{
+  if(String(url).endsWith('/excluir')){deleted=[String(url),JSON.parse(options.body)];return json({data:{registros:7,conta_removida:true}});}
+  if(String(url)==='/api/admin/usuarios')return json({data:{empresa,usuarios:users}});
+  return json({data:{}});
+ });
+ await run('loadCompanyUsers()');
+ t.get('#companyUserList').querySelector('[data-company-delete]').click();
+ assert.equal(t.get('#companyDeleteDialog').open,true);
+ t.get('#companyDeleteConfirm').value='excluir';
+ await t.get('#companyDeleteForm').onsubmit({preventDefault(){},target:t.get('#companyDeleteForm')});
+ assert.equal(deleted,null,'Lowercase confirmation must not delete');assert.match(t.get('#companyDeleteStatus').textContent,/EXCLUIR/);
+ t.get('#companyDeleteConfirm').value='EXCLUIR';
+ await t.get('#companyDeleteForm').onsubmit({preventDefault(){},target:t.get('#companyDeleteForm')});
+ assert.deepEqual(deleted,['/api/admin/usuarios/11111111-1111-1111-1111-111111111111/excluir',{confirmacao:'EXCLUIR'}]);
+ assert.equal(t.get('#companyDeleteDialog').open,false);assert.match(t.get('#companyUserStatus').textContent,/7 registros/);
 
  // Logout clears everything.
  run('resetPartnerSettings()');

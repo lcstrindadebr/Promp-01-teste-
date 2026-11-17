@@ -1,4 +1,4 @@
-import importlib.util,uuid,unittest,urllib.error
+import importlib.util,io,uuid,unittest,urllib.error
 from pathlib import Path
 from unittest.mock import patch
 spec=importlib.util.spec_from_file_location('api_partner_test',Path(__file__).resolve().parents[1]/'vps/api.py');api=importlib.util.module_from_spec(spec);spec.loader.exec_module(api)
@@ -49,3 +49,26 @@ class PartnerAdminTests(unittest.TestCase):
   with patch.object(api,'supabase_call',side_effect=[{'id':ACTOR},{'admin':True}]) as call:
    with self.assertRaises(api.AdminError) as err:api.partner_admin('Bearer test-jwt','POST','/api/admin/parceiros/'+PARTNER,{**PAYLOAD,'allow_integrations':'true'})
    self.assertEqual(err.exception.status,422);self.assertEqual(call.call_count,2)
+
+class PartnerDeleteTests(unittest.TestCase):
+ def test_deletes_company_then_every_login(self):
+  removed=[];other=str(uuid.uuid4())
+  def upstream(path,payload=None,**kwargs):
+   if path=='/auth/v1/user':return {'id':ACTOR}
+   if path=='/rest/v1/rpc/admin_partner_manage':return {'admin':True}
+   if path=='/rest/v1/rpc/admin_partner_delete':
+    self.assertEqual(payload,{'p_actor':ACTOR,'p_user':PARTNER,'p_confirmation':'Empresa X'});return {'empresa':'Empresa X','usuarios':[PARTNER,other],'registros':40}
+   if kwargs.get('method')=='DELETE':removed.append(path.rsplit('/',1)[1]);return None
+   raise AssertionError(path)
+  with patch.object(api,'supabase_call',side_effect=upstream):
+   status,body=api.partner_admin('Bearer jwt','POST','/api/admin/parceiros/'+PARTNER+'/excluir',{'confirmacao':'Empresa X'})
+  self.assertEqual(status,200);self.assertEqual(removed,[PARTNER,other]);self.assertEqual(body['data']['contas_removidas'],2)
+ def test_wrong_name_keeps_everything(self):
+  def upstream(path,payload=None,**kwargs):
+   if path=='/auth/v1/user':return {'id':ACTOR}
+   if path=='/rest/v1/rpc/admin_partner_manage':return {'admin':True}
+   if path=='/rest/v1/rpc/admin_partner_delete':raise urllib.error.HTTPError(path,400,'bad',{},io.BytesIO(b'{"message":"Digite o nome da empresa exatamente como aparece para confirmar."}'))
+   raise AssertionError('Login removed after a refusal')
+  with patch.object(api,'supabase_call',side_effect=upstream):
+   with self.assertRaises(api.AdminError) as err:api.partner_admin('Bearer jwt','POST','/api/admin/parceiros/'+PARTNER+'/excluir',{'confirmacao':'Outra'})
+  self.assertIn('nome da empresa',err.exception.message)

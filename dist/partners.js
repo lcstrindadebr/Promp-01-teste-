@@ -112,13 +112,13 @@ function clearPartnerForm(){
 async function loadPartners(){
  if(currentAccess?.role!=='admin')return;const epoch=authEpoch;$('#partnerAdminStatus').textContent='Carregando parceiros…';
  try{const result=await partnerRequest('');if(epoch!==authEpoch)return;partnersList=result.data;
- $('#partnerList').innerHTML=partnersList.length?partnersList.map(p=>`<article class="partner-list-item"><div class="heading"><strong>${escapeHTML(p.name)}</strong><span class="pill ${p.active?'ok':''}">${p.active?'Ativo':'Inativo'}</span></div><p>${escapeHTML(p.email)}</p><small>Integrações: ${p.allow_integrations?'liberadas':'não liberadas'}</small><small>Amigoz: ${p.allow_amigoz?'liberado':'não liberado'}</small>${p.trial_until?'<small>Teste até '+escapeHTML(p.trial_until.split('-').reverse().join('/'))+'</small>':''}${p.shared_quota?'<small>'+escapeHTML(sharedQuotaText(p.access))+'</small>':''}${p.access.services.map(r=>`<small>${escapeHTML(partnerServices.find(s=>s[0]===r.id)?.[1]||r.id)}: ${!r.enabled?'não liberado':`${r.allow_individual?(p.shared_quota?'individuais liberadas':r.used+' / '+r.daily_limit+' individuais hoje'):'sem individuais'} · ${r.allow_campaign?'campanhas liberadas':'sem campanhas'}`}</small>`).join('')}${p.members!=null?'<small>Usuários ativos: '+escapeHTML(p.members)+'</small>':''}<div class="actions"><button type="button" data-edit-partner="${escapeHTML(p.user_id)}">Editar permissões</button>${partnersList.length>1?`<button type="button" data-move-partner="${escapeHTML(p.user_id)}">Juntar a outra empresa</button>`:''}</div></article>`).join(''):'<p class="muted">Nenhum parceiro cadastrado. Crie o primeiro acesso ao lado.</p>';
+ $('#partnerList').innerHTML=partnersList.length?partnersList.map(p=>`<article class="partner-list-item"><div class="heading"><strong>${escapeHTML(p.name)}</strong><span class="pill ${p.active?'ok':''}">${p.active?'Ativo':'Inativo'}</span></div><p>${escapeHTML(p.email)}</p><small>Integrações: ${p.allow_integrations?'liberadas':'não liberadas'}</small><small>Amigoz: ${p.allow_amigoz?'liberado':'não liberado'}</small>${p.trial_until?'<small>Teste até '+escapeHTML(p.trial_until.split('-').reverse().join('/'))+'</small>':''}${p.shared_quota?'<small>'+escapeHTML(sharedQuotaText(p.access))+'</small>':''}${p.access.services.map(r=>`<small>${escapeHTML(partnerServices.find(s=>s[0]===r.id)?.[1]||r.id)}: ${!r.enabled?'não liberado':`${r.allow_individual?(p.shared_quota?'individuais liberadas':r.used+' / '+r.daily_limit+' individuais hoje'):'sem individuais'} · ${r.allow_campaign?'campanhas liberadas':'sem campanhas'}`}</small>`).join('')}${p.members!=null?'<small>Usuários ativos: '+escapeHTML(p.members)+'</small>':''}<div class="actions"><button type="button" data-edit-partner="${escapeHTML(p.user_id)}">Editar permissões</button>${partnersList.length>1?`<button type="button" data-move-partner="${escapeHTML(p.user_id)}">Juntar a outra empresa</button>`:''}<button type="button" class="danger" data-delete-partner="${escapeHTML(p.user_id)}">Excluir parceiro</button></div></article>`).join(''):'<p class="muted">Nenhum parceiro cadastrado. Crie o primeiro acesso ao lado.</p>';
  $('#partnerAdminStatus').textContent='';
  }catch(e){if(epoch===authEpoch)$('#partnerAdminStatus').textContent=e.message;}
 }
 const partnerSwitchSettings=switchSettings;switchSettings=function(id){if(id==='minio'&&!minioAdmin()||id==='partners'&&currentAccess?.role!=='admin'||id==='integrations'&&!hasIntegrationAccess())return;partnerSwitchSettings(id);if(id==='partners')loadPartners();if(id==='minio')requestMinio('load');};
 $('#newPartner').onclick=clearPartnerForm;$('#cancelPartnerEdit').onclick=clearPartnerForm;$('#reloadPartners').onclick=loadPartners;
-$('#partnerList').onclick=e=>{if(e.target.dataset.movePartner)return movePartner(e.target.dataset.movePartner);const id=e.target.dataset.editPartner,p=partnersList.find(p=>p.user_id===id);if(!p)return;clearPartnerForm();$('#partnerEditId').value=id;$('#partnerName').value=p.name;$('#partnerEmail').value=p.email;$('#partnerEmail').disabled=true;$('#partnerPassword').required=false;$('#partnerPasswordField').hidden=true;$('#partnerActive').checked=p.active;$('#partnerIntegrations').checked=p.allow_integrations===true;$('#partnerAmigoz').checked=p.allow_amigoz===true;
+$('#partnerList').onclick=e=>{if(e.target.dataset.movePartner)return movePartner(e.target.dataset.movePartner);if(e.target.dataset.deletePartner)return deletePartner(e.target.dataset.deletePartner);const id=e.target.dataset.editPartner,p=partnersList.find(p=>p.user_id===id);if(!p)return;clearPartnerForm();$('#partnerEditId').value=id;$('#partnerName').value=p.name;$('#partnerEmail').value=p.email;$('#partnerEmail').disabled=true;$('#partnerPassword').required=false;$('#partnerPasswordField').hidden=true;$('#partnerActive').checked=p.active;$('#partnerIntegrations').checked=p.allow_integrations===true;$('#partnerAmigoz').checked=p.allow_amigoz===true;
  for(const r of p.access.services){$('#partnerEnabled-'+r.id).checked=r.enabled;$('#partnerIndividual-'+r.id).checked=r.allow_individual;$('#partnerCampaign-'+r.id).checked=r.allow_campaign;$('#partnerLimit-'+r.id).value=r.daily_limit;}
  $('#partnerAccessType').value=p.trial_until?'trial':'regular';$('#partnerTrialUntil').value=p.trial_until||'';$('#partnerQuotaMode').value=p.shared_quota?(p.shared_daily_limit==null?'unlimited':'limited'):'legacy';$('#partnerSharedLimit').value=p.shared_daily_limit??100;syncPartnerQuotaFields();
  $('#partnerFormTitle').textContent='Editar parceiro';$('#savePartner').textContent='Salvar permissões';$('#partnerName').focus();};
@@ -163,6 +163,32 @@ $('#partnerMoveForm').onsubmit=async e=>{
   if(epoch!==authEpoch)return;partnerMoveDialog.close();toast(`Parceiro movido com ${r.registros} registros.`);await loadPartners();
  }catch(error){if(epoch===authEpoch)$('#partnerMoveStatus').textContent=error.message||'Não foi possível juntar.';}
  finally{$('#partnerMoveSave').disabled=false;}
+};
+
+// Excluir parceiro: a empresa inteira, com todos os usuários e dados. Confirmação pelo nome.
+const partnerDeleteDialog=document.createElement('dialog');partnerDeleteDialog.setAttribute('aria-labelledby','partnerDeleteTitle');
+partnerDeleteDialog.innerHTML=`<form id="partnerDeleteForm"><h2 id="partnerDeleteTitle">Excluir parceiro</h2><p id="partnerDeleteText"></p>
+<p class="muted">Apaga a empresa, todos os usuários dela e todas as consultas, campanhas, clientes, cartões, acessos e integrações. Não há como recuperar.</p>
+<label class="field" for="partnerDeleteConfirm">Digite o nome da empresa para confirmar</label><input id="partnerDeleteConfirm" autocomplete="off" required>
+<p id="partnerDeleteStatus" role="status"></p><div class="actions"><button id="partnerDeleteSave" class="danger">Excluir parceiro</button><button type="button" id="partnerDeleteCancel">Cancelar</button></div></form>`;
+document.body.append(partnerDeleteDialog);
+$('#partnerDeleteCancel').onclick=()=>partnerDeleteDialog.close();
+function deletePartner(id){
+ const partner=partnersList.find(p=>p.user_id===id);if(!partner)return;
+ $('#partnerDeleteForm').reset();$('#partnerDeleteForm').dataset.user=id;$('#partnerDeleteForm').dataset.name=partner.name;
+ $('#partnerDeleteText').textContent=`${partner.name} · ${partner.members??1} usuário(s) ativo(s).`;$('#partnerDeleteStatus').textContent='';
+ partnerDeleteDialog.showModal();
+}
+$('#partnerDeleteForm').onsubmit=async e=>{
+ e.preventDefault();const epoch=authEpoch,form=e.target,typed=$('#partnerDeleteConfirm').value.trim();
+ if(typed!==form.dataset.name.trim()){$('#partnerDeleteStatus').textContent='O nome digitado não confere com o da empresa.';return;}
+ $('#partnerDeleteSave').disabled=true;$('#partnerDeleteStatus').textContent='Excluindo…';
+ try{
+  const r=await partnerRequest('/'+form.dataset.user+'/excluir',{confirmacao:typed});if(epoch!==authEpoch)return;
+  partnerDeleteDialog.close();if($('#partnerEditId').value===form.dataset.user)clearPartnerForm();
+  await loadPartners();if(epoch===authEpoch)$('#partnerAdminStatus').textContent=`Parceiro ${r.data.empresa} excluído: ${r.data.usuarios.length} usuário(s) e ${r.data.registros} registros.`;
+ }catch(error){if(epoch===authEpoch)$('#partnerDeleteStatus').textContent=error.message;}
+ finally{$('#partnerDeleteSave').disabled=false;}
 };
 
 const partnerDigiCard=document.createElement('section');
