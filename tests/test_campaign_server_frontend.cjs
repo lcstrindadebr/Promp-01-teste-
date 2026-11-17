@@ -52,6 +52,8 @@ const tick=async(n=4)=>{for(let i=0;i<n;i++)await new Promise(setImmediate);};
  assert.match(t.get('#campaignList').textContent,/20 para revisar/);
  // Detail: exact numbers, running names, ETA from the database pace, 50 rows with their positions.
  assert.match(t.get('#cgProgress').textContent,/Solicitadas\s*10\.442/);
+ // 20 failures known only to the database: the retry button is enabled.
+ assert.equal(t.get('#retryCampaign').disabled,false);assert.match(t.get('#retryCampaign').textContent,/Repetir as 20 consultas/);
  assert.match(t.get('#campaignLive').textContent,/Consultando 42 clientes agora: Ana, Bia, Caio e mais 39\./);
  assert.match(t.get('#campaignEta').textContent,/Conclusão estimada/);
  assert.equal((t.get('#campaignRows').innerHTML.match(/<tr>/g)||[]).length,50);
