@@ -94,3 +94,38 @@ for(const id of ['#pauseCampaign','#retryCampaign','#deleteCampaign','#refreshCa
  $(id)?.addEventListener('click',()=>setTimeout(()=>refreshServerCampaigns(true),1500));
 }
 window.serverCampaignState=()=>({ready:serverCampaignsReady(),off:serverCampaignsOff,list:serverCampaignList,detail:serverCampaignDetail});
+
+// Etapa 3: as consultas de campanha não ficam todas no navegador.
+// Ações numa linha da página aberta (Amigoz, log, excluir) acham a consulta por aqui (findRecord).
+function serverRowById(id){return serverCampaignDetail?.items.find(item=>item.row.id===id)?.row;}
+// Excluir uma consulta da campanha atualiza os números e a página logo em seguida.
+{
+ const baseDelete=deleteConsultation;
+ deleteConsultation=async function(...args){const result=await baseDelete(...args);refreshServerCampaigns(true);return result;};
+}
+// Exportar a campanha inteira: o banco entrega em partes de 200, na ordem da campanha.
+async function serverCampaignAllRows(c,onProgress){
+ const rows=[];
+ for(let page=1;;page++){
+  const data=await sbRequest('/rest/v1/rpc/painel_campanha',{method:'POST',body:JSON.stringify({
+   p_id:c.id,p_busca:'',p_filtro:'',p_pagina:page,p_tamanho:200})});
+  rows.push(...(data.linhas||[]).map(x=>normalizeCloudRow(x.dados)));
+  onProgress?.(rows.length,Number(data.filtrados||0));
+  if(rows.length>=Number(data.filtrados||0)||!(data.linhas||[]).length)return rows;
+ }
+}
+{
+ const button=$('#exportCampaign'),baseExport=button.onclick;
+ let exporting=false;
+ button.onclick=async(...args)=>{
+  const c=campaigns.find(x=>x.id===activeCampaign);
+  if(!c||!serverCampaignsReady())return baseExport?.(...args);
+  if(exporting)return;
+  exporting=true;button.disabled=true;const label=button.textContent,epoch=authEpoch;
+  try{
+   const rows=await serverCampaignAllRows(c,(done,total)=>{button.textContent=`Preparando ${done.toLocaleString('pt-BR')} de ${total.toLocaleString('pt-BR')}…`;});
+   if(epoch===authEpoch)await exportResults(rows,'campanha-resultados.csv');
+  }catch(error){if(epoch===authEpoch)toast('Não foi possível exportar: '+error.message);}
+  finally{exporting=false;button.disabled=false;button.textContent=label;}
+ };
+}

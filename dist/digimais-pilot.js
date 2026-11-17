@@ -87,7 +87,8 @@ async function renderDigiApiLogs(){
   resetDigiLogView();return;
  }
  const slot=$('#digiApiLogSlot').value;
- const selected=records.filter(r=>{
+ // Do banco (log-server.js) quando disponível; senão, das consultas carregadas.
+ const selected=((typeof serverApiLogRows==='function'&&serverApiLogRows(slot))||records).filter(r=>{
   if(!r.api_handoff&&!(r.execution_mode==='api'&&consultationWasPerformed(r)))return false;
   const executor=r.api_handoff?.api_slot??r.api_slot;
   return !slot||(slot==='unassigned'?executor==null:String(executor)===slot);

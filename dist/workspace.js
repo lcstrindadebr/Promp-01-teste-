@@ -120,7 +120,7 @@ function clearConsultationLogDialog() {
 }
 consultationLogDialog.addEventListener('close',clearConsultationLogDialog);
 async function downloadRowConsultationLog(id) {
- const row=records.find(record=>record.id===id);
+ const row=findRecord(id);
  if(!canOpenConsultationLog(row))return;
  const epoch=authEpoch;
  try{
@@ -136,7 +136,7 @@ document.addEventListener('click',async event=>{
   await downloadRowConsultationLog(button.dataset.downloadConsultationLog);
   return;
  }
- const row=records.find(record=>record.id===button.dataset.openConsultationLog);
+ const row=findRecord(button.dataset.openConsultationLog);
  if(!canOpenConsultationLog(row))return;
  const epoch=authEpoch,output=$('#consultationLogDialogText');
  consultationLogDialog.dataset.jobId=row.id;

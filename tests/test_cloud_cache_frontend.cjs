@@ -14,7 +14,7 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');const {setup,re
  await run('loadCloud()');
  assert.equal(calls[0].p_since,null);assert.equal(run('records.length'),2);
  assert.equal(run('[...cacheMemory.values()][0].snapshot'),'S1');
- assert.equal(run('[...cacheMemory.keys()][0]'),'v1:u1:t1:empresa');
+ assert.equal(run('[...cacheMemory.keys()][0]'),'v2:u1:t1:empresa:avulsas');
 
  // Reopening (same account): the copy shows at once and only changes are requested.
  run(`cloudSnapshot=null;cloudRows.clear();records=[];cloudCacheTried=null;`);
