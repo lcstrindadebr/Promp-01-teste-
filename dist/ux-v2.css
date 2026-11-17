@@ -183,3 +183,23 @@ button.campaign-group-stat:disabled { cursor: default; }
 .crm-kanban-column.drop-target { border-color: var(--crm-action); background: #e8f3ed; box-shadow: inset 0 0 0 2px var(--crm-action); }
 .crm-kanban-card.dragging { opacity: .45; }
 @media (max-width: 600px) { #opportunities .crm-kanban-column { max-height: 70vh; } }
+
+/* 9. Celular: tabelas de consultas viram cartões (Fase 3) */
+@media (max-width: 700px) {
+  .responsive-table thead { display: none; }
+  .responsive-table, .responsive-table tbody, .responsive-table tr, .responsive-table td { display: block; width: 100%; box-sizing: border-box; }
+  .scroll:has(> .responsive-table) { max-height: none; overflow: visible; }
+  .responsive-table tr { margin: 0 0 10px; padding: 12px 14px; background: #fff; border: 1px solid var(--crm-border); border-radius: 12px; }
+  .responsive-table tbody tr:hover { background: #fff; }
+  .responsive-table td { padding: 8px 0; border: 0; border-top: 1px solid var(--crm-border); text-align: right;
+    min-width: 0 !important; overflow-wrap: anywhere; }
+  .responsive-table td::after { content: ""; display: block; clear: both; }
+  .responsive-table td small, .responsive-table td .muted { display: block; margin-top: 4px; }
+  .responsive-table td .progress-line { justify-content: flex-end; }
+  .responsive-table td:first-child { display: block; text-align: left; border-top: 0; padding-top: 0; }
+  .responsive-table td[data-label]:not(:first-child)::before { content: attr(data-label); float: left; margin-right: 12px;
+    text-align: left; font-size: 12px; font-weight: 600; color: var(--crm-secondary); }
+  .responsive-table td.empty { display: block; text-align: center; border: 0; }
+  .responsive-table td.empty::before { content: none; }
+  .responsive-table .cell-sub { max-width: none; }
+}
