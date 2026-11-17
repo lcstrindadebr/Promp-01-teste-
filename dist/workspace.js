@@ -14,11 +14,8 @@ campaignRecords=function(id){
 };
 function campaignPhase(c,rows){return c.paused?(rows.some(r=>r.status==='Processando')?'active':'paused'):rows.some(r=>['Aguardando','Processando'].includes(r.status))?'active':'done';}
 function campaignPhaseLabel(c,rows){const running=rows.filter(r=>r.status==='Processando').length;return c.paused?(running?'Pausando · consultas em andamento terminando':'Pausada'):campaignPhase(c,rows)==='done'?'Finalizada':running?'Em andamento':'Na fila';}
-function campaignEta(campaign, rows, pending, running, now=Date.now()){
- if(!pending)return rows.length?'Campanha finalizada.':'';
- if(campaign.paused)return 'Previsão suspensa enquanto a campanha estiver pausada.';
- if(!running)return 'Previsão disponível quando o processamento estiver em andamento.';
- // Use completions from this campaign only, including outcomes that need review.
+// Ritmo das conclusões dos últimos 10 minutos desta campanha, incluindo as que pedem revisão.
+function campaignPace(rows,now=Date.now()){
  const windowMs=10*60_000;
  let count=0,first=now,last=0;
  for(const row of rows){
@@ -29,6 +26,15 @@ function campaignEta(campaign, rows, pending, running, now=Date.now()){
   first=Math.min(first,finished);
   last=Math.max(last,finished);
  }
+ return {count,first,last,total:rows.length};
+}
+// pace vem pronto do banco (campaign-server.js) ou é calculado das consultas carregadas.
+function campaignEta(campaign, rows, pending, running, now=Date.now(), pace=null){
+ pace=pace||campaignPace(rows,now);
+ if(!pending)return pace.total?'Campanha finalizada.':'';
+ if(campaign.paused)return 'Previsão suspensa enquanto a campanha estiver pausada.';
+ if(!running)return 'Previsão disponível quando o processamento estiver em andamento.';
+ const {count,first,last}=pace;
  if(count<3||last-first<30_000||now-last>2*60_000){
   return 'Calculando previsão com as próximas consultas.';
  }
@@ -40,6 +46,28 @@ function campaignEta(campaign, rows, pending, running, now=Date.now()){
  const time=finish.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
  const date=finish.toDateString()===new Date(now).toDateString()?'':finish.toLocaleDateString('pt-BR')+' às ';
  return 'Conclusão estimada em '+duration+' ('+date+time+').';
+}
+// Números de uma campanha: do banco quando disponível (campaign-server.js), senão das consultas carregadas.
+// phaseRows só serve para campaignPhase/campaignPhaseLabel, que olham se há consulta na fila ou em andamento.
+function campaignSummary(c){
+ const server=typeof serverCampaignSummary==='function'?serverCampaignSummary(c):null;
+ if(server)return server;
+ const rows=campaignRecords(c.id),running=rows.filter(r=>r.status==='Processando');
+ return {n:campaignStats(rows),runningCount:running.length,running:running.slice(0,3).map(r=>({nome:r.nome,cpf:r.cpf})),
+  phaseRows:rows,pace:null,rows};
+}
+// Uma página de clientes da campanha: do banco (campaign-server.js) ou filtrada das consultas carregadas.
+function campaignClientPage(c,search,filter,page){
+ const server=typeof serverCampaignClientPage==='function'?serverCampaignClientPage(c,search,filter,page):null;
+ if(server)return server;
+ const filtered=[];
+ campaignRecords(c.id).forEach((row,index)=>{
+  const matchesSearch=matchesLeadSearch(row,search);
+  const matchesStatus=!filter||(filter==='attention'?['Erro','Revisão','Consulta interrompida'].includes(row.status):row.status===filter);
+  if(matchesSearch&&matchesStatus)filtered.push({row,rank:index+1});
+ });
+ const start=(page-1)*campaignPageSize;
+ return {items:filtered.slice(start,start+campaignPageSize),total:filtered.length};
 }
 function queryDescription(c){return serviceLabel(c.servico)+(c.servico==='tjba_margem'?' · '+convenioLabel(c.convenio):'');}
 function resultProgress(r){const p=Math.max(0,Math.min(100,Number(r.progress)||0));return ['Aguardando','Processando'].includes(r.status)?`<div class="progress-line"><progress max="100" value="${p}" aria-label="Progresso da consulta"></progress><small>${p}%</small></div>`:'';}
@@ -137,12 +165,12 @@ function renderCampaignList(){
  for(const campaign of list){
   const type=campaign.servico||'digimais_saldo_parcela';
   if((service&&type!==service)||(query&&!campaign.nome.toLowerCase().includes(query)))continue;
-  const rows=campaignRecords(campaign.id);
+  const summary=campaignSummary(campaign),rows=summary.phaseRows;
   const state=campaignPhase(campaign,rows);
   if(phase&&state!==phase)continue;
   const key=type+':'+state;
   if(!groups.has(key))groups.set(key,[]);
-  const totals=campaignStats(rows);
+  const totals=summary.n;
   const processed=totals.total-totals.waiting;
   const pct=totals.total?Math.round(100*processed/totals.total):0;
   groups.get(key).push(`<button class="campaign-item ${activeCampaign===campaign.id?'selected':''}" data-campaign="${escapeHTML(campaign.id)}">
@@ -167,29 +195,24 @@ renderCampaigns=function(){
  $('#retryCampaign').textContent='Repetir consultas com falha';
  renderCampaignList();
  const c=campaigns.find(c=>c.id===activeCampaign);if(!c)return;
- const rows=campaignRecords(c.id),n=campaignStats(rows),pct=n.total?Math.round(100*(n.total-n.waiting)/n.total):0;
- $('#campaignState').textContent=queryDescription(c)+' · '+campaignPhaseLabel(c,rows);
+ const summary=campaignSummary(c),n=summary.n,pct=n.total?Math.round(100*(n.total-n.waiting)/n.total):0;
+ $('#campaignState').textContent=queryDescription(c)+' · '+campaignPhaseLabel(c,summary.phaseRows);
  $('#campaignProgress').innerHTML=`<div><strong>${pct}% processado</strong><span>${n.total-n.waiting} de ${n.total} clientes</span></div><progress max="100" value="${pct}" aria-label="Progresso total da campanha"></progress>`;
- const running=rows.filter(r=>r.status==='Processando');$('#campaignLive').textContent=c.auto_paused?'Pausa automática após 10 erros ou pedidos de revisão consecutivos. '+(running.length?'As consultas em andamento vão terminar. ':'')+'Retome a campanha após conferir o log.':running.length?running.map(r=>'Consultando: '+r.nome+' · '+r.cpf).join(' | '):c.paused?'Campanha pausada. Retome para continuar pelos clientes pendentes.':n.waiting?'Aguardando sua vez na fila. Campanhas anteriores são processadas primeiro.':'Processamento finalizado. Confira os resultados ou repita apenas erros e revisões.';
- const eta=campaignEta(c,rows,n.waiting,running.length);
+ const running=summary.running,runningCount=summary.runningCount;$('#campaignLive').textContent=c.auto_paused?'Pausa automática após 10 erros ou pedidos de revisão consecutivos. '+(runningCount?'As consultas em andamento vão terminar. ':'')+'Retome a campanha após conferir o log.':runningCount?running.map(r=>'Consultando: '+r.nome+' · '+r.cpf).join(' | '):c.paused?'Campanha pausada. Retome para continuar pelos clientes pendentes.':n.waiting?'Aguardando sua vez na fila. Campanhas anteriores são processadas primeiro.':'Processamento finalizado. Confira os resultados ou repita apenas erros e revisões.';
+ const eta=campaignEta(c,summary.rows||[],n.waiting,runningCount,Date.now(),summary.pace);
  if($('#campaignEta').textContent!==eta)$('#campaignEta').textContent=eta;
- $('#pauseCampaign').disabled=changingCampaign||(c.paused&&running.length>0)||(!n.waiting&&!running.length&&!c.paused);$('#pauseCampaign').textContent=c.paused?(running.length?'Pausando…':'Retomar campanha'):'Pausar campanha';
+ $('#pauseCampaign').disabled=changingCampaign||(c.paused&&runningCount>0)||(!n.waiting&&!runningCount&&!c.paused);$('#pauseCampaign').textContent=c.paused?(runningCount?'Pausando…':'Retomar campanha'):'Pausar campanha';
  const search=$('#campaignClientSearch').value.trim().toLowerCase(),filter=$('#campaignClientStatus').value;
  const key=JSON.stringify([c.id,search,filter]);
  if(key!==campaignPageKey){campaignPage=1;campaignPageKey=key;}
- const filtered=[];
- rows.forEach((row,index)=>{
-  const matchesSearch=matchesLeadSearch(row,search);
-  const matchesStatus=!filter||(filter==='attention'?['Erro','Revisão','Consulta interrompida'].includes(row.status):row.status===filter);
-  if(matchesSearch&&matchesStatus)filtered.push({row,rank:index+1});
- });
- const pages=Math.max(1,Math.ceil(filtered.length/campaignPageSize));
- campaignPage=Math.max(1,Math.min(campaignPage,pages));
+ let page=campaignClientPage(c,search,filter,campaignPage);
+ const pages=Math.max(1,Math.ceil(page.total/campaignPageSize));
+ if(campaignPage>pages){campaignPage=pages;page=campaignClientPage(c,search,filter,campaignPage);}
  const start=(campaignPage-1)*campaignPageSize;
- const visible=filtered.slice(start,start+campaignPageSize);
+ const visible=page.items;
  $('#campaignPrevPage').disabled=campaignPage===1;
  $('#campaignNextPage').disabled=campaignPage===pages;
- const label=filtered.length?`Página ${campaignPage} de ${pages} · ${start+1}–${start+visible.length} de ${filtered.length}`:'Nenhum cliente encontrado';
+ const label=page.loading?'Carregando clientes…':page.total?`Página ${campaignPage} de ${pages} · ${start+1}–${start+visible.length} de ${page.total}`:'Nenhum cliente encontrado';
  if($('#campaignPageStatus').textContent!==label)$('#campaignPageStatus').textContent=label;
  setTableHead(c.servico,'campaignHead');
  let index=0;

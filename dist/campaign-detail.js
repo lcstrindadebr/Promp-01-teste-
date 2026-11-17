@@ -39,7 +39,7 @@
  renderCampaigns=function(...args){
   baseRender(...args);
   const c=campaigns.find(c=>c.id===activeCampaign);if(!c)return;
-  const n=campaignStats(campaignRecords(c.id)),tjba=c.servico==='tjba_margem',problems=n.errors+n.review+n.interrupted;
+  const summary=campaignSummary(c),n=summary.n,tjba=c.servico==='tjba_margem',problems=n.errors+n.review+n.interrupted;
   $('#cgResults').innerHTML=stat(tjba?'CPFs localizados':'Clientes identificados',n.clients,'Concluída')
    +stat(tjba?'Não encontrados':'Não são clientes',n.nonclients,null)+(tjba?'':stat('Já vendeu',n.sold,null));
   $('#cgAttention').innerHTML=stat('Erros',n.errors,'attention')+stat('Em revisão',n.review,'attention')+(tjba?'':stat('Interrompidas',n.interrupted,'Consulta interrompida'));
@@ -48,10 +48,10 @@
   $('#cgProgress').innerHTML=stat('Solicitadas',n.total,null)+stat('Na fila ou consultando',n.waiting,'Aguardando');
   $('#campaignDangerText').textContent=`Apaga a campanha e as ${fmt.format(n.total)} consultas e resultados dela. Não há como recuperar.`;
   // Com muitas consultas ao mesmo tempo (a API Digi+ roda até 100), mostra quantas e os primeiros nomes.
-  const running=campaignRecords(c.id).filter(r=>r.status==='Processando');
-  if(running.length>3&&!c.auto_paused&&!c.paused){
+  const running=summary.running,runningCount=summary.runningCount;
+  if(runningCount>3&&!c.auto_paused&&!c.paused){
    const names=running.slice(0,3).map(r=>r.nome||r.cpf).join(', ');
-   $('#campaignLive').textContent=`Consultando ${fmt.format(running.length)} clientes agora: ${names} e mais ${fmt.format(running.length-3)}.`;
+   $('#campaignLive').textContent=`Consultando ${fmt.format(runningCount)} clientes agora: ${names} e mais ${fmt.format(runningCount-3)}.`;
   }
  };
  // Os filtros da lista guardavam a versão anterior; passam a usar esta.
