@@ -12,7 +12,7 @@ sed 's/^create extension if not exists supabase_vault with schema vault.*$/-- va
 # Upgrades applied in production after schema.sql was last regenerated, in order.
 for upgrade in upgrade_crm_campanhas_reuso upgrade_amigoz_reuso_status upgrade_amigoz_campanhas_avulsas \
   upgrade_digimais_campaign_batches upgrade_painel_sync_pro upgrade_api_campanha_convenio \
-  upgrade_crm_preservar_etapa_importacao upgrade_crm_import_timeout upgrade_fila_resiliente upgrade_tenants_foundation upgrade_tenants_access upgrade_tenants_crm upgrade_tenants_users upgrade_tenants_resources upgrade_tenants_platform upgrade_tenants_delete upgrade_tenants_painel; do
+  upgrade_crm_preservar_etapa_importacao upgrade_crm_import_timeout upgrade_fila_resiliente upgrade_tenants_foundation upgrade_tenants_access upgrade_tenants_crm upgrade_tenants_users upgrade_tenants_resources upgrade_tenants_platform upgrade_tenants_delete upgrade_tenants_painel upgrade_tenants_campaign_actions; do
   "${P[@]}" -f "supabase/$upgrade.sql" >/dev/null
 done
 status=0
