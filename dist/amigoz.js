@@ -11,7 +11,7 @@ function amigozAction(r){
 function resetAmigoz(){amigozGeneration++;amigozCurrent=null;amigozDirty=false;$('#amigozPrazo').value=96;$('#amigozAlterarParcela').checked=false;$('#amigozNovaParcela').value='';$('#amigozNovaParcela').disabled=true;$('#amigozMarginInfo').textContent='';amigozBusy=false;$('#amigozPanel').hidden=true;$('#appShell').inert=false;$('#amigozCards').innerHTML='';}
 function refreshAmigoz(){
  if(!amigozCurrent)return;
- const r=records.find(r=>r.id===amigozCurrent.job_id);
+ const r=findRecord(amigozCurrent.job_id);
  const stale=!r||r.saldo!==Number(amigozCurrent.saldo)||r.valorParcela!==Number(amigozCurrent.parcela)||['Aguardando','Processando','Não é cliente'].includes(r.status);
  $('#amigozStale').hidden=!stale&&!amigozDirty;$('#amigozStale').textContent=stale?'Dados da consulta alterados. Recalcule.':'Condições alteradas. Recalcule para atualizar os valores.';$('#amigozCards').hidden=stale;
  $('#amigozRecalculate').disabled=amigozBusy||!r||!(r.saldo>0&&r.valorParcela>0)||['Aguardando','Processando','Não é cliente'].includes(r.status);
@@ -23,7 +23,7 @@ async function simulateAmigoz(id){
  const result=await sbRequest('/rest/v1/rpc/simular_amigoz_price',{method:'POST',body:JSON.stringify({p_job_id:id,p_prazo:prazo,p_condicoes:conditions})});
  if(generation!==amigozGeneration||!authenticated)return;
  amigozCurrent=result;$('#amigozMarginInfo').textContent='Parcela original: '+brl(result.parcela)+' · Parcela simulada: '+brl(result.parcela_simulada??result.parcela)+' · Margem adicional necessária: '+brl(result.margem_adicional??0);
- $('#amigozClient').textContent=records.find(r=>r.id===id)?.nome||'Cliente';
+ $('#amigozClient').textContent=findRecord(id)?.nome||'Cliente';
  amigozDirty=false;$('#amigozCards').innerHTML=renderAmigozTables(result.tabelas);
  $('#amigozStatus').textContent='Simulação atualizada. Compare as opções abaixo.';
  }catch(e){if(generation===amigozGeneration){amigozCurrent=null;$('#amigozStatus').textContent=e.message;}}

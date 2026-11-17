@@ -2,7 +2,7 @@
 // Ao abrir o painel de novo, mostra a cópia na hora e busca no banco só o que mudou desde então
 // (a sincronização já é incremental: o banco devolve alterações e exclusões depois do ponto salvo).
 // A cópia é por conta, empresa e escopo de visão; vence em 7 dias; "Sair da conta" apaga tudo.
-const cloudCacheVersion=1,cloudCacheMaxAge=7*24*3600*1000,cloudCacheSaveEvery=60000;
+const cloudCacheVersion=2,cloudCacheMaxAge=7*24*3600*1000,cloudCacheSaveEvery=60000;
 const cloudCacheStore={
  db:null,
  open(){
@@ -31,7 +31,8 @@ function cloudCacheIdentity(){
  const user=session?.user?.id,tenant=currentAccess?.tenant;
  if(!user)return null;
  const scope=currentAccess?.role==='admin'||tenant?.permissions?.includes('dados.ver_empresa')?'empresa':'proprios';
- return ['v'+cloudCacheVersion,user,tenant?.tenant_id||'-',scope].join(':');
+ // O escopo da sincronização (só avulsas ou tudo) também separa as cópias.
+ return ['v'+cloudCacheVersion,user,tenant?.tenant_id||'-',scope,typeof cloudScope==='function'?cloudScope():'tudo'].join(':');
 }
 async function cloudCacheRestore(epoch){
  const key=cloudCacheIdentity();if(!key)return;
@@ -41,6 +42,7 @@ async function cloudCacheRestore(epoch){
   if(Date.now()-saved.saved_at>cloudCacheMaxAge||!Array.isArray(saved.entries)||!saved.snapshot)return;
   cloudRows.clear();for(const [chave,value] of saved.entries)cloudRows.set(chave,value);
   cloudSnapshot=saved.snapshot;cloudCacheKey=key;cloudCacheSavedAt=Date.now();
+  if(typeof cloudScope==='function')cloudSyncedScope=cloudScope();
   publishCloudRows();
  }catch{/* Sem cópia local: segue o carregamento completo. */}
 }

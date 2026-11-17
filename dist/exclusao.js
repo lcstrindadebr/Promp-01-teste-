@@ -2,7 +2,7 @@
 let deletionBusy=false;
 async function deleteConsultation(id){
  if(deletionBusy||!authenticated)return;
- const row=records.find(r=>r.id===id);if(!row)return;
+ const row=findRecord(id);if(!row)return;
  const running=row.status==='Processando'?' O atendimento já iniciado no banco pode continuar até encerrar.':'';
  if(!(await askConfirm(`Resultados e simulações desta consulta serão apagados definitivamente.${running}`,{title:`Excluir a consulta de ${row.nome}?`,confirmLabel:'Excluir consulta',danger:true})))return;
  if(deletionBusy||!authenticated)return;
@@ -19,16 +19,17 @@ async function deleteConsultation(id){
 $('#deleteCampaign').onclick=async()=>{
  if(deletionBusy||!authenticated)return;
  const campaign=campaigns.find(c=>c.id===activeCampaign);if(!campaign)return;
- const rows=campaignRecords(campaign.id);
- const running=rows.some(r=>r.status==='Processando')?' O atendimento já iniciado no banco pode continuar até encerrar.':'';
- if(!(await askConfirm(`Todas as ${rows.length} consultas, resultados e simulações desta campanha serão apagados definitivamente.${running}`,{title:`Excluir a campanha "${campaign.nome}"?`,confirmLabel:'Excluir campanha',danger:true,typed:'EXCLUIR'})))return;
+ // Números do banco (campaignSummary): as consultas da campanha não ficam todas no navegador.
+ const summary=campaignSummary(campaign),rows=campaignRecords(campaign.id);
+ const running=summary.runningCount?' O atendimento já iniciado no banco pode continuar até encerrar.':'';
+ if(!(await askConfirm(`Todas as ${summary.n.total} consultas, resultados e simulações desta campanha serão apagados definitivamente.${running}`,{title:`Excluir a campanha "${campaign.nome}"?`,confirmLabel:'Excluir campanha',danger:true,typed:'EXCLUIR'})))return;
  if(deletionBusy||!authenticated||activeCampaign!==campaign.id)return;
  deletionBusy=true;$('#deleteCampaign').disabled=true;const epoch=authEpoch;
  try{
  const deleted=await sbRequest('/rest/v1/'+(campaign.servico==='tjba_margem'?'tjba_lotes':'consulta_lotes')+'?id=eq.'+encodeURIComponent(campaign.id)+'&tipo=eq.campanha',{method:'DELETE',headers:{Prefer:'return=representation'}});
  if(epoch!==authEpoch)return;
  if(!deleted?.length)throw Error('Campanha não encontrada ou já excluída.');
- if(typeof amigozCurrent!=='undefined'&&rows.some(r=>r.id===amigozCurrent?.job_id))resetAmigoz();
+ if(typeof amigozCurrent!=='undefined'&&(rows.some(r=>r.id===amigozCurrent?.job_id)||findRecord(amigozCurrent?.job_id)?.lote_id===campaign.id))resetAmigoz();
  records=records.filter(r=>r.lote_id!==campaign.id);campaigns=campaigns.filter(c=>c.id!==campaign.id);activeCampaign=null;
  render();toast('Campanha e consultas excluídas.');await loadCloud();
  }catch(e){if(epoch===authEpoch)toast(e.message);}finally{deletionBusy=false;$('#deleteCampaign').disabled=false;}

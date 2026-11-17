@@ -152,7 +152,15 @@ function setCloudLoading(state){
  const label=state?'Carregando suas consultas'+(state.count?' · '+state.count.toLocaleString('pt-BR')+' registros':'')+'…':'';
  for(const id of ['cloudLoadStatus','campaignLoadStatus']){const el=document.getElementById?.(id);if(el){el.textContent=label;el.hidden=!state;}}
 }
+// Fase 2c, etapa 3: as consultas de campanha chegam página a página (campaign-server.js), então a
+// sincronização traz só as campanhas e as consultas avulsas. Volta a trazer tudo quando o banco ainda não
+// tem o escopo (PGRST202) ou as funções de campanha não existem.
+let cloudScopeOff=false,cloudSyncedScope=null;
+function cloudScope(){return cloudScopeOff||(typeof serverCampaignsOff!=='undefined'&&serverCampaignsOff)?'tudo':'avulsas';}
 async function syncCloudPages(epoch){
+ const scope=cloudScope();
+ // Mudou o escopo (ex.: as funções de campanha faltaram): começa do zero com o novo.
+ if(cloudSnapshot!==null&&cloudSyncedScope!==scope)cloudSnapshot=null;
  const since=cloudSnapshot,buffer=[],initial=since===null;
  let until=null,after=null,lastPublish=0,count=0;
  // A retried first load starts clean so rows removed meanwhile do not linger.
@@ -160,9 +168,15 @@ async function syncCloudPages(epoch){
  try{
   do{
    if(epoch!==authEpoch||!authenticated||document.visibilityState==='hidden')return;
-   const page=await sbRequest('/rest/v1/rpc/painel_consultas_sync',{
-    method:'POST',body:JSON.stringify({p_since:since,p_until:until,p_after:after})
-   });
+   let page;
+   try{
+    page=await sbRequest('/rest/v1/rpc/painel_consultas_sync',{
+     method:'POST',body:JSON.stringify(scope==='avulsas'?{p_since:since,p_until:until,p_after:after,p_escopo:scope}:{p_since:since,p_until:until,p_after:after})
+    });
+   }catch(error){
+    if(scope==='avulsas'&&error?.code==='PGRST202'&&!after){cloudScopeOff=true;return syncCloudPages(epoch);}
+    throw error;
+   }
    if(epoch!==authEpoch||!authenticated||document.visibilityState==='hidden')return;
    until=page.snapshot;
    if(page.next&&after&&page.next<=after)throw Error('A paginação da sincronização não avançou.');
@@ -173,7 +187,7 @@ async function syncCloudPages(epoch){
     if(!after||Date.now()-lastPublish>800){publishCloudRows();lastPublish=Date.now();}
    }else buffer.push(...page.rows);
   }while(after);
-  cloudSnapshot=until;
+  cloudSnapshot=until;cloudSyncedScope=scope;
   if(initial)return;
   if(!buffer.length)return;
   applyCloudEntries(buffer);

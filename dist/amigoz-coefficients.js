@@ -151,7 +151,7 @@ async function openAmigozClient(cpf, convenio='', jobId=null, name='', margin=fa
   await loadCoefficientContext();
 }
 simulateAmigoz = async function(id) {
-  const row = records.find(row => row.id === id);
+  const row = findRecord(id);
   if (!row) return;
   await openAmigozClient(row.cpf, row.convenio || '', row.servico === 'tjba_margem' ? null : row.id, row.nome, row.servico === 'tjba_margem');
 };

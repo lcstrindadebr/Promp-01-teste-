@@ -4,6 +4,8 @@ const serviceCatalog={digimais_saldo_parcela:{label:'Saldo e parcela — Digi+',
 function selectedService(){const id=$('#serviceSelect').value||'digimais_saldo_parcela';if(!serviceCatalog[id]?.available)throw Error('Este tipo de higienização ainda não está disponível.');return id;}
 function serviceLabel(id){return serviceCatalog[id||'digimais_saldo_parcela']?.label||'Serviço não identificado';}
 let records=[],pending=[],campaigns=[],activeCampaign=null,currentPage="home",retryingCampaign=false;
+// Uma consulta pelo id: as carregadas (avulsas) ou, nas campanhas, as da página aberta (campaign-server.js).
+function findRecord(id){return records.find(r=>r.id===id)||(typeof serverRowById==='function'?serverRowById(id):undefined);}
 function toast(message){$('#toast').textContent=message;$('#toast').style.display='block';setTimeout(()=>$('#toast').style.display='none',4500)}
 // In-page confirmation instead of the browser's confirm(): states what will happen and
 // names the action on the button. Resolves true only when that button is chosen.
@@ -291,7 +293,7 @@ async function exportResults(items,filename='consultas.csv') {
 $('#export').onclick=()=>exportResults(individualRecords());
 $('#exportCampaign').onclick=()=>exportResults(campaignRecords(activeCampaign),'campanha-resultados.csv');
 $('#exportCampaignReport').onclick=()=>{
- const c=campaigns.find(c=>c.id===activeCampaign);if(!c)return;const n=campaignStats(campaignRecords(c.id));
+ const c=campaigns.find(c=>c.id===activeCampaign);if(!c)return;const n=typeof campaignSummary==='function'?campaignSummary(c).n:campaignStats(campaignRecords(c.id));
  const safe=value=>'"'+String(value).replaceAll('"','""').replace(/^[=+@\-]/,"'$&")+'"';
  download('campanha-relatorio.csv',[['campanha','solicitadas',c.servico==='tjba_margem'?'cpfs_localizados':'clientes',c.servico==='tjba_margem'?'nao_encontrados':'nao_clientes','erros','revisao','interrompidas',...c.servico==='tjba_margem'?[]:['ja_vendeu'],'pendentes'],[c.nome,n.total,n.clients,n.nonclients,n.errors,n.review,n.interrupted,...c.servico==='tjba_margem'?[]:[n.sold],n.waiting]].map(row=>row.map(safe).join(';')).join('\r\n'));
 };
@@ -301,7 +303,7 @@ $('#retryCampaign').onclick=async()=>{
  try{const count=await retryCampaign(activeCampaign);toast(count+' consulta(s) reenviada(s) para a fila.');await loadCloud()}catch(e){toast(e.message)}finally{retryingCampaign=false;renderCampaigns()}
 };
 
-$('#rows').onclick=async e=>{const id=e.target.dataset.retry;if(!id)return;const r=records.find(r=>r.id===id);if(!r)return;e.target.disabled=true;try{await add([{nome:r.nome,cpf:digits(r.cpf),telefone:r.telefone}],r.servico||'digimais_saldo_parcela',r.convenio||'tjba')}catch(err){toast(err.message)}finally{if(e.target.isConnected)e.target.disabled=false}};
+$('#rows').onclick=async e=>{const id=e.target.dataset.retry;if(!id)return;const r=findRecord(id);if(!r)return;e.target.disabled=true;try{await add([{nome:r.nome,cpf:digits(r.cpf),telefone:r.telefone}],r.servico||'digimais_saldo_parcela',r.convenio||'tjba')}catch(err){toast(err.message)}finally{if(e.target.isConnected)e.target.disabled=false}};
 $('#search').oninput=$('#filter').onchange=()=>{individualPage=1;render();};
 function navigate(page){
  currentPage=page;$('#consultationTabs').hidden=!['home','campaigns'].includes(page);document.querySelectorAll('[data-consultation]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.consultation===page)));if(typeof tickMonitoring==='function')tickMonitoring();$('#serviceContext').classList.toggle('hide',!['home','campaigns'].includes(page));
