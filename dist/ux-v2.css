@@ -203,3 +203,6 @@ button.campaign-group-stat:disabled { cursor: default; }
   .responsive-table td.empty::before { content: none; }
   .responsive-table .cell-sub { max-width: none; }
 }
+
+/* 10. Caminho no topo: nomes longos de campanha terminam em reticências (Fase 3) */
+#pageBreadcrumb { display: inline-block; max-width: min(55vw, 520px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
