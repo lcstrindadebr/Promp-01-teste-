@@ -7,13 +7,19 @@ let records=[],pending=[],campaigns=[],activeCampaign=null,currentPage="home",re
 function toast(message){$('#toast').textContent=message;$('#toast').style.display='block';setTimeout(()=>$('#toast').style.display='none',4500)}
 // In-page confirmation instead of the browser's confirm(): states what will happen and
 // names the action on the button. Resolves true only when that button is chosen.
-function askConfirm(message,{confirmLabel='Confirmar',cancelLabel='Cancelar',danger=false,title='Confirme a ação'}={}){
+// typed: a word the person has to type before the action is enabled (for what cannot be undone).
+function askConfirm(message,{confirmLabel='Confirmar',cancelLabel='Cancelar',danger=false,title='Confirme a ação',typed=''}={}){
  return new Promise(resolve=>{
   const dialog=document.createElement('dialog');dialog.className='confirm-dialog';
   dialog.setAttribute('aria-labelledby','confirmDialogTitle');dialog.setAttribute('aria-describedby','confirmDialogText');
-  dialog.innerHTML=`<h2 id="confirmDialogTitle"></h2><p id="confirmDialogText"></p><div class="confirm-dialog-actions"><button type="button" data-answer="no"></button><button type="button" data-answer="yes" class="${danger?'danger-solid':'primary'}"></button></div>`;
+  dialog.innerHTML=`<h2 id="confirmDialogTitle"></h2><p id="confirmDialogText"></p>${typed?'<label class="field" for="confirmDialogTyped"></label><input id="confirmDialogTyped" autocomplete="off">':''}<div class="confirm-dialog-actions"><button type="button" data-answer="no"></button><button type="button" data-answer="yes" class="${danger?'danger-solid':'primary'}"></button></div>`;
   dialog.querySelector('h2').textContent=title;dialog.querySelector('p').textContent=message;
   dialog.querySelector('[data-answer="no"]').textContent=cancelLabel;dialog.querySelector('[data-answer="yes"]').textContent=confirmLabel;
+  if(typed){
+   const input=dialog.querySelector('#confirmDialogTyped'),yes=dialog.querySelector('[data-answer="yes"]');
+   dialog.querySelector('label').textContent=`Digite ${typed} para confirmar`;yes.disabled=true;
+   input.oninput=()=>{yes.disabled=input.value.trim()!==typed;};
+  }
   let answer=false;
   dialog.onclick=event=>{const button=event.target.closest('[data-answer]');if(button){answer=button.dataset.answer==='yes';dialog.close();}};
   dialog.addEventListener('close',()=>{dialog.remove();resolve(answer);});
@@ -144,7 +150,8 @@ function render(){
  $('#done').textContent=rows.filter(r=>r.status==='Concluída').length;
  $('#errors').textContent=rows.filter(r=>['Erro','Revisão','Consulta interrompida'].includes(r.status)).length;
  $('.modeNotice').textContent='Preencha os dados para consultar uma pessoa. Para uma lista de clientes, use Campanhas.';
- const filtered=rows.filter(r=>(!filter||r.status===filter||(filter.startsWith('tjba:')&&r.tjba_status===filter.slice(5)))&&matchesLeadSearch(r,q));
+ const groups={'grupo:fila':['Aguardando','Processando'],'grupo:atencao':['Erro','Revisão','Consulta interrompida']};
+ const filtered=rows.filter(r=>(!filter||r.status===filter||groups[filter]?.includes(r.status)||(filter.startsWith('tjba:')&&r.tjba_status===filter.slice(5)))&&matchesLeadSearch(r,q));
  const pages=Math.max(1,Math.ceil(filtered.length/individualPageSize));
  individualPage=Math.min(pages,Math.max(1,individualPage));
  const offset=(individualPage-1)*individualPageSize;

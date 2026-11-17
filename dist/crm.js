@@ -375,19 +375,20 @@ async function loadCrmPipeline() {
       const selectionControl={button:selectStage,total:stage.total};
       crmBulkStageControls.set(stage.id,selectionControl);
       selectStage.onclick=()=>crmSelectStage(stage,filters,request,selectionControl);
-      column.append(heading,selectStage,cards,more);
+      cards.append(more);column.append(heading,selectStage,cards);
       board.append(column);
       let offset=0,busy=false,needsRefresh=false;
       const draw=(page,replace)=>{
-        if(replace){cards.replaceChildren();offset=0;}
+        if(replace){cards.replaceChildren(more);offset=0;}
         const existing=new Set([...cards.querySelectorAll('[data-id]')].map(card=>card.dataset.id));
         for(const row of page.cartoes){
           crmBoardCards.set(row.id,row);
-          if(!existing.has(row.id))cards.append(crmOpportunityCard(row,settings,request));
+          if(!existing.has(row.id))more.before(crmOpportunityCard(row,settings,request));
         }
         offset+=page.cartoes.length;
-        if(!offset)cards.append(crmElement('p','muted','Nenhuma oportunidade nesta etapa.'));
-        heading.textContent=stage.nome+' · '+page.total;
+        if(!offset)more.before(crmElement('p','muted crm-empty-stage','Nenhuma oportunidade nesta etapa.'));
+        const count=crmElement('span','crm-stage-count',new Intl.NumberFormat('pt-BR').format(Number(page.total)||0));
+        count.setAttribute('aria-label',page.total+' oportunidades');heading.replaceChildren(stage.nome,' ',count);
         selectionControl.total=page.total;
         crmRenderBulk();
         more.hidden=offset>=Number(page.total)||!page.cartoes.length;
@@ -406,10 +407,16 @@ async function loadCrmPipeline() {
       };
       draw(stage,true);
       more.onclick=()=>{const replace=needsRefresh;needsRefresh=false;return load(replace);};
+      // Rolagem por coluna: ao chegar perto do fim da coluna, carrega a próxima página sozinho.
+      if(typeof IntersectionObserver==='function'){
+        new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting)&&!more.hidden&&!busy&&current())more.onclick();},
+          {root:cards,rootMargin:'0px 0px 200px 0px'}).observe(more);
+      }
       crmBoardColumns.set(stage.codigo,()=>load(true));
-      column.ondragover=event=>event.preventDefault();
+      column.ondragover=event=>{event.preventDefault();column.classList.add('drop-target');};
+      column.ondragleave=event=>{if(!column.contains(event.relatedTarget))column.classList.remove('drop-target');};
       column.ondrop=async event=>{
-        event.preventDefault();
+        event.preventDefault();column.classList.remove('drop-target');
         const id=event.dataTransfer.getData('text/plain');
         if(crmBoardCards.has(id))await crmMoveOpportunity(id,stage.codigo,request);
       };
@@ -936,7 +943,8 @@ async function crmMoveOpportunity(id,stage,request,extra={}) {
 }
 function crmOpportunityCard(row,settings,request){
   const card=crmElement('article','crm-kanban-card'+(settings.density==='compact'?' compact':''));card.draggable=true;card.dataset.id=row.id;
-  card.ondragstart=event=>event.dataTransfer.setData('text/plain',row.id);
+  card.ondragstart=event=>{event.dataTransfer.setData('text/plain',row.id);card.classList.add('dragging');};
+  card.ondragend=()=>{card.classList.remove('dragging');document.querySelectorAll('.crm-kanban-column.drop-target').forEach(c=>c.classList.remove('drop-target'));};
   const title=crmElement('button','crm-card-title',row.nome||formatCpf(row.cpf));
   title.type='button';title.onclick=()=>crmOpenClientProfile(row,row.id);
   const heading=crmElement('h3');heading.append(title);card.append(heading);

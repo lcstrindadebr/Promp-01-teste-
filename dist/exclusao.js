@@ -21,7 +21,7 @@ $('#deleteCampaign').onclick=async()=>{
  const campaign=campaigns.find(c=>c.id===activeCampaign);if(!campaign)return;
  const rows=campaignRecords(campaign.id);
  const running=rows.some(r=>r.status==='Processando')?' O atendimento já iniciado no banco pode continuar até encerrar.':'';
- if(!(await askConfirm(`Todas as ${rows.length} consultas, resultados e simulações desta campanha serão apagados definitivamente.${running}`,{title:`Excluir a campanha "${campaign.nome}"?`,confirmLabel:'Excluir campanha',danger:true})))return;
+ if(!(await askConfirm(`Todas as ${rows.length} consultas, resultados e simulações desta campanha serão apagados definitivamente.${running}`,{title:`Excluir a campanha "${campaign.nome}"?`,confirmLabel:'Excluir campanha',danger:true,typed:'EXCLUIR'})))return;
  if(deletionBusy||!authenticated||activeCampaign!==campaign.id)return;
  deletionBusy=true;$('#deleteCampaign').disabled=true;const epoch=authEpoch;
  try{
