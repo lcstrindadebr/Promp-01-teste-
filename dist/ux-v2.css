@@ -135,3 +135,51 @@ body.on-dashboard .partner-quota-banner { display: none; }
   .dashboard-tile strong { font-size: 24px; }
   .dashboard-row-progress progress { width: 84px; }
 }
+
+/* 7. Detalhe da campanha: progresso no topo, contadores agrupados, exclusão à parte (Fase 3) */
+.campaign-detail-v3 > .heading { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.campaign-head-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.campaign-head-actions #pauseCampaign { background: var(--crm-action); color: #fff; border-color: var(--crm-action); }
+.campaign-head-actions #pauseCampaign:disabled { opacity: .55; }
+.campaign-progress-block { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 18px; padding: 16px 18px;
+  background: #fff; border: 1px solid var(--crm-border); border-radius: 12px; }
+.campaign-progress-block .campaign-progress { border: 0; padding: 0; background: none; border-radius: 0; }
+.campaign-progress-block #campaignEta { margin: 0; color: var(--crm-text); font-weight: 600; }
+.campaign-progress-block .campaign-live { margin: 0; }
+.campaign-groups { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(0, .8fr); gap: 12px; margin-bottom: 16px; }
+.campaign-group-card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; background: #fff;
+  border: 1px solid var(--crm-border); border-radius: 12px; min-width: 0; }
+.campaign-group-card h3 { margin: 0; font-size: 13px; color: var(--crm-secondary); font-weight: 700; }
+.campaign-group-card.attention.has-items { border-color: #e2b4b4; box-shadow: inset 4px 0 0 #b23b3b; }
+.campaign-group-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+.campaign-group-stat { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border-radius: 8px; text-align: left;
+  background: none; border: 1px solid transparent; font: inherit; color: inherit; min-width: 0; }
+button.campaign-group-stat { cursor: pointer; }
+button.campaign-group-stat:hover:not(:disabled) { border-color: var(--crm-border-strong); background: var(--crm-surface-alt); }
+button.campaign-group-stat:disabled { cursor: default; }
+.campaign-group-stat span { font-size: 12px; color: var(--crm-secondary); }
+.campaign-group-stat strong { font-size: 22px; font-variant-numeric: tabular-nums; }
+.campaign-group-card.attention.has-items .campaign-group-stat strong { color: #9b2c2c; }
+.campaign-group-action #retryCampaign { width: 100%; }
+.campaign-danger { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+  margin-top: 28px; padding: 16px 18px; border: 1px solid #ecc9c9; border-radius: 12px; background: #fdf7f7; }
+.campaign-danger h3 { margin: 0 0 4px; font-size: 15px; color: #8d2a2a; }
+.campaign-danger p { margin: 0; color: var(--crm-secondary); font-size: 13px; max-width: 60ch; }
+.campaign-danger #deleteCampaign { color: #8d2a2a; border: 1px solid #d9a5a5; background: #fff; }
+.confirm-dialog input { width: 100%; box-sizing: border-box; margin-bottom: 12px; }
+@media (max-width: 900px) { .campaign-groups { grid-template-columns: minmax(0, 1fr); } }
+
+/* 8. Oportunidades: rolagem dentro de cada etapa, contador e destaque ao arrastar (Fase 3) */
+#opportunities .crm-kanban-column { display: flex; flex-direction: column; max-height: calc(100vh - 230px); min-height: 220px; }
+#opportunities .crm-kanban-column h2 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#opportunities .crm-kanban-column > h2, #opportunities .crm-kanban-column > .crm-select-stage { flex-shrink: 0; }
+#opportunities .crm-kanban-column > .crm-select-stage { margin-bottom: 10px; padding: 6px 10px; font-size: 12px; min-height: 0; line-height: 1.3; }
+.crm-stage-count { flex-shrink: 0; min-width: 24px; padding: 2px 8px; border-radius: 999px; text-align: center;
+  background: #fff; border: 1px solid var(--crm-border); font-size: 12px; font-weight: 700; color: var(--crm-secondary);
+  font-variant-numeric: tabular-nums; }
+#opportunities .crm-kanban-cards { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: 10px; padding-right: 2px; }
+#opportunities .crm-kanban-cards > button { flex-shrink: 0; }
+.crm-kanban-column.drop-target { border-color: var(--crm-action); background: #e8f3ed; box-shadow: inset 0 0 0 2px var(--crm-action); }
+.crm-kanban-card.dragging { opacity: .45; }
+@media (max-width: 600px) { #opportunities .crm-kanban-column { max-height: 70vh; } }
