@@ -183,6 +183,9 @@ $('#firstPasswordForm').onsubmit=async e=>{
 };
 
 function syncCompanyUsersUi(){
+ // Importar base de clientes só aparece para quem tem a permissão (o banco também confere).
+ const importButton=$('#crmImportClients');
+ if(importButton)importButton.hidden=!!currentAccess&&currentAccess.role!=='admin'&&!!currentAccess.tenant&&!companyCan('clientes.importar');
  const allowed=companyCan('usuarios.gerenciar');
  $('#settings-tab-users').hidden=!allowed;
  if(!allowed&&!$('#settings-users').hidden)switchSettings('account');

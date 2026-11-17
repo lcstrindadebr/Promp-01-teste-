@@ -11,6 +11,9 @@ const json=(data,status=200)=>({ok:status<400,status,json:async()=>data,text:asy
  // Without usuarios.gerenciar the tab stays hidden and nothing is requested.
  run("currentAccess={user_id:'me',active:true,role:'partner',tenant:{permissions:['consulta.digimais.individual']}};applyAccessUi()");
  assert.equal(t.get('#settings-tab-users').hidden,true);
+ assert.equal(t.get('#crmImportClients').hidden,true,'Import hidden without clientes.importar');
+ run("currentAccess.tenant.permissions.push('clientes.importar');applyAccessUi()");
+ assert.equal(t.get('#crmImportClients').hidden,false,'Import shown with clientes.importar');
  const before=t.calls.length;await run('loadCompanyUsers()');assert.equal(t.calls.length,before);
 
  // Administrator: lists users and creates one with a temporary password.
