@@ -44,6 +44,8 @@
    +stat(tjba?'Não encontrados':'Não são clientes',n.nonclients,null)+(tjba?'':stat('Já vendeu',n.sold,null));
   $('#cgAttention').innerHTML=stat('Erros',n.errors,'attention')+stat('Em revisão',n.review,'attention')+(tjba?'':stat('Interrompidas',n.interrupted,'Consulta interrompida'));
   groups.querySelector('.attention').classList.toggle('has-items',problems>0);
+  // Pelos números do banco: as consultas da campanha não ficam todas no navegador.
+  $('#retryCampaign').disabled=retryingCampaign||!problems;
   $('#retryCampaign').textContent=problems===1?'Repetir a consulta com falha':problems?`Repetir as ${fmt.format(problems)} consultas com falha`:'Nada para repetir';
   $('#cgProgress').innerHTML=stat('Solicitadas',n.total,null)+stat('Na fila ou consultando',n.waiting,'Aguardando');
   $('#campaignDangerText').textContent=`Apaga a campanha e as ${fmt.format(n.total)} consultas e resultados dela. Não há como recuperar.`;
