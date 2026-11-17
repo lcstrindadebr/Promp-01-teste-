@@ -206,3 +206,13 @@ button.campaign-group-stat:disabled { cursor: default; }
 
 /* 10. Caminho no topo: nomes longos de campanha terminam em reticências (Fase 3) */
 #pageBreadcrumb { display: inline-block; max-width: min(55vw, 520px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+
+/* 11. Saúde da fila (equipe ApoiarCred): quadro em Robôs e aviso no Início (Fase 4) */
+.queue-health { margin-bottom: 16px; }
+.queue-health .heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.queue-health-table td, .queue-health-table th { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.queue-health-table tr.stalled td { background: #fdf3f3; }
+.queue-stalled-banner { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border: 1px solid #e2b4b4; border-radius: 12px; background: #fdf3f3; box-shadow: inset 4px 0 0 #b23b3b; }
+.queue-stalled-banner strong { color: #8d2a2a; }
+.queue-stalled-banner p { margin: 2px 0 0; color: var(--crm-text); }
