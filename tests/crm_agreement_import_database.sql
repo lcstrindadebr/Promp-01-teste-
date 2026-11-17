@@ -14,7 +14,8 @@ begin
  r:=public.api_execute(h,'GET','/clientes/convenios','{"uf":"SP"}');
  if not (r->'body'->'data' @> '[{"id":"amigoz_23","requisitos_servicos":{"digimais_saldo":["cpf","nome","telefone"]}}]') then raise exception 'Catálogo SP: %',r; end if;
  r:=public.api_execute(h,'POST','/clientes/importacoes/previa',ba,'preview-a');
- if r#>>'{body,data,valido}' is distinct from 'true' or r#>>'{body,data,oportunidades,0,criadas}' is distinct from '1' then raise exception 'Preview BA: %',r;end if;
+ -- Conferência leve (a versão da produção): valida e conta clientes, sem simular a gravação.
+ if r#>>'{body,data,valido}' is distinct from 'true' or r#>>'{body,data,clientes_novos}' is distinct from '1' then raise exception 'Preview BA: %',r;end if;
  r:=public.api_execute(h,'GET','/clientes/importacoes','{}');
  if r#>'{body,data}' is distinct from '[]'::jsonb then raise exception 'Preview gravou lote: %',r;end if;
  r:=public.api_execute(h,'POST','/clientes/importacoes/previa',ba||'{"clientes":[{"cpf":"123"},{"cpf":"456"}]}','preview-invalid');

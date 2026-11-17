@@ -26,14 +26,20 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
   with patch.object(tjba,'consult',new_callable=AsyncMock) as consult:
    consult.side_effect=[{'status':'consultado','emprestimo_disponivel':'0.00','cartao_disponivel':'-1.00'},tjba.Review('revisao_matricula','Revisar'),{'status':'nao_encontrado'}]
    result=[]
-   for cpf in ('1','2','3'):result.append(await s.run({'cpf':cpf,'user_id':'u'},{'enabled':True,'revision':'rev'},AsyncMock()))
+   for cpf in ('1','2','3'):result.append(await s.run({'cpf':cpf,'user_id':'u'},{'enabled':True,'revision':'rev','username':'U'},AsyncMock()))
    self.assertEqual([r['status'] for r in result],['concluida','revisao','nao_encontrado']);self.assertEqual(consult.await_count,3);s.browser.close.assert_not_called()
  async def test_expiration_blocks_repeated_login_until_new_revision(self):
   s=tjba.Session();s.identity=('u','rev');s.browser=MagicMock();s.browser.close=AsyncMock();s.page=MagicMock();s.page.is_closed.return_value=False
   with patch.object(tjba,'consult',new_callable=AsyncMock,side_effect=tjba.Review('sessao_expirada','Sessão expirada')) as consult:
-   a=await s.run({'cpf':'1','user_id':'u'},{'enabled':True,'revision':'rev'},AsyncMock())
-   b=await s.run({'cpf':'2','user_id':'u'},{'enabled':True,'revision':'rev'},AsyncMock())
+   a=await s.run({'cpf':'1','user_id':'u'},{'enabled':True,'revision':'rev','username':'U'},AsyncMock())
+   b=await s.run({'cpf':'2','user_id':'u'},{'enabled':True,'revision':'rev','username':'U'},AsyncMock())
    self.assertEqual(a['tjba_status'],'sessao_expirada');self.assertEqual(b['tjba_status'],'sessao_expirada');self.assertEqual(consult.await_count,1)
+ async def test_colleagues_share_the_company_session(self):
+  # Same company access (username + revision): no new login when the job owner changes.
+  s=tjba.Session();s.identity=('u','rev');s.browser=MagicMock();s.browser.close=AsyncMock();s.page=MagicMock();s.page.is_closed.return_value=False
+  with patch.object(tjba,'consult',new_callable=AsyncMock,return_value={'status':'consultado','matricula':'1','emprestimo_disponivel':'1','cartao_disponivel':'1'}),patch.object(tjba,'login_with_retries',new_callable=AsyncMock) as login:
+   for owner in ('colega-1','colega-2'):await s.run({'cpf':'1','user_id':owner},{'enabled':True,'revision':'rev','username':'U'},AsyncMock())
+  login.assert_not_called();s.browser.close.assert_not_called()
 class WorkerRouteTests(unittest.IsolatedAsyncioTestCase):
  async def test_tjba_progress_uses_tjba_table_and_credentials_stay_worker_only(self):
   import importlib.util,os
@@ -141,7 +147,7 @@ class LoginFlowTests(unittest.IsolatedAsyncioTestCase):
   session=tjba.Session();session.identity=('u','rev');session.browser=MagicMock();session.browser.close=AsyncMock();session.page=MagicMock();session.page.is_closed.return_value=False;session.page.url=tjba.BASE+tjba.PATH+'?password=SECRET'
   async def broken(page,cpf,on_step=None):
    await on_step(45,'Preencher CPF no formulário TJBA');raise TimeoutError('SECRET CPF=123 token=hidden net::ERR_CONNECTION_CLOSED')
-  with patch.object(tjba,'consult',side_effect=broken):result=await session.run({'user_id':'u','cpf':'123'},{'enabled':True,'revision':'rev'},AsyncMock())
+  with patch.object(tjba,'consult',side_effect=broken):result=await session.run({'user_id':'u','cpf':'123'},{'enabled':True,'revision':'rev','username':'U'},AsyncMock())
   self.assertEqual(result['progress'],45);self.assertIn('Preencher CPF',result['stage']);self.assertNotIn('SECRET',str(result));self.assertNotIn('token=',str(result));self.assertEqual(result['resultado_tjba']['diagnostico']['codigo'],'ERR_CONNECTION_CLOSED');self.assertEqual(result['resultado_tjba']['diagnostico']['rota'],tjba.PATH)
  def test_chromium_transport_is_not_digimais_specific(self):
   self.assertNotIn('--disable-http2',tjba.CHROMIUM_ARGS)

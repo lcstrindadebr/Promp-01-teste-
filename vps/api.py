@@ -118,6 +118,97 @@ def partner_admin(auth,method,path,payload):
    raise
  raise AdminError(404,'not_found','Rota não encontrada.')
 
+EMAIL=re.compile(r'[^\s@]+@[^\s@]+\.[^\s@]+')
+
+def database_message(error,fallback):
+ """Mensagem de regra de negócio vinda do banco (já escrita para o usuário)."""
+ try:
+  body=json.loads(error.read() or b'{}')
+  message=body.get('message') if isinstance(body,dict) else None
+ except Exception:message=None
+ return message if isinstance(message,str) and 0<len(message)<=300 else fallback
+
+def valid_password(password):
+ return isinstance(password,str) and 8<=len(password)<=256
+
+def company_users(auth,method,path,payload):
+ """Usuários da empresa: criação com senha provisória, papel, ajustes e troca no primeiro acesso."""
+ actor=session_actor(auth)
+ if path=='/api/admin/minha-senha':
+  if method!='POST':raise AdminError(404,'not_found','Rota não encontrada.')
+  password=payload.get('password')
+  if not valid_password(password):raise AdminError(422,'invalid_password','A nova senha precisa ter de 8 a 256 caracteres.')
+  try:supabase_call('/auth/v1/user',dict(password=password),method='PUT',bearer=auth[7:])
+  except urllib.error.HTTPError as error:
+   if error.code in (400,422):raise AdminError(422,'password_rejected','Senha não aceita. Use uma senha diferente da provisória, com letras e números.') from None
+   if error.code in (401,403):raise AdminError(401,'invalid_session','Sessão expirada. Entre novamente com a senha provisória.') from None
+   raise
+  supabase_call('/rest/v1/rpc/tenant_password_changed',dict(p_actor=actor))
+  return 200,{'data':{'changed':True}}
+
+ def manage(action,data=None):
+  try:return supabase_call('/rest/v1/rpc/tenant_users_manage',dict(p_actor=actor,p_action=action,p_input=data or {}))
+  except urllib.error.HTTPError as error:
+   if error.code in (401,403):raise AdminError(403,'users_forbidden',database_message(error,'Você não pode gerenciar usuários desta empresa.')) from None
+   if error.code in (400,404,409,422):raise AdminError(422,'user_not_saved',database_message(error,'Não foi possível salvar o usuário.')) from None
+   raise
+ def set_ban(user_id,active):
+  try:supabase_call('/auth/v1/admin/users/'+user_id,dict(ban_duration='none' if active else '876000h'),method='PUT')
+  except Exception as error:print(f'Usuários | bloqueio no Auth não aplicado ({type(error).__name__}).',flush=True)
+
+ if method=='GET' and path=='/api/admin/usuarios':
+  return 200,{'data':{'empresa':manage('check'),'usuarios':manage('list')}}
+ if method!='POST':raise AdminError(404,'not_found','Rota não encontrada.')
+ data={}
+ if 'name' in payload:
+  if not isinstance(payload['name'],str) or not 1<=len(payload['name'].strip())<=160:raise AdminError(422,'invalid_name','Informe o nome do usuário.')
+  data['name']=payload['name'].strip()
+ if 'role' in payload:
+  if payload['role'] not in ('administrador','gestor','operador','leitura'):raise AdminError(422,'invalid_role','Papel inválido.')
+  data['role']=payload['role']
+ if 'overrides' in payload:
+  overrides=payload['overrides']
+  if not isinstance(overrides,dict) or len(overrides)>50 or any(not isinstance(k,str) or type(v) is not bool for k,v in overrides.items()):
+   raise AdminError(422,'invalid_overrides','Permissões inválidas.')
+  data['overrides']=overrides
+ if 'active' in payload:
+  if type(payload['active']) is not bool:raise AdminError(422,'invalid_active','Situação inválida.')
+  data['active']=payload['active']
+
+ if path=='/api/admin/usuarios':
+  email=payload.get('email');password=payload.get('password')
+  if not isinstance(email,str) or len(email)>254 or not EMAIL.fullmatch(email.strip()):raise AdminError(422,'invalid_email','Informe um e-mail válido.')
+  if not valid_password(password):raise AdminError(422,'invalid_password','A senha provisória precisa ter de 8 a 256 caracteres.')
+  if 'name' not in data or 'role' not in data:raise AdminError(422,'invalid_user','Informe nome e papel.')
+  manage('check')
+  try:created=supabase_call('/auth/v1/admin/users',dict(email=email.strip().lower(),password=password,email_confirm=True))
+  except urllib.error.HTTPError as error:
+   if error.code in (400,422):raise AdminError(422,'account_not_created','Não foi possível criar a conta. Confira se o e-mail já está em uso e se a senha atende às regras.') from None
+   raise
+  created=created.get('user',created);user_id=str(uuid.UUID(created['id']))
+  try:result=manage('create',{**data,'user_id':user_id,'email':created.get('email',email.strip().lower())})
+  except BaseException:
+   try:supabase_call('/auth/v1/admin/users/'+user_id,method='DELETE')
+   except Exception:pass
+   raise
+  return 201,{'data':result}
+
+ match=re.fullmatch(r'/api/admin/usuarios/([a-f0-9-]{36})(/senha)?',path)
+ if not match:raise AdminError(404,'not_found','Rota não encontrada.')
+ user_id=str(uuid.UUID(match.group(1)))
+ if match.group(2):
+  password=payload.get('password')
+  if not valid_password(password):raise AdminError(422,'invalid_password','A senha provisória precisa ter de 8 a 256 caracteres.')
+  result=manage('reset_password',{'user_id':user_id})
+  try:supabase_call('/auth/v1/admin/users/'+user_id,dict(password=password),method='PUT')
+  except urllib.error.HTTPError as error:
+   if error.code in (400,422):raise AdminError(422,'password_rejected','Senha provisória não aceita pelas regras do projeto.') from None
+   raise
+  return 200,{'data':result}
+ result=manage('update',{**data,'user_id':user_id})
+ if 'active' in data:set_ban(user_id,data['active'])
+ return 200,{'data':result}
+
 AMIGOZ_REQUESTS=threading.BoundedSemaphore(3)
 
 def amigoz_admin(auth,method,path,payload):
@@ -260,6 +351,7 @@ class Handler(BaseHTTPRequestHandler):
   try:
    if admin:
     if target.path in ('/api/admin/minio','/api/admin/minio/test'):handler=minio_admin
+    elif target.path=='/api/admin/minha-senha' or target.path=='/api/admin/usuarios' or target.path.startswith('/api/admin/usuarios/'):handler=company_users
     else:handler=amigoz_admin if target.path.startswith('/api/admin/amigoz/') else partner_admin
     limited=handler is amigoz_admin and target.path.rsplit('/',1)[-1] in ('consultar','testar')
     if limited and not AMIGOZ_REQUESTS.acquire(blocking=False):

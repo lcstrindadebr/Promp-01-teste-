@@ -64,7 +64,7 @@ end $$;
 reset role;
 do $$declare f record;r jsonb;begin
  select * into f from pi_fixture;
- update apoiarcred_private.user_profiles set allow_integrations=true where user_id=f.partner_uid;
+ insert into apoiarcred_private.tenant_grants values(apoiarcred_private.user_tenant(f.partner_uid),'integracoes');
  if not exists(select 1 from apoiarcred_private.webhooks where user_id<>f.partner_uid) then
   r=public.claim_webhook_deliveries();if jsonb_array_length(r)<>1 or r->0->>'id' is null then raise exception 'Re-enabled pending delivery did not resume';end if;
  end if;

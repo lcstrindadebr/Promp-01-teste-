@@ -6,7 +6,8 @@ grant select,update on partner_fixture to authenticated,service_role;
 set local role service_role;
 do $$declare f record;r jsonb;begin
  select * into f from partner_fixture;
- r=public.admin_partner_manage(f.admin_uid,'create',jsonb_build_object('user_id',f.partner_uid,'email',f.partner_uid||'@partner-test.invalid','name','Partner test','active',true,'allow_integrations',true,'permissions','[{"service":"digimais_saldo_parcela","enabled":true,"allow_individual":true,"daily_limit":2,"allow_campaign":false},{"service":"tjba_margem","enabled":true,"allow_individual":true,"daily_limit":1,"allow_campaign":true}]'::jsonb));
+ r=public.admin_partner_manage(f.admin_uid,'create',jsonb_build_object('user_id',f.partner_uid,'email',f.partner_uid||'@partner-test.invalid','name','Partner test','active',true,'allow_integrations',true,'shared_daily_limit',2,'permissions','[{"service":"digimais_saldo_parcela","enabled":true,"allow_individual":true,"daily_limit":1,"allow_campaign":false},{"service":"tjba_margem","enabled":true,"allow_individual":true,"daily_limit":1,"allow_campaign":true}]'::jsonb));
+ -- Cota da empresa: 2 por dia, para todos os serviços.
  if r->>'role'<>'partner' then raise exception 'Wrong role';end if;
 end $$;
 reset role;
@@ -30,7 +31,7 @@ do $$declare f record;r jsonb;h text;begin
  if not (r->>'replayed')::boolean then raise exception 'Replay failed';end if;
  r=public.api_execute(h,'POST','/consultas','{"nome":"THIRD","cpf":"00000000353","telefone":"11999999999"}','partner-over-limit');
  if (r->>'status')::int<>429 or r->'body'->'error'->>'code'<>'daily_limit' then raise exception 'API bypassed daily limit: %',r;end if;
- if (select used from apoiarcred_private.partner_daily_usage where user_id=f.partner_uid and service='digimais_saldo_parcela')<>2 then raise exception 'Usage or replay charged incorrectly';end if;
+ if (select u.used from apoiarcred_private.tenant_daily_usage u join apoiarcred_private.tenant_members m on m.tenant_id=u.tenant_id where m.user_id=f.partner_uid and u.day=apoiarcred_private.today_sp())<>2 then raise exception 'Usage or replay charged incorrectly';end if;
 end $$;
 reset role;
 set local role authenticated;
@@ -38,10 +39,15 @@ do $$declare f record;r jsonb;begin
  select * into f from partner_fixture;
  delete from public.consulta_jobs where id=f.job_id;
  begin perform public.create_individual_consulta('{"nome":"TEST","cpf":"00000000191","telefone":"11999999999"}');raise exception 'Deletion refunded quota';exception when sqlstate 'PT429' then null;end;
- perform public.create_individual_consulta('{"cpf":"00000000191"}','tjba_margem','tjba');
- begin perform public.create_individual_consulta('{"cpf":"00000000272"}','tjba_margem','tjba');raise exception 'Independent ConsigX quota failed';exception when sqlstate 'PT429' then null;end;
+ begin perform public.create_individual_consulta('{"cpf":"00000000191"}','tjba_margem','tjba');raise exception 'Company quota not shared across services';exception when sqlstate 'PT429' then null;end;
+end $$;
+reset role;
+update apoiarcred_private.tenants set daily_limit=10 where id=(select tenant_id from apoiarcred_private.tenant_members where user_id=(select partner_uid from partner_fixture));
+set local role authenticated;
+do $$declare f record;r jsonb;begin
+ select * into f from partner_fixture;
  update partner_fixture set campaign_id=public.create_consigx_campaign('Allowed campaign','[{"cpf":"00000000353"},{"cpf":"00000000434"}]','tjba');
- r=public.my_access();if (r->'services'->1->>'used')::int<>1 then raise exception 'Campaign consumed individual quota: %',r;end if;
+ r=public.my_access();if (r->>'remaining')::int<>6 or not (r->>'shared_quota')::boolean then raise exception 'Campaign did not consume the company quota: %',r;end if;
 end $$;
 reset role;
 set local role service_role;
@@ -50,7 +56,7 @@ do $$declare f record;r jsonb;begin
  if (select count(*) from public.consulta_lotes where user_id=f.partner_uid and tipo='individual')<>2 then raise exception 'Rejected requests left empty lots';end if;
  r=public.admin_partner_manage(f.admin_uid,'update',jsonb_build_object('user_id',f.partner_uid,'name','Updated partner','active',true,'permissions','[{"service":"digimais_saldo_parcela","enabled":false,"allow_individual":false,"daily_limit":2,"allow_campaign":false},{"service":"tjba_margem","enabled":true,"allow_individual":true,"daily_limit":1,"allow_campaign":false}]'::jsonb));
  begin perform public.admin_partner_manage(f.partner_uid,'list');raise exception 'Partner managed users';exception when insufficient_privilege then null;end;
- update apoiarcred_private.user_profiles set active=false where user_id=f.partner_uid;
+ update apoiarcred_private.tenants set active=false where id=apoiarcred_private.user_tenant(f.partner_uid);
  r=apoiarcred_private.access_for(f.partner_uid);if (r->>'active')::boolean or not (r->'services'->1->>'enabled')::boolean then raise exception 'Inactive account lost its configured permissions';end if;
 end $$;
 reset role;

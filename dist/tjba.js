@@ -21,8 +21,10 @@ function renderTjbaAccess(){
  const access=selectedTjbaAccess();
  const admin=currentAccess?.role==='admin';
  $('#tjbaAccessPicker').hidden=!admin;
+ // O acesso é da empresa: quem não cuida dos acessos vê a situação, sem editar.
+ const editable=admin||tjbaAccessSlot()||tjbaAccess?.shared?.can_edit!==false;
  $('#editTjbaAccess').disabled=false;
- $('#editTjbaAccess').hidden=false;
+ $('#editTjbaAccess').hidden=!editable;
  $('#editTjbaAccess').textContent=access.username?'Editar acesso':'Cadastrar acesso';
  if(access.username&&access.enabled){
   $('#tjbaCredentialStatus').textContent='Acesso ativo · '+access.username;
@@ -33,6 +35,7 @@ function renderTjbaAccess(){
  }else{
   $('#tjbaCredentialStatus').textContent=access.username?'Acesso desativado · '+access.username:'Nenhum acesso cadastrado.';
  }
+ if(!editable)$('#tjbaCredentialStatus').textContent+=' · Acesso da empresa, alterado pelo administrador.';
 }
 function resetTjbaSettings(){
  tjbaAccess=null;

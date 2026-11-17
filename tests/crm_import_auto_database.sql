@@ -59,7 +59,7 @@ begin
  if exists(select 1 from public.crm_cadastros) then raise exception 'Failed import left clients';end if;
 end $$;
 reset role;
-update apoiarcred_private.user_profiles set allow_amigoz=true where user_id=auth.uid();
+insert into apoiarcred_private.tenant_grants select apoiarcred_private.user_tenant(auth.uid()),key from apoiarcred_private.permissions where service='amigoz' on conflict do nothing;
 set local role authenticated;
 do $$
 begin

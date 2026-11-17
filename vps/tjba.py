@@ -395,7 +395,8 @@ class Session:
   convenio=job.get('convenio','tjba')
   if convenio not in CONVENIOS:return failed(dict(base,status='revisao_margens',observacoes='Convênio não reconhecido.'))
   base['convenio']=convenio
-  identity=(job['user_id'],credentials['revision'])+((convenio,) if convenio!='tjba' else ())
+  # A sessão segue o acesso (da empresa), não o usuário: colegas reaproveitam o mesmo login.
+  identity=(credentials.get('username','').strip().casefold(),credentials['revision'])+((convenio,) if convenio!='tjba' else ())
   if identity==self.blocked:return failed(dict(base,status='sessao_expirada',observacoes='Autenticação pausada. Verifique o acesso e salve novamente as configurações.',diagnostico=self.blocked_diagnostic.copy()))
   try:
    if self.identity!=identity or not self.page or self.page.is_closed():
