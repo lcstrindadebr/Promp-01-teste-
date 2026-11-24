@@ -20,7 +20,7 @@ Para parceiros, o administrador precisa marcar **Liberar integrações (API e we
 | `campanha.finalizada` | Todos os leads da campanha estão em status final | Origem, campanha e serviço; ignora filtros de resultado |
 | `webhook.teste` | Teste manual | Ignora filtros; exige webhook ativo |
 
-Status enviados: `concluida`, `nao_cliente`, `nao_localizado`, `nao_encontrado`, `erro`, `revisao`, `interrompida` (Digi+). O webhook não envia progresso nem checkpoints intermediários. No Digi+, aguarda saldo e parcela terminarem; se a segunda consulta falhar, envia o saldo já salvo com status de revisão, erro ou interrupção e `resultado_parcial: true`.
+Status enviados: `concluida`, `nao_cliente`, `nao_localizado`, `nao_encontrado`, `erro`, `revisao`, `interrompida`, `inadimplencia_administrativa`, `inadimplencia_juridica` (Digi+). As duas inadimplências indicam contrato com assessoria de cobrança (jurídica quando é escritório ou setor jurídico); `message` traz o nome e o telefone da assessoria. O webhook não envia progresso nem checkpoints intermediários. No Digi+, aguarda saldo e parcela terminarem; se a segunda consulta falhar, envia o saldo já salvo com status de revisão, erro ou interrupção e `resultado_parcial: true`.
 
 Identificação possui três possibilidades:
 
