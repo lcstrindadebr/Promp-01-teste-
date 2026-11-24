@@ -76,19 +76,26 @@ coefPanel.innerHTML=`<div class="amigoz-dialog"><header class="amigoz-header"><d
 <div class="amigoz-body">
 <form id="coefForm" class="amigoz-controls coef-controls" novalidate>
  <div><label class="field" for="coefProduto">Produto</label><select id="coefProduto"></select><small id="coefProdutoHint"></small></div>
- <div><label class="field" for="coefParcela">Parcela (R$)</label><input id="coefParcela" inputmode="decimal" autocomplete="off" placeholder="0,00"><small>Parcela atual do contrato a comprar.</small></div>
- <div class="coef-margin"><label class="portal-enable"><input id="coefUsarMargem" type="checkbox"> Adicionar margem</label><label class="field" for="coefMargem">Margem (R$)</label><input id="coefMargem" inputmode="decimal" autocomplete="off" placeholder="Bloqueado" disabled></div>
- <div><label class="field" for="coefSaldo">Saldo devedor (R$)</label><input id="coefSaldo" inputmode="decimal" autocomplete="off" placeholder="0,00"><small>Valor de quitação descontado de cada tabela.</small></div>
+ <div><label class="field" for="coefModo">Base da simulação</label><select id="coefModo">
+  <option value="original">Parcela atual</option><option value="aggregate">Parcela + margem</option>
+  <option value="margin">Só a margem (sem compra)</option><option value="manual">Informar parcela total</option></select><small id="coefModoHint"></small></div>
+ <div data-coef-field="parcela"><label class="field" for="coefParcela">Parcela atual (R$)</label><input id="coefParcela" inputmode="decimal" autocomplete="off" placeholder="0,00"><small>Parcela do contrato a comprar.</small></div>
+ <div data-coef-field="margem" hidden><label class="field" for="coefMargemSelect">Margem do cliente</label><select id="coefMargemSelect"></select><input id="coefMargem" inputmode="decimal" autocomplete="off" placeholder="0,00" aria-label="Margem informada (R$)" hidden><small id="coefMargemHint"></small></div>
+ <div data-coef-field="total" hidden><label class="field" for="coefTotal">Parcela total desejada (R$)</label><input id="coefTotal" inputmode="decimal" autocomplete="off" placeholder="0,00"><small>Parcela final do novo contrato.</small></div>
+ <div data-coef-field="saldo"><label class="field" for="coefSaldo">Saldo devedor (R$)</label><input id="coefSaldo" inputmode="decimal" autocomplete="off" placeholder="0,00"><small>Valor de quitação descontado de cada tabela.</small></div>
  <div class="amigoz-update"><button class="primary" type="submit" id="coefCalcular">Calcular</button><small id="coefBase"></small></div>
 </form>
 <p id="coefStale" class="notice" hidden>Os dados mudaram desde o último cálculo. Clique em Calcular para atualizar as tabelas.</p>
 <div class="amigoz-results-heading"><div><h3 id="coefResultsTitle">Tabelas</h3><p>Compare o valor liberado em cada tabela.</p></div><span class="amigoz-estimate">Valores estimados</span></div>
 <p id="coefStatus" role="status" class="amigoz-status"></p>
 <div id="coefCards" class="amigoz-grid"></div>
-<footer class="amigoz-disclaimer">Valor bruto = (parcela + margem) ÷ coeficiente da tabela, arredondado ao centavo. Valor liberado = valor bruto − saldo devedor. Valores sujeitos à confirmação do banco.</footer>
+<footer class="amigoz-disclaimer">Valor bruto = base ÷ coeficiente da tabela, arredondado ao centavo. A base é a parcela atual, a parcela atual + margem (agregação), só a margem ou a parcela total informada. Valor liberado = valor bruto − saldo devedor (sem saldo quando a simulação usa só a margem). Valores sujeitos à confirmação do banco.</footer>
 </div></div>`;
 document.body.append(coefPanel);
-let coefSource=null,coefLast=null,coefBusy=false,coefQueued=false,coefGeneration=0,coefReturnFocus=null;
+let coefSource=null,coefLast=null,coefBusy=false,coefQueued=false,coefGeneration=0,coefReturnFocus=null,coefMargins=[],coefMarginAuto=true;
+const coefMarginProducts={beneficio:'Cartão benefício',consignado:'Cartão consignado',cartao:'Cartão',emprestimo:'Empréstimo'};
+// Margem que combina com o produto escolhido: benefício para Cartão Benefício; consignado ou cartão para Cartão Crédito.
+const coefMarginMatch={cartao_beneficio:['beneficio'],cartao_credito:['consignado','cartao']};
 // Aceita "1.234,56", "1234,56", "1234.56" e "R$ 1.234,56".
 function simParseMoney(text){
  let s=String(text??'').replace(/[^\d.,]/g,'');if(!/\d/.test(s))return null;
@@ -97,10 +104,52 @@ function simParseMoney(text){
  const value=Number(s);return Number.isFinite(value)?Math.round(value*100)/100:null;
 }
 const simFormatMoney=v=>v==null||v===''?'':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+function coefMarginValue(){
+ const key=$('#coefMargemSelect').value;
+ if(key==='manual')return simParseMoney($('#coefMargem').value);
+ const margin=coefMargins[Number(key)];return margin?Number(margin.valor):null;
+}
 function coefInputs(){
- return {produto:$('#coefProduto').value,parcela:simParseMoney($('#coefParcela').value),
-  margem:$('#coefUsarMargem').checked?simParseMoney($('#coefMargem').value):0,saldo:simParseMoney($('#coefSaldo').value)||0,
-  usarMargem:$('#coefUsarMargem').checked};
+ const modo=$('#coefModo').value;
+ return {produto:$('#coefProduto').value,modo,parcela:['original','aggregate'].includes(modo)?simParseMoney($('#coefParcela').value):null,
+  margem:['aggregate','margin'].includes(modo)?coefMarginValue():null,total:modo==='manual'?simParseMoney($('#coefTotal').value):null,
+  saldo:modo==='margin'?0:(simParseMoney($('#coefSaldo').value)||0),margemEscolhida:$('#coefMargemSelect').value};
+}
+// Mostra só os campos da base escolhida.
+function coefFields(){
+ const modo=$('#coefModo').value;
+ coefPanel.querySelector('[data-coef-field="parcela"]').hidden=!['original','aggregate'].includes(modo);
+ coefPanel.querySelector('[data-coef-field="margem"]').hidden=!['aggregate','margin'].includes(modo);
+ coefPanel.querySelector('[data-coef-field="total"]').hidden=modo!=='manual';
+ coefPanel.querySelector('[data-coef-field="saldo"]').hidden=modo==='margin';
+ $('#coefMargem').hidden=$('#coefMargemSelect').value!=='manual';
+ $('#coefModoHint').textContent={original:'Compra da dívida com a mesma parcela.',aggregate:'Agregação: compra da dívida somando a margem disponível à parcela.',
+  margin:'Cartão novo só com a margem, sem compra de dívida.',manual:'Use quando já souber a parcela final.'}[modo];
+}
+function coefPickMargin(){
+ if(!coefMarginAuto)return;
+ const wanted=coefMarginMatch[$('#coefProduto').value]||[];
+ const index=coefMargins.findIndex(m=>wanted.includes(m.produto));
+ $('#coefMargemSelect').value=index>=0?String(index):coefMargins.length?'0':'manual';
+}
+// Margens registradas do cliente (consultas e importações), das mais recentes.
+async function loadCoefMargins(cpf,generation){
+ coefMargins=[];coefMarginAuto=true;
+ $('#coefMargemSelect').replaceChildren(new Option('Informar margem manualmente','manual'));
+ $('#coefMargemHint').textContent='Carregando margens do cliente…';
+ const digitsCpf=String(cpf||'').replace(/\D/g,'');
+ if(digitsCpf.length===11){
+  try{
+   const rows=await sbRequest('/rest/v1/crm_margens_vinculo?select=convenio,matricula,instituicao,produto,valor,observado_em&cpf=eq.'+digitsCpf+'&valor=gt.0&order=observado_em.desc&limit=40');
+   if(generation!==coefGeneration)return;
+   coefMargins=rows;
+  }catch{if(generation!==coefGeneration)return;}
+ }
+ $('#coefMargemSelect').replaceChildren(...coefMargins.map((m,i)=>new Option([coefMarginProducts[m.produto]||m.produto,simMoney(m.valor),
+  m.observado_em&&new Date(m.observado_em).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})].filter(Boolean).join(' · '),String(i))),
+  new Option('Informar margem manualmente','manual'));
+ $('#coefMargemHint').textContent=coefMargins.length?'Margens registradas do cliente. A do produto escolhido vem selecionada.':'Nenhuma margem registrada para este cliente. Informe o valor.';
+ coefPickMargin();coefFields();
 }
 function coefSyncStale(){
  const stale=!!coefLast&&JSON.stringify(coefInputs())!==JSON.stringify(coefLast.inputs);
@@ -116,7 +165,8 @@ async function openCoefSimulator({simulador,jobId=null,convenio='',cpf='',nome='
  $('#coefProduto').replaceChildren(...products.map(p=>new Option(`${simProducts[p]} (${sim.tabelas.filter(t=>t.ativa&&t.produto===p).length})`,p)));
  $('#coefProdutoHint').textContent=products.length?'Cada produto tem as próprias tabelas.':'Nenhuma tabela ativa neste simulador.';
  $('#coefParcela').value=simFormatMoney(parcela);$('#coefSaldo').value=simFormatMoney(saldo);
- $('#coefUsarMargem').checked=false;$('#coefMargem').value='';$('#coefMargem').disabled=true;$('#coefMargem').placeholder='Bloqueado';
+ $('#coefModo').value=parcela>0?'original':'margin';$('#coefMargem').value='';$('#coefTotal').value='';coefFields();
+ loadCoefMargins(cpf,coefGeneration);
  $('#coefCards').innerHTML='';$('#coefStale').hidden=true;$('#coefBase').textContent='';
  $('#coefStatus').textContent=parcela>0?'':'Digite a parcela e clique em Calcular para ver o valor em todas as tabelas.';
  coefReturnFocus=document.activeElement;coefPanel.hidden=false;coefPanel.scrollTop=0;$('#appShell').inert=true;$('#coefClose').focus?.();
@@ -128,24 +178,27 @@ async function calculateCoef(){
  if(coefBusy){coefQueued=true;return;}
  const inputs=coefInputs();
  if(!inputs.produto)return void($('#coefStatus').textContent='Nenhuma tabela ativa neste simulador.');
- if(!(inputs.parcela>0)){$('#coefStatus').textContent='Digite o valor da parcela para calcular.';$('#coefParcela').focus();return;}
- if(inputs.usarMargem&&!(inputs.margem>0)){$('#coefStatus').textContent='A opção "Adicionar margem" está marcada, mas a margem não foi informada. Informe a margem ou desmarque a opção.';$('#coefMargem').focus();return;}
+ if(['original','aggregate'].includes(inputs.modo)&&!(inputs.parcela>0)){$('#coefStatus').textContent='Digite o valor da parcela atual.';$('#coefParcela').focus();return;}
+ if(['aggregate','margin'].includes(inputs.modo)&&!(inputs.margem>0)){$('#coefStatus').textContent='Escolha uma margem do cliente ou informe o valor da margem.';($('#coefMargemSelect').value==='manual'?$('#coefMargem'):$('#coefMargemSelect')).focus();return;}
+ if(inputs.modo==='manual'&&!(inputs.total>0)){$('#coefStatus').textContent='Informe a parcela total desejada.';$('#coefTotal').focus();return;}
  coefBusy=true;const generation=coefGeneration,epoch=authEpoch;
  $('#coefCalcular').disabled=true;$('#coefCalcular').textContent='Calculando…';$('#coefStatus').textContent='Calculando…';
  try{
   const result=await sbRequest('/rest/v1/rpc/simular_coeficientes',{method:'POST',body:JSON.stringify({
-   p_simulador:coefSource.sim.codigo,p_produto:inputs.produto,p_parcela:inputs.parcela,p_margem:inputs.margem||0,
+   p_simulador:coefSource.sim.codigo,p_produto:inputs.produto,p_parcela:{original:inputs.parcela,aggregate:inputs.parcela,margin:inputs.margem,manual:inputs.total}[inputs.modo],
+   p_margem:inputs.modo==='aggregate'?inputs.margem:0,
    p_saldo:inputs.saldo,p_job_id:coefSource.jobId,p_convenio:coefSource.convenio||''})});
   if(generation!==coefGeneration||epoch!==authEpoch)return;
-  coefLast={inputs,result};renderCoefResult(result);
+  coefLast={inputs,result};renderCoefResult(result,inputs);
  }catch(error){if(generation===coefGeneration&&epoch===authEpoch)$('#coefStatus').textContent=error.message;}
  finally{coefBusy=false;$('#coefCalcular').disabled=false;$('#coefCalcular').textContent='Calcular';coefSyncStale();
   if(coefQueued&&generation===coefGeneration){coefQueued=false;calculateCoef();}}
 }
-function renderCoefResult(result){
+function renderCoefResult(result,inputs){
  const tables=result.tabelas||[],best=tables.length?Math.max(...tables.map(t=>Number(t.liberado))):null;
  $('#coefResultsTitle').textContent=`${simProducts[result.produto]}: ${tables.length} ${tables.length===1?'tabela':'tabelas'}`;
- $('#coefBase').textContent='Base de cálculo: '+simMoney(result.base)+(Number(result.margem)>0?` (parcela ${simMoney(result.parcela)} + margem ${simMoney(result.margem)})`:' (parcela, sem margem)');
+ $('#coefBase').textContent='Base de cálculo: '+simMoney(result.base)+({original:' (parcela atual)',aggregate:` (parcela ${simMoney(result.parcela)} + margem ${simMoney(result.margem)})`,
+  margin:' (só a margem, sem compra de dívida)',manual:' (parcela total informada)'}[inputs.modo]||'');
  $('#coefCards').innerHTML=tables.map(t=>{
   const top=best!==null&&Number(t.liberado)===best&&best>0;
   return `<article class="card amigoz-option${top?' amigoz-best':''}"><div class="amigoz-option-top"><h4>Tabela ${escapeHTML(t.codigo)}</h4>${top?'<span class="amigoz-best-label">Maior valor liberado</span>':''}</div>
@@ -159,12 +212,13 @@ function renderCoefResult(result){
 function closeCoef(){coefPanel.hidden=true;$('#appShell').inert=false;coefGeneration++;coefReturnFocus?.focus?.();}
 $('#coefClose').onclick=closeCoef;
 $('#coefForm').onsubmit=e=>{e.preventDefault();calculateCoef();};
-$('#coefUsarMargem').onchange=()=>{const on=$('#coefUsarMargem').checked;$('#coefMargem').disabled=!on;$('#coefMargem').placeholder=on?'0,00':'Bloqueado';if(on)$('#coefMargem').focus();coefSyncStale();};
-for(const id of ['#coefParcela','#coefMargem','#coefSaldo']){
+$('#coefModo').onchange=()=>{coefFields();coefSyncStale();};
+$('#coefMargemSelect').onchange=()=>{coefMarginAuto=false;coefFields();coefSyncStale();if($('#coefMargemSelect').value==='manual')$('#coefMargem').focus();};
+for(const id of ['#coefParcela','#coefMargem','#coefTotal','#coefSaldo']){
  $(id).addEventListener('input',coefSyncStale);
  $(id).addEventListener('blur',()=>{const v=simParseMoney($(id).value);$(id).value=v==null?'':simFormatMoney(v);});
 }
-$('#coefProduto').onchange=()=>{if(coefLast||coefBusy)calculateCoef();};
+$('#coefProduto').onchange=()=>{coefPickMargin();coefFields();if(coefLast||coefBusy)calculateCoef();};
 coefPanel.onkeydown=e=>{
  if(e.key==='Escape'){e.preventDefault();closeCoef();return;}
  if(e.key!=='Tab')return;
