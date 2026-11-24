@@ -23,6 +23,9 @@ const tick=async(n=6)=>{for(let i=0;i<n;i++)await new Promise(setImmediate);};
    const base=b.p_parcela+(b.p_margem||0),tables=config[1].tabelas.filter(x=>x.produto===b.p_produto);
    return response({simulador:'aki_siape',nome:'AKI Capital · SIAPE',banco:'AKI Capital',produto:b.p_produto,parcela:b.p_parcela,margem:b.p_margem||0,saldo:b.p_saldo,base,
     tabelas:tables.map(x=>{const bruto=Math.round(base/x.coeficiente*100)/100;return {...x,bruto,liberado:Math.round((bruto-b.p_saldo)*100)/100,saldo_maior:b.p_saldo>bruto};})});}
+  if(u.includes('crm_margens_vinculo')){calls.push(['margens',u]);return response([
+   {produto:'beneficio',valor:120,convenio:'amigoz_13',matricula:'123',instituicao:'amigoz',observado_em:'2026-11-20T12:00:00Z'},
+   {produto:'consignado',valor:80,convenio:'amigoz_13',matricula:'123',instituicao:'amigoz',observado_em:'2026-11-20T12:00:00Z'}]);}
   if(u.includes('crm_catalogo_importacao'))return response([{uf:'BR',codigo:'amigoz_13',nome:'SIAPE'},{uf:'BA',codigo:'tjba',nome:'TJBA'},{uf:'SP',codigo:'amigoz_33',nome:'Prefeitura SP'}]);
   if(u.endsWith('/rpc/admin_simulador_salvar')||u.includes('admin_simulador_tabela')){calls.push([u.split('/rpc/')[1],b]);return response(null);}
   return response([]);
@@ -49,19 +52,41 @@ const tick=async(n=6)=>{for(let i=0;i<n;i++)await new Promise(setImmediate);};
  let calc=calls.filter(c=>c[0]==='calc').at(-1)[1];
  assert.deepEqual(calc,{p_simulador:'aki_siape',p_produto:'cartao_beneficio',p_parcela:300,p_margem:0,p_saldo:5000,p_job_id:'d1',p_convenio:''});
  assert.match(t.get('#coefCards').textContent,/Tabela 35445/);assert.match(t.get('#coefCards').textContent,/R\$\s*2\.721,89/);
- assert.match(t.get('#coefBase').textContent,/parcela, sem margem/);
- // Credit card product: all its tables; best release highlighted.
+ assert.match(t.get('#coefBase').textContent,/parcela atual/);
+ // The client's registered margins are listed; the one for the chosen product comes selected.
+ assert.match(calls.find(c=>c[0]==='margens')[1],/cpf=eq\.00000000191/);
+ assert.equal(t.get('#coefMargemSelect').options.length,3);assert.equal(t.get('#coefMargemSelect').value,'0','Benefit margin for Cartão Benefício');
+ // Credit card product: all its tables, best release highlighted, consignado margin preselected.
  t.get('#coefProduto').value='cartao_credito';t.get('#coefProduto').onchange();await tick();
  assert.equal(calls.filter(c=>c[0]==='calc').at(-1)[1].p_produto,'cartao_credito');
  assert.match(t.get('#coefCards').innerHTML,/Maior valor liberado/);
- // Margin checkbox without value blocks; with value, base includes it. Changes mark results as stale.
- t.get('#coefUsarMargem').checked=true;t.get('#coefUsarMargem').onchange();
+ assert.equal(t.get('#coefMargemSelect').value,'1');
+ // Aggregation: current installment + chosen margin; results go stale until recalculated.
+ t.get('#coefModo').value='aggregate';t.get('#coefModo').onchange();
  assert.equal(t.get('#coefStale').hidden,false);
- const before=calls.length;await t.get('#coefForm').onsubmit({preventDefault(){}});
- assert.equal(calls.length,before,'No call without margin');assert.match(t.get('#coefStatus').textContent,/margem não foi informada/);
+ assert.equal(t.get('[data-coef-field="margem"]').hidden,false);
+ await t.get('#coefForm').onsubmit({preventDefault(){}});await tick();
+ calc=calls.filter(c=>c[0]==='calc').at(-1)[1];assert.equal(calc.p_parcela,300);assert.equal(calc.p_margem,80);assert.equal(calc.p_saldo,5000);
+ assert.match(t.get('#coefBase').textContent,/parcela R\$\s*300,00 \+ margem R\$\s*80,00/);assert.equal(t.get('#coefStale').hidden,true);
+ // Manual margin without a value blocks.
+ t.get('#coefMargemSelect').value='manual';t.get('#coefMargemSelect').onchange();
+ assert.equal(t.get('#coefMargem').hidden,false);
+ let before=calls.length;await t.get('#coefForm').onsubmit({preventDefault(){}});
+ assert.equal(calls.length,before,'No call without margin');assert.match(t.get('#coefStatus').textContent,/informe o valor da margem/);
  t.get('#coefMargem').value='50,00';await t.get('#coefForm').onsubmit({preventDefault(){}});await tick();
- calc=calls.filter(c=>c[0]==='calc').at(-1)[1];assert.equal(calc.p_margem,50);
- assert.match(t.get('#coefBase').textContent,/parcela R\$\s*300,00 \+ margem R\$\s*50,00/);assert.equal(t.get('#coefStale').hidden,true);
+ assert.equal(calls.filter(c=>c[0]==='calc').at(-1)[1].p_margem,50);
+ // Margin only: new card, no debt purchase, no balance.
+ t.get('#coefModo').value='margin';t.get('#coefModo').onchange();
+ assert.equal(t.get('[data-coef-field="saldo"]').hidden,true);assert.equal(t.get('[data-coef-field="parcela"]').hidden,true);
+ await t.get('#coefForm').onsubmit({preventDefault(){}});await tick();
+ calc=calls.filter(c=>c[0]==='calc').at(-1)[1];assert.equal(calc.p_parcela,50);assert.equal(calc.p_margem,0);assert.equal(calc.p_saldo,0);
+ assert.match(t.get('#coefBase').textContent,/só a margem/);
+ // Total installment informed.
+ t.get('#coefModo').value='manual';t.get('#coefModo').onchange();
+ before=calls.length;await t.get('#coefForm').onsubmit({preventDefault(){}});assert.equal(calls.length,before);
+ t.get('#coefTotal').value='400,00';await t.get('#coefForm').onsubmit({preventDefault(){}});await tick();
+ calc=calls.filter(c=>c[0]==='calc').at(-1)[1];assert.equal(calc.p_parcela,400);assert.equal(calc.p_margem,0);assert.equal(calc.p_saldo,5000);
+ t.get('#coefModo').value='original';t.get('#coefModo').onchange();
  // Balance above gross is flagged.
  t.get('#coefSaldo').value='99.999,00';await t.get('#coefForm').onsubmit({preventDefault(){}});await tick();
  assert.match(t.get('#coefCards').textContent,/Saldo devedor maior que o valor bruto/);
