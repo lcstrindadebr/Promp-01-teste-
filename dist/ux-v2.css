@@ -216,3 +216,30 @@ button.campaign-group-stat:disabled { cursor: default; }
   padding: 14px 18px; border: 1px solid #e2b4b4; border-radius: 12px; background: #fdf3f3; box-shadow: inset 4px 0 0 #b23b3b; }
 .queue-stalled-banner strong { color: #8d2a2a; }
 .queue-stalled-banner p { margin: 2px 0 0; color: var(--crm-text); }
+
+/* 12. Simuladores por convênio: janela de valor liberado (mesmo padrão do Amigoz) e configuração. */
+#coefPanel { padding: 24px; overscroll-behavior: contain; }
+#coefPanel .amigoz-dialog { max-width: 1180px; padding: 0; overflow: hidden; box-shadow: 0 24px 80px #051b2440; background: #f7f9f8; border: 1px solid #dce6df; }
+.amigoz-controls.coef-controls { grid-template-columns: repeat(4, minmax(0, 1fr)) 200px; }
+.coef-controls input:disabled { background: #f2f5f3; color: #7c8b82; }
+.coef-margin .portal-enable { margin: 0 0 6px; }
+#coefCards { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+#coefCards .amigoz-option { padding: 22px; border-radius: 12px; min-width: 0; background: #fff; border: 1px solid #dfe7e2; }
+#coefCards .amigoz-best { border-color: #26835b; background: #f4fbf6; box-shadow: inset 0 3px #26835b; }
+#coefCards .amigoz-option h4 { font-size: 20px; }
+#coefCards.is-stale { opacity: .45; }
+.sim-config { border: 1px solid var(--line, #e0e7e2); border-radius: 12px; padding: 18px; margin-top: 16px; }
+.sim-config-head { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.sim-config-head h3 { margin: 0 0 4px; }
+.sim-config-toggles { display: flex; flex-direction: column; gap: 6px; }
+.sim-agreements, .sim-tables { margin-top: 14px; }
+.sim-agreements summary, .sim-tables summary { cursor: pointer; font-weight: 600; }
+.sim-agreements input[type="search"] { margin: 10px 0; max-width: 360px; }
+.sim-uf-list { columns: 3 260px; column-gap: 18px; max-height: 420px; overflow: auto; }
+.sim-uf { break-inside: avoid; border: 0; padding: 0; margin: 0 0 12px; }
+.sim-uf legend { font-weight: 600; }
+.sim-agreement { display: block; font-size: 13px; padding: 2px 0 2px 18px; }
+.sim-agreement[hidden], .sim-uf[hidden] { display: none; }
+.sim-tables table input:not([type="checkbox"]), .sim-tables table select { min-width: 110px; }
+@media (max-width: 1000px) { .amigoz-controls.coef-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); } #coefCards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { #coefPanel { padding: 0; } #coefPanel .amigoz-dialog { margin: 0; border: 0; border-radius: 0; min-height: 100vh; } .amigoz-controls.coef-controls, #coefCards { grid-template-columns: 1fr; } }
