@@ -112,7 +112,7 @@ $('#companyUserList').onclick=async e=>{
   $('#companyUserFormTitle').textContent='Editar '+user.name;$('#saveCompanyUser').textContent='Salvar alterações';$('#companyUserName').focus();
   return;
  }
- if(!confirm(`Gerar nova senha provisória para ${user.name}? A senha atual deixa de valer.`))return;
+ if(!await askConfirm(`${user.name} recebe uma senha provisória nova e a senha atual deixa de valer na hora.`,{title:'Gerar nova senha provisória?',confirmLabel:'Gerar nova senha'}))return;
  const password=companyTemporaryPassword(),epoch=authEpoch;companyUsersBusy=true;$('#companyUserStatus').textContent='Gerando senha provisória…';
  try{await companyRequest('usuarios/'+user.user_id+'/senha',{password});if(epoch!==authEpoch)return;
   showCompanyCredentials(user,password);await loadCompanyUsers('Senha provisória gerada.');}

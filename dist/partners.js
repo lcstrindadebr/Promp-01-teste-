@@ -156,7 +156,7 @@ function movePartner(id){
 }
 $('#partnerMoveForm').onsubmit=async e=>{
  e.preventDefault();const epoch=authEpoch,user=e.target.dataset.user,target=$('#partnerMoveTarget');
- if(!confirm(`Juntar à empresa ${target.selectedOptions[0]?.text}? Esta ação não tem botão de desfazer.`))return;
+ if(!await askConfirm(`Os usuários e os dados deste parceiro passam para a empresa ${target.selectedOptions[0]?.text}. Esta ação não tem botão de desfazer.`,{title:'Juntar à empresa?',confirmLabel:'Juntar',danger:true}))return;
  $('#partnerMoveSave').disabled=true;$('#partnerMoveStatus').textContent='Movendo dados…';
  try{
   const r=await sbRequest('/rest/v1/rpc/admin_move_member',{method:'POST',body:JSON.stringify({p_user:user,p_target_user:target.value,p_role:$('#partnerMoveRole').value})});
