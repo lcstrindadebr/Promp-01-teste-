@@ -1091,10 +1091,13 @@ async function crmOpenClientProfile(row,selectedId) {
     }
     for(const agreement of agreements[0]?.convenios||[]) registration.append(crmElement('p','','Convênio: '+[agreement.nome,agreement.uf].filter(Boolean).join(' · ')));
     for (const link of links) registration.append(crmElement('p','','Matrícula '+link.matricula+' · '+link.uf+' · '+link.convenio));
-    if(typeof openAmigozClient==='function') {
-      const simulate=crmElement('button','primary','Simular Amigoz');simulate.type='button';
-      simulate.onclick=()=>{dialog.close();openAmigozClient(client.cpf,row.convenio||'',null,client.nome);};
-      registration.append(simulate);
+    // Um botão por simulador liberado para os convênios do cliente (simuladores.js).
+    if(typeof crmSimuladorButtons==='function') {
+      const agreementsOfClient=[row.convenio,...links.map(link=>link.convenio)].filter(Boolean);
+      for(const simulate of crmSimuladorButtons(client,[...new Set(agreementsOfClient)])){
+        const open=simulate.onclick;simulate.onclick=()=>{dialog.close();open();};
+        registration.append(simulate);
+      }
     }
     form.append(registration);
     const dataSection=crmElement('section','crm-profile-section');
