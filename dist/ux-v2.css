@@ -100,7 +100,8 @@ body.on-dashboard .partner-quota-banner { display: none; }
   padding: 14px 18px; border: 1px solid var(--crm-border); border-radius: 12px; background: var(--crm-surface-alt); }
 .dashboard-quota small { display: block; color: var(--crm-secondary); margin-top: 2px; }
 .dashboard-quota progress { width: min(260px, 100%); height: 8px; accent-color: var(--crm-action); }
-.dashboard-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.dashboard-tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 1400px) { .dashboard-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .dashboard-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; min-width: 0;
   padding: 16px 18px; background: #fff; border: 1px solid var(--crm-border); border-radius: 12px; cursor: pointer; }
 .dashboard-tile:hover { border-color: var(--crm-border-strong); }

@@ -14,6 +14,8 @@ dashboardSection.innerHTML=`<header class="dashboard-header"><div><h1 id="dashbo
  <button type="button" class="dashboard-tile attention" role="listitem" data-dashboard-tile="attention"><span>Precisam de atenção</span><strong id="dashAttention">0</strong><small>Erro, revisão ou interrompida</small></button>
  <button type="button" class="dashboard-tile" role="listitem" data-dashboard-tile="today"><span>Concluídas hoje</span><strong id="dashToday">0</strong><small id="dashTodaySub">Com resultado disponível</small></button>
  <button type="button" class="dashboard-tile" role="listitem" data-dashboard-tile="campaigns"><span>Campanhas em andamento</span><strong id="dashCampaigns">0</strong><small id="dashCampaignsSub">Nenhuma consultando agora</small></button>
+ <button type="button" class="dashboard-tile" role="listitem" data-dashboard-tile="clients"><span>Clientes cadastrados</span><strong id="dashClients">—</strong><small>No CRM</small></button>
+ <button type="button" class="dashboard-tile" role="listitem" data-dashboard-tile="opportunities"><span>Oportunidades abertas</span><strong id="dashOpportunities">—</strong><small id="dashOpportunitiesSub">No funil do CRM</small></button>
 </div>
 <div class="dashboard-panels">
  <section class="card dashboard-panel" aria-labelledby="dashCampaignsTitle"><div class="heading"><h2 id="dashCampaignsTitle">Campanhas em andamento</h2><button type="button" class="link-button" data-dashboard-go="campaigns">Ver todas</button></div><div id="dashCampaignList"></div></section>
@@ -60,6 +62,7 @@ function renderDashboard(){
  $('[data-dashboard-tile="attention"]').classList.toggle('has-items',s.attentionCount>0);
  $('#dashToday').textContent=dashboardNumber.format(s.doneToday);
  $('#dashCampaigns').textContent=dashboardNumber.format(s.active.length);
+ if(typeof renderCrmTotais==='function')renderCrmTotais();
  $('#dashCampaignsSub').textContent=s.active.length?`${dashboardNumber.format(s.active.filter(x=>x.c.paused).length)} pausada(s)`:'Nenhuma consultando agora';
  const a=currentAccess,quota=$('#dashboardQuota');
  quota.hidden=!a||a.role==='admin';
@@ -108,7 +111,8 @@ dashboardSection.addEventListener('click',e=>{
  if(go==='individual'){navigate('home');$('#nome').focus();return;}
  if(go==='campaign'){navigate('campaigns');const panel=$('#newCampaignPanel');if(panel){panel.open=true;panel.scrollIntoView({block:'start'});}return;}
  if(go==='campaigns'||tile==='campaigns'){navigate('campaigns');return;}
- if(go==='clients'){navigate('clients');return;}
+ if(go==='clients'||tile==='clients'){navigate('clients');return;}
+ if(tile==='opportunities'){navigate('opportunities');return;}
  if(tile==='attention'){$('#dashAttentionPanel').scrollIntoView({block:'start'});return;}
  if(tile==='queue'||tile==='today'){
   navigate('home');$('#search').value='';$('#filter').value=tile==='queue'?'grupo:fila':'Concluída';$('#filter').onchange?.();

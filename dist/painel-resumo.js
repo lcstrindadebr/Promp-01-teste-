@@ -74,3 +74,34 @@ navigate=function(...args){painelResumoBaseNavigate(...args);if(painelResumoVisi
 document.addEventListener('visibilitychange',()=>{if(painelResumoVisible())refreshPainelResumo();});
 setInterval(()=>{if(painelResumoVisible())refreshPainelResumo();},15000);
 window.painelResumoState=()=>({ready:painelResumoReady(),off:painelResumoOff,data:painelResumo});
+
+// Início: clientes cadastrados e oportunidades do CRM (public.painel_crm_totais).
+// Contar a base inteira custa mais que os contadores da fila, então busca ao abrir o Início e no máximo a cada minuto.
+let crmTotais=null,crmTotaisEpoch=-1,crmTotaisAt=0,crmTotaisBusy=false,crmTotaisOff=false;
+function crmTotaisVisible(){return document.visibilityState!=='hidden'&&currentPage==='dashboard';}
+async function refreshCrmTotais(force){
+ if(!authenticated||crmTotaisOff||crmTotaisBusy)return;
+ if(!force&&crmTotaisEpoch===authEpoch&&Date.now()-crmTotaisAt<60000)return;
+ crmTotaisBusy=true;const epoch=authEpoch;
+ try{
+  const data=await sbRequest('/rest/v1/rpc/painel_crm_totais',{method:'POST',body:'{}'});
+  if(epoch!==authEpoch)return;
+  crmTotais=data;crmTotaisEpoch=epoch;crmTotaisAt=Date.now();renderCrmTotais();
+ }catch(e){if(e?.status===404&&epoch===authEpoch){crmTotaisOff=true;renderCrmTotais();}}
+ finally{crmTotaisBusy=false;}
+}
+function renderCrmTotais(){
+ const ready=!!crmTotais&&crmTotaisEpoch===authEpoch,o=ready?crmTotais.oportunidades||{}:{},f=n=>dashboardNumber.format(Number(n||0));
+ $('[data-dashboard-tile="clients"]').hidden=$('[data-dashboard-tile="opportunities"]').hidden=crmTotaisOff;
+ $('#dashClients').textContent=ready?f(crmTotais.clientes):'—';
+ $('#dashOpportunities').textContent=ready?f(o.abertas):'—';
+ $('#dashOpportunitiesSub').textContent=ready?`${f(o.ganhas)} ganha${Number(o.ganhas)===1?'':'s'} · ${f(o.total)} no total`:'No funil do CRM';
+}
+{
+ const baseRender=render;
+ render=function(){baseRender();if(crmTotaisVisible())refreshCrmTotais();};
+ const baseNavigate=navigate;
+ navigate=function(...args){baseNavigate(...args);if(crmTotaisVisible())refreshCrmTotais(true);};
+ document.addEventListener('visibilitychange',()=>{if(crmTotaisVisible())refreshCrmTotais();});
+ setInterval(()=>{if(crmTotaisVisible())refreshCrmTotais();},60000);
+}
