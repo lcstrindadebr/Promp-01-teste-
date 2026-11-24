@@ -151,7 +151,7 @@ function updateServiceCopy(){
  $('#singleDescription').textContent=tjba?'CPF obrigatório. Nome e telefone são opcionais.':'Nome, CPF e telefone com DDD.';
  $('#resultsDescription').textContent=tjba?'Confira as margens de empréstimo e cartão, o vínculo e o histórico.':'Acompanhe o andamento, confira valores e simule a recompra.';
  $('#resultsFootnote').textContent=tjba?'Ausência de resultado aparece como —. Margens zero e negativas são preservadas.':'Saldo e parcelas são exibidos somente quando informados pelo atendimento.';
- document.querySelectorAll('#filter option').forEach(option=>{const val=option.value||option.textContent;option.hidden=tjba?['Não é cliente','Aguardando retorno'].includes(val):val==='Não encontrado'||val.startsWith('tjba:');});
+ document.querySelectorAll('#filter option').forEach(option=>{const val=option.value||option.textContent;option.hidden=tjba?['Não é cliente','Aguardando retorno','Inadimplência administrativa','Inadimplência jurídica','grupo:inadimplencia'].includes(val):val==='Não encontrado'||val.startsWith('tjba:');});
 }
 function selectHygieneService(){
  const tjba=selectedService()==='tjba_margem';$('#convenioPicker').hidden=!tjba;updateServiceCopy();activeCampaign=null;pending=[];importGeneration++;readingImport=false;importError='';$('#file').value='';$('#preview').classList.add('hide');$('#search').value='';$('#filter').value='';

@@ -987,7 +987,9 @@
                 "nao_encontrado",
                 "erro",
                 "revisao",
-                "interrompida"
+                "interrompida",
+                "inadimplencia_administrativa",
+                "inadimplencia_juridica"
               ]
             }
           }

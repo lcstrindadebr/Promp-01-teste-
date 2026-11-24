@@ -18,12 +18,12 @@ function serverSummaryFromList(entry){
  const k=entry.contagens||{},g=s=>Number(k[s]||0);
  const total=Object.values(k).reduce((sum,n)=>sum+Number(n||0),0),running=g('processando'),waiting=g('aguardando')+running;
  return {n:{total,clients:g('concluida'),nonclients:g('nao_cliente')+g('nao_localizado')+g('nao_encontrado'),errors:g('erro'),
-   sold:g('ja_vendeu'),review:g('revisao'),interrupted:g('interrompida'),waiting},
+   sold:g('ja_vendeu'),inadAdm:g('inadimplencia_administrativa'),inadJur:g('inadimplencia_juridica'),review:g('revisao'),interrupted:g('interrompida'),waiting},
   runningCount:running,running:[],phaseRows:serverPhaseRows(waiting,running),pace:{count:0,first:Date.now(),last:0,total},rows:null};
 }
 function serverSummaryFromDetail(data){
  const r=data.resumo||{},n=key=>Number(r[key]||0),now=Date.now();
- return {n:{total:n('total'),clients:n('clients'),nonclients:n('nonclients'),errors:n('errors'),sold:n('sold'),review:n('review'),
+ return {n:{total:n('total'),clients:n('clients'),nonclients:n('nonclients'),errors:n('errors'),sold:n('sold'),inadAdm:n('inad_adm'),inadJur:n('inad_jur'),review:n('review'),
    interrupted:n('interrupted'),waiting:n('waiting')},
   runningCount:n('running'),running:data.consultando||[],phaseRows:serverPhaseRows(n('waiting'),n('running')),
   pace:{count:n('pace_count'),first:Date.parse(r.pace_first)||now,last:Date.parse(r.pace_last)||0,total:n('total')},rows:null};

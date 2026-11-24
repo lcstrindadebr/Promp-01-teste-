@@ -41,7 +41,9 @@
   const c=campaigns.find(c=>c.id===activeCampaign);if(!c)return;
   const summary=campaignSummary(c),n=summary.n,tjba=c.servico==='tjba_margem',problems=n.errors+n.review+n.interrupted;
   $('#cgResults').innerHTML=stat(tjba?'CPFs localizados':'Clientes identificados',n.clients,'Concluída')
-   +stat(tjba?'Não encontrados':'Não são clientes',n.nonclients,null)+(tjba?'':stat('Já vendeu',n.sold,null));
+   +stat(tjba?'Não encontrados':'Não são clientes',n.nonclients,null)
+   // Contrato com assessoria de cobrança: inadimplência administrativa ou jurídica ("Já vendeu" só para registros antigos).
+   +(tjba?'':stat('Inadimplência administrativa',n.inadAdm||0,'Inadimplência administrativa')+stat('Inadimplência jurídica',n.inadJur||0,'Inadimplência jurídica')+(n.sold?stat('Já vendeu',n.sold,null):''));
   $('#cgAttention').innerHTML=stat('Erros',n.errors,'attention')+stat('Em revisão',n.review,'attention')+(tjba?'':stat('Interrompidas',n.interrupted,'Consulta interrompida'));
   groups.querySelector('.attention').classList.toggle('has-items',problems>0);
   // Pelos números do banco: as consultas da campanha não ficam todas no navegador.

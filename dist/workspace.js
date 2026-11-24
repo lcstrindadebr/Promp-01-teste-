@@ -63,7 +63,7 @@ function campaignClientPage(c,search,filter,page){
  const filtered=[];
  campaignRecords(c.id).forEach((row,index)=>{
   const matchesSearch=matchesLeadSearch(row,search);
-  const matchesStatus=!filter||(filter==='attention'?['Erro','Revisão','Consulta interrompida'].includes(row.status):row.status===filter);
+  const matchesStatus=!filter||(filter==='attention'?['Erro','Revisão','Consulta interrompida'].includes(row.status):filter==='inadimplencia'?['Inadimplência administrativa','Inadimplência jurídica'].includes(row.status):row.status===filter);
   if(matchesSearch&&matchesStatus)filtered.push({row,rank:index+1});
  });
  const start=(page-1)*campaignPageSize;

@@ -105,7 +105,8 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
  async def test_definitive_chat_replies_before_option_lookup(self):
   cases=[
    ('Desculpe, não consegui localizar o seu documento. Este canal é exclusivo para clientes.', 'nao_cliente', 'DOCUMENTO_NAO_LOCALIZADO'),
-   ('Informamos que seu contrato está sob a responsabilidade da nossa assessoria de cobrança,**MZ ASSESSORIA E COBRANÇA - (11)4293-0260**.', 'ja_vendeu', 'CONTRATO_EM_ASSESSORIA'),
+   ('Informamos que seu contrato está sob a responsabilidade da nossa assessoria de cobrança,**MZ ASSESSORIA E COBRANÇA - (11)4293-0260**.', 'inadimplencia_administrativa', 'CONTRATO_EM_ASSESSORIA'),
+   ('Informamos que seu contrato está sob a responsabilidade da nossa assessoria de cobrança, J.S. SANTOS- JURIDICO. Assim, todas as negociações.', 'inadimplencia_juridica', 'CONTRATO_EM_ASSESSORIA'),
   ]
   for message,status,code in cases:
    with self.subTest(status=status):
@@ -132,6 +133,7 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
      result=await api.run(job)
     self.assertEqual(result['status'],status)
     self.assertEqual(result['resultado_saldo']['codigo'],code)
+    if code=='CONTRATO_EM_ASSESSORIA':self.assertTrue(result['message'].startswith('Assessoria: '),result['message'])
     self.assertIn(message,result['resultado_saldo']['todasMensagens'])
     self.assertNotIn('resultado_parcela',result)
     self.assertEqual(len(requests),6)

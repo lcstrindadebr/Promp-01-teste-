@@ -27,8 +27,41 @@ class FlowStopped(Exception):
 
 BUSINESS_RESULTS={
  'DOCUMENTO_NAO_LOCALIZADO':('nao_cliente','Não é cliente'),
- 'CONTRATO_EM_ASSESSORIA':('ja_vendeu','Já vendeu'),
+ # Refinado por collection_result: administrativa ou jurídica, conforme a assessoria citada.
+ 'CONTRATO_EM_ASSESSORIA':('inadimplencia_administrativa','Inadimplência administrativa'),
 }
+JURIDICAL_AGENCY=re.compile(r'jur[ií]dic|advog|advocacia|\badv\b',re.I)
+PHONE=re.compile(r'\(?\d{2}\)?\s*\d{4,5}-?\d{4}|0800[ \d]{7,}')
+
+
+def collection_agency(texts):
+ """Nome e telefone da assessoria de cobrança citada pelo Digi+ (ex.: "**MZ ASSESSORIA E COBRANÇA - (11)4293-0260**")."""
+ for text in texts or []:
+  if not isinstance(text,str):continue
+  match=re.search(r'assessoria de cobran[cç]a\s*,?\s*\**\s*(.*)$',text,re.I|re.S)
+  if not match:continue
+  name=match.group(1).split('**')[0]
+  name=re.sub(r'\.\s+(assim|para|o banco)\b.*$','',name,flags=re.I|re.S)
+  name=re.sub(r'[\s.\-]+$','',name).strip()
+  phone=PHONE.search(name)
+  if phone:name=re.sub(r'[\s.\-]+$','',name.replace(phone.group(0),'')).strip()
+  return (name or None),(phone.group(0).strip() if phone else None)
+ return None,None
+
+
+def collection_result(flow):
+ """Contrato em assessoria de cobrança: inadimplência jurídica (escritório ou setor jurídico) ou administrativa."""
+ name,phone=collection_agency(flow.get('todasMensagens'))
+ juridical=bool(name and JURIDICAL_AGENCY.search(name))
+ status,label=('inadimplencia_juridica','Inadimplência jurídica') if juridical else ('inadimplencia_administrativa','Inadimplência administrativa')
+ message='Assessoria: '+name+(' · '+phone if phone else '') if name else 'Contrato em assessoria de cobrança (assessoria não informada).'
+ return status,label,message
+
+
+def business_result(flow):
+ if flow.get('codigo')=='CONTRATO_EM_ASSESSORIA':return collection_result(flow)
+ status,label=BUSINESS_RESULTS[flow['codigo']]
+ return status,label,flow['motivo_interrupcao']
 
 
 def assert_service_available(items,after_cpf=False):
@@ -199,8 +232,8 @@ class ApiSession:
    'total_parcelas':int(first['totalParcelas']) if first.get('totalParcelas') else None,
    'status':'processando','progress':50,'stage':'API experimental · fora do horário' if first.get('codigo')=='FORA_HORARIO_ATENDIMENTO' else 'API experimental · parcela'}
   if first.get('codigo') in BUSINESS_RESULTS:
-   status,label=BUSINESS_RESULTS[first['codigo']]
-   result.update(status=status,progress=100,stage=label,message=first['motivo_interrupcao'])
+   status,label,message=business_result(first)
+   result.update(status=status,progress=100,stage=label,message=message)
    return result
   balance=result['saldo_liquidacao']
   outside_hours=first.get('codigo')=='FORA_HORARIO_ATENDIMENTO'
@@ -221,8 +254,8 @@ class ApiSession:
   result['valor_parcela']=money(second.get('valorParcela'))
   result.update(status='concluida' if first['sucesso'] and second['sucesso'] else 'revisao',progress=100,stage='API experimental · finalizada')
   if second.get('codigo') in BUSINESS_RESULTS:
-   status,label=BUSINESS_RESULTS[second['codigo']]
-   result.update(status=status,stage=label,message=second['motivo_interrupcao'])
+   status,label,message=business_result(second)
+   result.update(status=status,stage=label,message=message)
    return result
   result['message']='Fluxos API executados. Confira os valores retornados.'
   texts=first.get('todasMensagens',[])+second.get('todasMensagens',[])
