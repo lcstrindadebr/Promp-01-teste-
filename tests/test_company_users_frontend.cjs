@@ -46,6 +46,19 @@ const json=(data,status=200)=>({ok:status<400,status,json:async()=>data,text:asy
  assert.equal(t.get('#companyUserPassword').value,'','Password field cleared after creating');
  assert.equal(t.get('#companyUserStatus').textContent,'Usuário criado.','Message survives the list reload');
 
+ // New temporary password: the page's own dialog, and Cancelar sends nothing.
+ t.window.confirm=()=>{throw new Error('native confirm must not be used');};
+ const resetButton=()=>t.get('#companyUserList').querySelector('[data-company-reset]');
+ const callsBefore=t.calls.length;
+ let asking=t.get('#companyUserList').onclick({target:resetButton()});
+ let ask=t.window.document.querySelector('dialog.confirm-dialog');
+ assert.match(ask.textContent,/Op recebe uma senha provisória nova/);
+ ask.querySelector('[data-answer="no"]').click();await asking;
+ assert.ok(!t.calls.slice(callsBefore).some(([url])=>String(url).endsWith('/senha')),'Cancel sends nothing');
+ asking=t.get('#companyUserList').onclick({target:resetButton()});
+ t.window.document.querySelector('dialog.confirm-dialog [data-answer="yes"]').click();await asking;
+ assert.ok(t.calls.some(([url])=>String(url).endsWith('/usuarios/11111111-1111-1111-1111-111111111111/senha')));
+
  // A Gestor with user management cannot pick Administrador.
  run("companyInfo={...companyInfo,actor_role:'gestor'};renderCompanyRoles('operador')");
  assert.ok(![...t.get('#companyUserRole').options].some(o=>o.value==='administrador'));

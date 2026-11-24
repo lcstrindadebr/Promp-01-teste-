@@ -24,8 +24,11 @@ const json=(data,status=200)=>({ok:status<400,status,json:async()=>data,text:asy
  const targets=[...t.get('#partnerMoveTarget').options].map(o=>o.value);
  assert.deepEqual(targets,['p1'],'Only other active companies are offered');
  t.get('#partnerMoveRole').value='operador';
- t.window.confirm=()=>true;
- await t.get('#partnerMoveForm').onsubmit({preventDefault(){},target:t.get('#partnerMoveForm')});
+ t.window.confirm=()=>{throw new Error('native confirm must not be used');};
+ const submitting=t.get('#partnerMoveForm').onsubmit({preventDefault(){},target:t.get('#partnerMoveForm')});
+ const ask=t.window.document.querySelector('dialog.confirm-dialog');
+ assert.match(ask.textContent,/não tem botão de desfazer/);
+ ask.querySelector('[data-answer="yes"]').click();await submitting;
  assert.deepEqual(moved,{p_user:'p2',p_target_user:'p1',p_role:'operador'});
  // Delete a partner: the company name must be typed exactly.
  let removed=null;
