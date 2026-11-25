@@ -327,3 +327,87 @@ class MultiConvenioTests(unittest.IsolatedAsyncioTestCase):
   rowset.all=AsyncMock(return_value=[MagicMock(),*rows]);table.locator.return_value=rowset
   await tjba.choose_matricula(page)
   buttons[0].click.assert_not_awaited();buttons[1].click.assert_awaited_once()
+
+class LoanOnlyAndMigrationTests(unittest.IsolatedAsyncioTestCase):
+ def fake_page(self,body='resultado'):
+  page=MagicMock()
+  class Pending:
+   async def __aenter__(self):
+    response=MagicMock();response.finished=AsyncMock(return_value=None);response.status=200
+    fut=asyncio.get_running_loop().create_future();fut.set_result(response);self.value=fut;return self
+   async def __aexit__(self,*a):return False
+  page.expect_response=lambda *a,**k:Pending()
+  page.wait_for_load_state=AsyncMock();page.wait_for_function=AsyncMock()
+  def locate(selector):
+   loc=MagicMock();loc.is_visible=AsyncMock(return_value=False);loc.fill=AsyncMock();loc.click=AsyncMock()
+   loc.inner_text=AsyncMock(return_value=body);return loc
+  page.locator.side_effect=locate
+  return page
+ async def consult(self,convenio,fields):
+  page=self.fake_page();read=AsyncMock(return_value=('150.00','300.00'))
+  values={**{s:fields.get(k) for k,s in tjba.FIELDS.items()},tjba.RESULT_CPF:'000.000.001-91','#body_clienteTextBox':'Fulana'}
+  with patch.object(tjba,'prepare',new=AsyncMock()),patch.object(tjba,'challenge',new=AsyncMock()),patch.object(tjba,'assert_convenio',new=AsyncMock()),\
+   patch.object(tjba,'choose_matricula',new=AsyncMock(return_value=[])),patch.object(tjba,'value',new=AsyncMock(side_effect=lambda p,s:values.get(s))),\
+   patch.object(tjba,'read_margin',new=read):
+   return await tjba.consult(page,'00000000191',convenio=convenio),read
+ async def test_saeb_and_suprev_read_only_the_loan_margin(self):
+  for convenio in ('saeb','suprev'):
+   raw,read=await self.consult(convenio,{'matricula':'1','situacao_atual':'Ativo'})
+   self.assertEqual(raw['status'],'consultado',convenio)
+   self.assertEqual(raw['emprestimo_disponivel'],'150.00');self.assertIsNone(raw['cartao_disponivel'])
+   self.assertEqual([c.args[1] for c in read.await_args_list],[tjba.ROWS['emprestimo_disponivel']])
+  raw,read=await self.consult('tjba',{'matricula':'1','situacao_atual':'Ativo'})
+  self.assertEqual(read.await_count,2,'TJBA still reads loan and card')
+ async def test_migrated_saeb_registration_stops_before_margins(self):
+  raw,read=await self.consult('saeb',{'matricula':'202001913660000','situacao_atual':'Suspenso - MATRÍCULA MIGRADA'})
+  self.assertEqual(raw['status'],'matricula_migrada');read.assert_not_awaited()
+  raw,_=await self.consult('suprev',{'matricula':'1','situacao_atual':'Suspenso - MATRÍCULA MIGRADA'})
+  self.assertNotEqual(raw['status'],'matricula_migrada','Only SAEB redirects')
+ async def test_migrated_from_grid_without_active_registration(self):
+  page=self.fake_page()
+  grid=[{'colunas':['Matrícula','Situação'],'valores':['0001','Suspenso - MATRÍCULA MIGRADA']}]
+  with patch.object(tjba,'prepare',new=AsyncMock()),patch.object(tjba,'challenge',new=AsyncMock()),patch.object(tjba,'assert_convenio',new=AsyncMock()),\
+   patch.object(tjba,'choose_matricula',new=AsyncMock(side_effect=tjba.Review('revisao_matricula','x',{'vinculos':grid}))):
+   self.assertEqual((await tjba.consult(page,'191',convenio='saeb'))['status'],'matricula_migrada')
+   with self.assertRaises(tjba.Review):await tjba.consult(page,'191',convenio='suprev')
+ def started_session(self,convenio):
+  s=tjba.Session();s.identity=('u','rev',convenio);s.browser=MagicMock();s.browser.close=AsyncMock();s.page=MagicMock();s.page.is_closed.return_value=False
+  return s
+ def fake_playwright(self):
+  page=MagicMock();page.is_closed.return_value=False
+  context=MagicMock();context.new_page=AsyncMock(return_value=page)
+  browser=MagicMock();browser.new_context=AsyncMock(return_value=context);browser.close=AsyncMock()
+  pw=MagicMock();pw.chromium.launch=AsyncMock(return_value=browser);pw.stop=AsyncMock()
+  starter=MagicMock();starter.start=AsyncMock(return_value=pw)
+  module=MagicMock();module.async_playwright=lambda:starter
+  return module
+ async def test_migrated_saeb_is_consulted_in_suprev(self):
+  s=self.started_session('saeb')
+  migrated={'status':'matricula_migrada','matricula':'202001913660000','situacao_atual':'Suspenso - MATRÍCULA MIGRADA','vinculos':[]}
+  suprev={'status':'consultado','nome':'Maria','matricula':'900','situacao_atual':'Ativo','emprestimo_disponivel':'321.00','cartao_disponivel':None}
+  with patch.dict(sys.modules,{'playwright.async_api':self.fake_playwright()}),patch.object(tjba,'consult',new=AsyncMock(side_effect=[migrated,suprev])) as consult,\
+   patch.object(tjba,'login_with_retries',new=AsyncMock()) as login,patch.object(tjba,'install_handlers',new=AsyncMock()),patch.object(tjba,'launch_options',return_value={}):
+   result=await s.run({'cpf':'191','user_id':'u','convenio':'saeb'},{'enabled':True,'revision':'rev','username':'U'},AsyncMock())
+  self.assertEqual([c.kwargs.get('convenio') for c in consult.await_args_list],['saeb','suprev'])
+  self.assertEqual(login.await_args.kwargs['convenio'],'suprev')
+  self.assertEqual(result['status'],'concluida');self.assertEqual(result['convenio'],'suprev')
+  self.assertEqual(result['emprestimo_disponivel'],'321.00');self.assertEqual(result['matricula'],'900')
+  self.assertEqual(result['message'],'Matrícula migrada no SAEB; margem consultada no SUPREV.')
+  self.assertEqual(result['resultado_tjba']['consulta_origem']['matricula'],'202001913660000')
+  self.assertEqual(s.identity,('u','rev','suprev'))
+ async def test_migrated_but_absent_in_suprev(self):
+  s=self.started_session('saeb')
+  with patch.dict(sys.modules,{'playwright.async_api':self.fake_playwright()}),\
+   patch.object(tjba,'consult',new=AsyncMock(side_effect=[{'status':'matricula_migrada'},{'status':'nao_encontrado','observacoes':'O portal informou que não encontrou esse CPF no convênio.'}])),\
+   patch.object(tjba,'login_with_retries',new=AsyncMock()),patch.object(tjba,'install_handlers',new=AsyncMock()),patch.object(tjba,'launch_options',return_value={}):
+   result=await s.run({'cpf':'191','user_id':'u','convenio':'saeb'},{'enabled':True,'revision':'rev','username':'U'},AsyncMock())
+  self.assertEqual(result['status'],'nao_encontrado');self.assertEqual(result['convenio'],'suprev')
+  self.assertTrue(result['message'].startswith('Matrícula migrada no SAEB, mas o CPF não foi encontrado no SUPREV.'))
+ async def test_suprev_login_failure_names_the_migration(self):
+  s=self.started_session('saeb')
+  with patch.dict(sys.modules,{'playwright.async_api':self.fake_playwright()}),patch.object(tjba,'consult',new=AsyncMock(return_value={'status':'matricula_migrada'})),\
+   patch.object(tjba,'login_with_retries',new=AsyncMock(side_effect=tjba.Review('sessao_expirada','Convênio escolhido não localizado de forma inequívoca.'))),\
+   patch.object(tjba,'install_handlers',new=AsyncMock()),patch.object(tjba,'launch_options',return_value={}):
+   result=await s.run({'cpf':'191','user_id':'u','convenio':'saeb'},{'enabled':True,'revision':'rev','username':'U'},AsyncMock())
+  self.assertEqual(result['status'],'revisao');self.assertNotIn('convenio',result,'Job stays in SAEB when SUPREV fails')
+  self.assertIn('Matrícula migrada no SAEB; falha ao consultar no SUPREV.',result['message'])

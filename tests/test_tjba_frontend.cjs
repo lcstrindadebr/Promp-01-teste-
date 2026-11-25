@@ -39,6 +39,13 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');const {setup,re
  assert(t.get('#tjbaCredentialStatus').textContent.includes('Inativo no ConsigX'));
  vm.runInContext("records=[{id:'t',servico:'tjba_margem',cpf:'00123456789',nome:'TESTE',status:'Concluída',tjba_status:'consultado',emprestimo_disponivel:'0.00',cartao_disponivel:'-10.25',matricula:'000123',date:'2026-11-02',progress:100},{id:'d',servico:'digimais_saldo_parcela',nome:'DIGI',status:'Concluída',saldo:999,valorParcela:55}];render()",t.ctx);
  assert(t.get('#rows').innerHTML.includes('000123'));assert(t.get('#rows').innerHTML.includes('0,00'));assert(/-R\$[^<]*10,25/.test(t.get('#rows').innerHTML));assert(!t.get('#rows').innerHTML.includes('DIGI'));assert(!t.get('#rows').innerHTML.includes('Simular Amigoz'));
+ // SAEB/SUPREV have no card margin; a SAEB migrated registration shows where the margin came from.
+ vm.runInContext("records=[...records,{id:'s',servico:'tjba_margem',convenio:'suprev',cpf:'11614200530',nome:'MIGRADA',status:'Concluída',tjba_status:'consultado',emprestimo_disponivel:'321.00',cartao_disponivel:null,matricula:'900',message:'Matrícula migrada no SAEB; margem consultada no SUPREV.',date:'2026-11-25',progress:100}];render()",t.ctx);
+ {const row=[...t.get('#rows').querySelectorAll('tr')].find(r=>r.textContent.includes('MIGRADA'));
+  assert(row.textContent.includes('SUPREV'));assert.equal((row.textContent.match(/Não se aplica/g)||[]).length,2);
+  assert(row.textContent.includes('Matrícula migrada no SAEB; margem consultada no SUPREV.'));
+  const tj=[...t.get('#rows').querySelectorAll('tr')].find(r=>r.textContent.includes('TESTE'));assert(!tj.textContent.includes('Não se aplica'),'TJBA keeps the card margin');}
+ vm.runInContext("records=records.filter(r=>r.id!=='s')",t.ctx);
  t.get('#filter').value='tjba:revisao_matricula';vm.runInContext('render()',t.ctx);assert(!t.get('#rows').innerHTML.includes('000123'));
  t.get('#serviceSelect').value='digimais_saldo_parcela';t.get('#serviceSelect').onchange();assert(t.get('#rows').innerHTML.includes('DIGI'));assert(!t.get('#rows').innerHTML.includes('000123'));assert.equal(t.get('#telefone').required,true);
  // Company access: a member without acesso.portais sees it but cannot edit.
