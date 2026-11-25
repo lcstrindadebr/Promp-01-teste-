@@ -61,7 +61,12 @@ async function createCampaign(name,items){
  if(!name.trim()||name.trim().length>160||!items.length)throw Error('Informe o nome e selecione clientes válidos.');
  const service=selectedService();
  const payload={p_nome:name.trim(),p_items:items.map(r=>({nome:r.nome,cpf:r.cpf,telefone:r.telefone}))};
- const retry=service==='digimais_saldo_parcela'&&digimaisCampaignUpload?.epoch===authEpoch&&
+ // Campanhas grandes vão em partes (cada parte bem abaixo do limite de tempo do banco) e podem ser retomadas.
+ // ConsigX: até 250 CPFs por parte, no convênio escolhido; Digi+: até 100 leads.
+ const consigx=service==='tjba_margem',convenio=consigx&&typeof selectedConvenio==='function'?selectedConvenio():null;
+ const batchSize=consigx?250:100;
+ const retry=['digimais_saldo_parcela','tjba_margem'].includes(service)&&digimaisCampaignUpload?.epoch===authEpoch&&
+  digimaisCampaignUpload.service===service&&digimaisCampaignUpload.convenio===convenio&&
   digimaisCampaignUpload.name===payload.p_nome&&digimaisCampaignUpload.items===items;
  if(!retry){
   const quotaError=typeof campaignImportError==='function'?campaignImportError(items.length):'';
@@ -69,23 +74,27 @@ async function createCampaign(name,items){
   if(typeof assertCanSubmit==='function')assertCanSubmit(service,'campaign');
  }
  let id;
- if(service==='digimais_saldo_parcela'&&items.length>100){
-  if(!retry)digimaisCampaignUpload={id:crypto.randomUUID(),epoch:authEpoch,name:payload.p_nome,items,offset:0};
+ if(['digimais_saldo_parcela','tjba_margem'].includes(service)&&items.length>batchSize){
+  if(consigx&&new Set(payload.p_items.map(r=>r.cpf)).size!==payload.p_items.length)throw Error('Há CPFs duplicados.');
+  if(!retry)digimaisCampaignUpload={id:crypto.randomUUID(),epoch:authEpoch,service,convenio,name:payload.p_nome,items,offset:0};
   const upload=digimaisCampaignUpload;
-  const submitBatch=(rows)=>sbRequest('/rest/v1/rpc/save_digimais_campaign_batch',{method:'POST',
-   body:JSON.stringify({p_id:upload.id,p_nome:payload.p_nome,p_total:items.length,p_items:rows})});
+  const submitBatch=(rows)=>consigx
+   ?sbRequest('/rest/v1/rpc/save_consigx_campaign_batch',{method:'POST',
+     body:JSON.stringify({p_id:upload.id,p_nome:payload.p_nome,p_convenio:convenio,p_total:items.length,p_items:rows})})
+   :sbRequest('/rest/v1/rpc/save_digimais_campaign_batch',{method:'POST',
+     body:JSON.stringify({p_id:upload.id,p_nome:payload.p_nome,p_total:items.length,p_items:rows})});
   try{
    while(upload.offset<items.length){
     if(upload.epoch!==authEpoch)throw Error('Sessão encerrada.');
-    const rows=payload.p_items.slice(upload.offset,upload.offset+100);
+    const rows=payload.p_items.slice(upload.offset,upload.offset+batchSize);
     await submitBatch(rows);
     upload.offset+=rows.length;
-    if(upload.offset%1000===0||upload.offset===items.length)toast(upload.offset.toLocaleString('pt-BR')+' de '+items.length.toLocaleString('pt-BR')+' leads enviados.');
+    if(upload.offset%1000===0||upload.offset===items.length)toast(upload.offset.toLocaleString('pt-BR')+' de '+items.length.toLocaleString('pt-BR')+(consigx?' clientes enviados.':' leads enviados.'));
    }
    if(upload.epoch!==authEpoch)throw Error('Sessão encerrada.');
    await submitBatch([]);
   }catch(error){
-   throw Error('Envio interrompido após '+upload.offset.toLocaleString('pt-BR')+' leads confirmados. Mantenha a planilha selecionada e clique novamente para retomar. '+error.message);
+   throw Error('Envio interrompido após '+upload.offset.toLocaleString('pt-BR')+(consigx?' clientes':' leads')+' confirmados. Mantenha a planilha selecionada e clique novamente para retomar. '+error.message);
   }
   id=upload.id;digimaisCampaignUpload=null;
  }else{

@@ -44,6 +44,26 @@ function textFile(name,text){return {name,size:Buffer.byteLength(text),text:asyn
  await admin.get('#file').onchange({target:{files:[large]}});
  await admin.get('#import').onclick();
  assert.equal(submitted.p_items.length,5001);assert(closed,'Final empty batch closes the upload');
+ // ConsigX campaigns over 250 CPFs also go up in parts (save_consigx_campaign_batch), in the chosen agreement,
+ // and a failed part resumes where it stopped instead of starting over.
+ const cx=setup();cx.ctx.XLSX=XLSX;partnerLimits(cx);vm.runInContext(fs.readFileSync('dist/tjba.js','utf8'),cx.ctx);
+ vm.runInContext("authenticated=true;currentAccess={role:'admin',active:true};session={access_token:'x',expires_at:Date.now()/1000+3600}",cx.ctx);
+ cx.get('#serviceSelect').value='tjba_margem';cx.get('#serviceSelect').onchange();cx.get('#convenioSelect').value='saeb';
+ const cpfs=excelFile('xlsx',[['cpf'],...Array.from({length:601},(_,i)=>[String(i+1).padStart(11,'0')])]);
+ const parts=[];let failOnce=true,cxClosed=false;
+ cx.handler(async(u,o)=>{if(u.includes('/rpc/save_consigx_campaign_batch')){const body=JSON.parse(o.body);
+  if(body.p_items.length===0){cxClosed=true;return response(601);}
+  if(parts.length===1&&failOnce){failOnce=false;return {ok:false,status:500,text:async()=>JSON.stringify({message:'canceling statement due to statement timeout'})};}
+  parts.push(body);return response(parts.length);}
+  if(u.includes('/rpc/create_consigx_campaign'))throw Error('Large ConsigX campaign must not use the single-call RPC');return response([]);});
+ cx.get('#campaignName').value='Gov BA';
+ await cx.get('#file').onchange({target:{files:[cpfs]}});
+ await cx.get('#import').onclick();
+ assert.equal(parts.length,1,'Stopped at the failed part');assert(!cxClosed);
+ await cx.get('#import').onclick();
+ assert.deepEqual(parts.map(p=>p.p_items.length),[250,250,101]);assert(cxClosed,'Final empty part releases the campaign');
+ assert(parts.every(p=>p.p_convenio==='saeb'&&p.p_total===601&&p.p_id===parts[0].p_id),'Same campaign, agreement and total in every part');
+ assert.equal(new Set(parts.flatMap(p=>p.p_items.map(i=>i.cpf))).size,601,'No CPF sent twice after resuming');
  // A slow old file must never overwrite the newly selected file.
  let release;const slow={name:'slow.csv',size:100,text:()=>new Promise(r=>release=r)};
  const old=t.get('#file').onchange({target:{files:[slow]}});
