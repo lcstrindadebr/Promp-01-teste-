@@ -15,6 +15,11 @@ CPF='#body_cpfTextBox';RESULT_CPF='#body_cpf_nascimentoTextBox';SEARCH='#body_pe
 FIELDS={'motivo_situacao':'#body_txtMotivo','matricula':'#body_matriculaTextBox','tipo_servidor':'#body_categoriaTextBox','situacao_atual':'#body_txtSituacao'}
 ROWS={'emprestimo_disponivel':'#body_rptMargens1_headerservico1_0','cartao_disponivel':'#body_rptMargens1_headerservico1_1'}
 CONVENIOS={'tjba':'TRIBUNAL JUSTICA DA BAHIA','dpeba':'DEFENSORIA PUBLICA DO ESTADO DA BAHIA','embasa':'EMPRESA BAIANA DE AGUAS E SANEAMENTO - EMBASA','saeb':'GOVERNO ESTADO DA BAHIA','suprev':'SUPERINTENDENCIA DE PREVIDENCIA'}
+# SAEB e SUPREV só têm margem de empréstimo no ConsigX: não há linha de cartão para ler.
+LOAN_ONLY=frozenset({'saeb','suprev'})
+# Servidor do Governo (SAEB) aposentado: a matrícula aparece como migrada e a margem passa a estar no SUPREV.
+MIGRATED_FROM={'saeb':'suprev'}
+def is_migrated(*texts):return any('migrad' in norm(text) for text in texts if text)
 class Review(Exception):
  def __init__(self,status,message,details=None):self.status=status;self.message=message;self.details=details or {};super().__init__(message)
 def norm(text):return ' '.join(unicodedata.normalize('NFKD',str(text)).encode('ascii','ignore').decode().lower().split())
@@ -278,6 +283,8 @@ async def read_margin(page,selector,*,include_total=False):
   try:total=parse_brl(cells[totals[0]])
   except ValueError:pass
  return available,total
+def migrated_vinculos(vinculos):
+ return any(is_migrated(*(v.get('valores') or [v.get('situacao')])) for v in vinculos or [])
 async def consult(page,cpf,on_step=None,convenio='tjba'):
  await report_step(on_step,35,'Preparar formulário TJBA')
  await prepare(page,**({'convenio':convenio} if convenio!='tjba' else {}))
@@ -310,23 +317,41 @@ async def consult(page,cpf,on_step=None,convenio='tjba'):
  if re.search(r'servidor nao encontrado|nenhum servidor encontrado|cpf nao encontrado',text):return {'status':'nao_encontrado','observacoes':'O portal informou que não encontrou esse CPF no convênio.'}
  await assert_convenio(page,convenio)
  await report_step(on_step,65,'Verificar vínculo e matrícula retornados')
- vinculos=await choose_matricula(page)
- await page.locator(ROWS['emprestimo_disponivel']).wait_for(state='visible',timeout=12000)
- await report_step(on_step,78,'Ler margens totais e disponíveis e confirmar CPF')
+ try:vinculos=await choose_matricula(page)
+ except Review as error:
+  # Nenhuma matrícula ativa, mas alguma migrada: a consulta continua no convênio de destino.
+  if convenio in MIGRATED_FROM and error.status=='revisao_matricula' and migrated_vinculos(error.details.get('vinculos')):
+   return {'status':'matricula_migrada','vinculos':error.details['vinculos'],'observacoes':'Matrícula migrada.'}
+  raise
+ # Matrícula migrada pode vir sem margens: espera pelas margens ou pela situação migrada, o que vier antes.
+ await page.wait_for_function("""()=>{
+ const visible=s=>{const e=document.querySelector(s);return !!e&&e.getClientRects().length>0};
+ const situation=document.querySelector('#body_txtSituacao');
+ return visible('#body_rptMargens1_headerservico1_0')||(!!situation&&/migrad/i.test(situation.value||situation.innerText||''));
+ }""",timeout=12000)
  fields={k:await value(page,s) for k,s in FIELDS.items()}
- margins={}
- for field,selector in ROWS.items():
+ # Where available, verify the returned CPF as well as the completed postback.
+ returned=await value(page,RESULT_CPF)
+ if not returned or normalize_cpf(returned)!=normalize_cpf(cpf):raise Review('erro','O CPF retornado pelo portal não corresponde à consulta.')
+ nome=await value(page,'#body_clienteTextBox')
+ if convenio in MIGRATED_FROM and is_migrated(fields['situacao_atual'],fields['motivo_situacao']):
+  return dict(nome=nome,status='matricula_migrada',observacoes='Matrícula migrada.',vinculos=vinculos,**fields)
+ await report_step(on_step,78,'Ler margens totais e disponíveis e confirmar CPF')
+ rows={k:v for k,v in ROWS.items() if convenio not in LOAN_ONLY or k=='emprestimo_disponivel'}
+ margins={'emprestimo_disponivel':None,'emprestimo_bruta':None,'cartao_disponivel':None,'cartao_bruta':None}
+ for field,selector in rows.items():
   available,total=await read_margin(page,selector,include_total=True) or (None,None)
   margins[field]=available
   margins[field.replace('_disponivel','_bruta')]=total
  if not fields['matricula'] or not fields['situacao_atual']:raise Review('revisao_matricula','Resultado sem matrícula ou situação verificável.')
- # Where available, verify the returned CPF as well as the completed postback.
- returned=await value(page,RESULT_CPF)
- if not returned or normalize_cpf(returned)!=normalize_cpf(cpf):raise Review('erro','O CPF retornado pelo portal não corresponde à consulta.')
- return dict(nome=await value(page,'#body_clienteTextBox'),status='consultado' if all(margins[field] is not None for field in ROWS) else 'revisao_margens',observacoes=None if all(margins[field] is not None for field in ROWS) else 'Uma das margens disponíveis não foi retornada pelo portal.',vinculos=vinculos,**fields,**margins)
+ complete=all(margins[field] is not None for field in rows)
+ missing='A margem de empréstimo não foi retornada pelo portal.' if convenio in LOAN_ONLY else 'Uma das margens disponíveis não foi retornada pelo portal.'
+ return dict(nome=nome,status='consultado' if complete else 'revisao_margens',observacoes=None if complete else missing,vinculos=vinculos,**fields,**margins)
 def job_result(raw):
  status=raw['status'];result=dict(status='concluida' if status=='consultado' else 'nao_encontrado' if status=='nao_encontrado' else 'erro' if status=='erro' else 'revisao',tjba_status=status,resultado_tjba=raw,matricula=raw.get('matricula'),tipo_servidor=raw.get('tipo_servidor'),situacao_atual=raw.get('situacao_atual'),emprestimo_disponivel=raw.get('emprestimo_disponivel'),cartao_disponivel=raw.get('cartao_disponivel'),message=raw.get('observacoes'),progress=100,stage='Consulta TJBA finalizada')
  if raw.get('nome'):result['nome']=str(raw['nome'])[:160]
+ # Matrícula migrada: a consulta passa a ser do convênio onde a margem foi encontrada.
+ if raw.get('migrado_de') and raw.get('convenio') in CONVENIOS:result['convenio']=raw['convenio']
  return result
 def failure_details(exc,page=None):
  diagnostic=diagnose(exc)
@@ -396,9 +421,13 @@ class Session:
   if convenio not in CONVENIOS:return failed(dict(base,status='revisao_margens',observacoes='Convênio não reconhecido.'))
   base['convenio']=convenio
   # A sessão segue o acesso (da empresa), não o usuário: colegas reaproveitam o mesmo login.
-  identity=(credentials.get('username','').strip().casefold(),credentials['revision'])+((convenio,) if convenio!='tjba' else ())
+  def identity_for(convenio):return (credentials.get('username','').strip().casefold(),credentials['revision'])+((convenio,) if convenio!='tjba' else ())
+  identity=identity_for(convenio)
   if identity==self.blocked:return failed(dict(base,status='sessao_expirada',observacoes='Autenticação pausada. Verifique o acesso e salve novamente as configurações.',diagnostico=self.blocked_diagnostic.copy()))
-  try:
+  migrated_from=None
+  async def consult_in(convenio):
+   nonlocal identity
+   identity=identity_for(convenio)
    if self.identity!=identity or not self.page or self.page.is_closed():
     await self.close();await report(5,'Carregar Playwright do robô TJBA')
     from playwright.async_api import async_playwright
@@ -410,7 +439,21 @@ class Session:
     await install_handlers(self.page)
     await login_with_retries(self.page,credentials,on_step=report,**({'convenio':convenio} if convenio!='tjba' else {}))
     self.identity=identity
-   raw=await consult(self.page,job['cpf'],on_step=report,**({'convenio':convenio} if convenio!='tjba' else {}));await report(90,'Salvar margens TJBA')
+   return await consult(self.page,job['cpf'],on_step=report,**({'convenio':convenio} if convenio!='tjba' else {}))
+  try:
+   raw=await consult_in(convenio)
+   if raw.get('status')=='matricula_migrada' and convenio in MIGRATED_FROM:
+    origin,target=convenio,MIGRATED_FROM[convenio]
+    original={k:raw.get(k) for k in ('matricula','situacao_atual','motivo_situacao','tipo_servidor','vinculos') if raw.get(k) is not None}
+    await report(34,f'Matrícula migrada no {origin.upper()}: consultar no {target.upper()}')
+    convenio=target;base['convenio']=target;migrated_from=origin
+    raw=await consult_in(target)
+    note=f'Matrícula migrada no {origin.upper()}; margem consultada no {target.upper()}.'
+    if raw.get('status')=='nao_encontrado':note=f'Matrícula migrada no {origin.upper()}, mas o CPF não foi encontrado no {target.upper()}.'
+    raw=dict(raw,migrado_de=origin,consulta_origem=original,observacoes=' '.join(x for x in (note,raw.get('observacoes')) if x))
+   elif raw.get('status')=='matricula_migrada':
+    raw=dict(raw,status='revisao_matricula',observacoes='Matrícula migrada; convênio de destino não configurado.')
+   await report(90,'Salvar margens TJBA')
    return job_result(dict(base,**raw))
   except Exception as error:
    diagnostic=failure_details(error,self.page)
@@ -422,6 +465,7 @@ class Session:
    else:
     message=f'Falha na etapa {stage}.'
     details={}
+   if migrated_from:message=f'Matrícula migrada no {migrated_from.upper()}; falha ao consultar no {convenio.upper()}. '+message
    if diagnostic['codigo']=='CHROMIUM_AUSENTE':
     message+=' Execute Atualizar no instalador para instalar o Chromium.'
    blocked_login=diagnostic['categoria']=='login' and not diagnostic['transitorio'] and diagnostic['codigo']!='SESSAO_EXPIRADA_DURANTE_CONSULTA'
