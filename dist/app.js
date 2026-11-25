@@ -38,6 +38,8 @@ function resultMessage(r){
  if(r.status==='Erro')return 'Não foi possível concluir. Consulte o log em Configurações.';
  // Inadimplência: nome e telefone da assessoria de cobrança informada pelo Digi+.
  if(['Inadimplência administrativa','Inadimplência jurídica'].includes(r.status))return r.message||'';
+ // ConsigX: observação do robô no resultado (por exemplo, matrícula migrada do SAEB consultada no SUPREV).
+ if(r.servico==='tjba_margem'&&['Concluída','Não encontrado'].includes(r.status))return r.message||'';
  return '';
 }
 function consultationWasPerformed(row){

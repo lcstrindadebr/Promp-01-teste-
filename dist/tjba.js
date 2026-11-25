@@ -1,4 +1,13 @@
 const convenioLabels={tjba:'TJBA',dpeba:'DPEBA',embasa:'EMBASA',saeb:'Governo BA · SAEB',suprev:'SUPREV'};
+// Horário de atendimento no ConsigX (Brasília). Mesmos valores de public.consigx_horarios, que o robô respeita:
+// fora do horário as consultas ficam agendadas e voltam sozinhas na abertura.
+const consigxHorarios={saeb:{abre:'07:00',fecha:'20:00'},suprev:{abre:'07:00',fecha:'22:00'}};
+const consigxClock=new Intl.DateTimeFormat('en-GB',{timeZone:'America/Sao_Paulo',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+function consigxHorario(convenio,now=new Date()){
+ const h=consigxHorarios[convenio];if(!h)return null;
+ const time=consigxClock.format(now);return {...h,aberto:time>=h.abre&&time<h.fecha};
+}
+function consigxShortName(convenio){return convenio==='saeb'?'SAEB':convenioLabel(convenio);}
 function selectedConvenio(){return $('#convenioSelect')?.value||'tjba';}
 function convenioLabel(value){return convenioLabels[value||'tjba']||'Convênio desconhecido';}
 let tjbaAccess=null;
@@ -124,7 +133,7 @@ const tjbaNotes=r=>[r.message,r.motivo_situacao].filter(Boolean).join(' · ');
 const originalRowsHTML=rowsHTML;
 rowsHTML=function(rows){
  const service=rows[0]?.servico||selectedService();if(service!=='tjba_margem')return originalRowsHTML(rows);
- return rows.map(r=>{const running=['Aguardando','Processando'].includes(r.status),label=running?statusLabel(r.status):tjbaStatusLabels[r.tjba_status]||r.status;return `<tr><td><b>${escapeHTML(r.nome)}</b><br><span class="muted">${escapeHTML(r.cpf)}</span><br><small>${escapeHTML(convenioLabel(r.convenio))}</small></td><td>${escapeHTML(r.matricula)||'—'}</td><td>${escapeHTML(r.tipo_servidor)||'—'}</td><td>${escapeHTML(r.situacao_atual)||'—'}</td><td>${moneyTjba(r.emprestimo_disponivel)}</td><td>${cardTjba(r,r.cartao_disponivel)}</td><td>${moneyTjba(r.emprestimo_bruta)}</td><td>${cardTjba(r,r.cartao_bruta)}</td><td><span class="pill ${r.status==='Concluída'?'ok':['Erro','Revisão'].includes(r.status)?'err':''}">${escapeHTML(label)}</span><div class="progress-line"><progress max="100" value="${Math.max(0,Math.min(100,Number(r.progress)||0))}" aria-label="Progresso da consulta"></progress><small>${Math.max(0,Math.min(100,Number(r.progress)||0))}%</small></div></td><td>${new Date(r.date).toLocaleString('pt-BR')}</td><td>${r.status==='Não encontrado'?'CPF não encontrado no convênio.':['Revisão','Erro'].includes(r.status)?'Consulte o log em Configurações.':escapeHTML(tjbaNotes(r))||'—'}</td><td>${['Erro','Revisão'].includes(r.status)?`<button data-retry="${escapeHTML(r.id)}">Tentar novamente</button>`:''}<button data-tjba-history="${escapeHTML(r.id)}">Histórico</button><button class="danger" data-delete-job="${escapeHTML(r.id)}">Excluir</button></td></tr>`;}).join('')||'<tr><td colspan="12" class="empty">Nenhuma consulta TJBA encontrada.</td></tr>';
+ return rows.map(r=>{const running=['Aguardando','Processando'].includes(r.status),closed=r.status==='Aguardando'&&consigxHorario(r.convenio)?.aberto===false,label=closed?'Agendada · começa às '+consigxHorarios[r.convenio].abre:running?statusLabel(r.status):tjbaStatusLabels[r.tjba_status]||r.status;return `<tr><td><b>${escapeHTML(r.nome)}</b><br><span class="muted">${escapeHTML(r.cpf)}</span><br><small>${escapeHTML(convenioLabel(r.convenio))}</small></td><td>${escapeHTML(r.matricula)||'—'}</td><td>${escapeHTML(r.tipo_servidor)||'—'}</td><td>${escapeHTML(r.situacao_atual)||'—'}</td><td>${moneyTjba(r.emprestimo_disponivel)}</td><td>${cardTjba(r,r.cartao_disponivel)}</td><td>${moneyTjba(r.emprestimo_bruta)}</td><td>${cardTjba(r,r.cartao_bruta)}</td><td><span class="pill ${r.status==='Concluída'?'ok':['Erro','Revisão'].includes(r.status)?'err':''}">${escapeHTML(label)}</span><div class="progress-line"><progress max="100" value="${Math.max(0,Math.min(100,Number(r.progress)||0))}" aria-label="Progresso da consulta"></progress><small>${Math.max(0,Math.min(100,Number(r.progress)||0))}%</small></div></td><td>${new Date(r.date).toLocaleString('pt-BR')}</td><td>${r.status==='Não encontrado'?'CPF não encontrado no convênio.':['Revisão','Erro'].includes(r.status)?'Consulte o log em Configurações.':escapeHTML(tjbaNotes(r))||'—'}</td><td>${['Erro','Revisão'].includes(r.status)?`<button data-retry="${escapeHTML(r.id)}">Tentar novamente</button>`:''}<button data-tjba-history="${escapeHTML(r.id)}">Histórico</button><button class="danger" data-delete-job="${escapeHTML(r.id)}">Excluir</button></td></tr>`;}).join('')||'<tr><td colspan="12" class="empty">Nenhuma consulta TJBA encontrada.</td></tr>';
 };
 const originalExportResults=exportResults;
 exportResults=async function(items,filename='consultas.csv'){
@@ -158,12 +167,31 @@ function updateServiceCopy(){
  $('#resultsFootnote').textContent=tjba?'Ausência de resultado aparece como —. Margens zero e negativas são preservadas.':'Saldo e parcelas são exibidos somente quando informados pelo atendimento.';
  document.querySelectorAll('#filter option').forEach(option=>{const val=option.value||option.textContent;option.hidden=tjba?['Não é cliente','Aguardando retorno','Inadimplência administrativa','Inadimplência jurídica','grupo:inadimplencia'].includes(val):val==='Não encontrado'||val.startsWith('tjba:');});
 }
+// Convênio com horário: mostra o horário e avisa quando a consulta for ficar agendada.
+function renderConsigxHours(){
+ let hint=$('#consigxHoursHint');
+ if(!hint){hint=document.createElement('small');hint.id='consigxHoursHint';hint.className='consigx-hours';$('#convenioBahiaHint')?.after(hint);}
+ const convenio=selectedConvenio(),h=consigxHorario(convenio);
+ hint.hidden=!h;if(!h)return;
+ hint.textContent=`${consigxShortName(convenio)} atende das ${h.abre} às ${h.fecha} (horário de Brasília).`+(h.aberto?'':` Agora está fora do horário: as consultas ficam agendadas e começam às ${h.abre}.`);
+}
+function consigxScheduledNotice(){
+ if(selectedService()!=='tjba_margem')return;
+ const convenio=selectedConvenio(),h=consigxHorario(convenio);
+ if(h&&!h.aberto)toast(`Agendada: o ${consigxShortName(convenio)} atende das ${h.abre} às ${h.fecha} (horário de Brasília). A consulta começa às ${h.abre}.`);
+}
+{
+ const baseAdd=add,baseCreateCampaign=createCampaign;
+ add=async function(...args){const result=await baseAdd(...args);consigxScheduledNotice();return result;};
+ createCampaign=async function(...args){const result=await baseCreateCampaign(...args);consigxScheduledNotice();return result;};
+}
+setInterval(renderConsigxHours,60000);
 function selectHygieneService(){
  const tjba=selectedService()==='tjba_margem';$('#convenioPicker').hidden=!tjba;updateServiceCopy();activeCampaign=null;pending=[];importGeneration++;readingImport=false;importError='';$('#file').value='';$('#preview').classList.add('hide');$('#search').value='';$('#filter').value='';
  $('#nome').required=!tjba;$('#telefone').required=!tjba;$('#nameLabel').textContent=tjba?'Nome (opcional)':'Nome completo';$('#phoneLabel').textContent=tjba?'Telefone (opcional)':'Telefone com DDD';
  $('#serviceDescription').textContent=tjba?'Retorna margens de empréstimo e cartão, matrícula e situação do vínculo':'Retorna saldo devedor e valor da parcela';
  $('#singleServiceLabel').textContent=serviceLabel(selectedService());$('#importColumns').textContent=tjba?'Excel, CSV ou TSV. Para consultar margem, a planilha precisa apenas da coluna cpf.':'Aceitamos Excel (.xlsx e .xls), CSV e TSV, com as colunas nome, cpf e telefone.';
- $('#downloadModel').href=tjba?'modelo-tjba.csv':'modelo-importacao.csv';syncImportButton();render();
+ $('#downloadModel').href=tjba?'modelo-tjba.csv':'modelo-importacao.csv';renderConsigxHours();syncImportButton();render();
 }
 $('#serviceSelect').onchange=selectHygieneService;
 $('#tjbaHistoryClose').onclick=()=>{$('#tjbaHistoryPanel').hidden=true;};
@@ -176,4 +204,4 @@ for(const selector of ['#rows','#campaignRows']){
  }catch{if(epoch===authEpoch)$('#tjbaHistoryRows').textContent='Não foi possível carregar o histórico.';}
  };
 }
-updateServiceCopy();render();
+updateServiceCopy();renderConsigxHours();render();
