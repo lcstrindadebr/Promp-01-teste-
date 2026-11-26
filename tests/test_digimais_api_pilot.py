@@ -121,13 +121,15 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
      def __enter__(self):return self
      def __exit__(self,*args):pass
      def read(self):return json.dumps(self.data).encode()
+    menu=[]
     def request(req,timeout):
      requests.append(req)
      path=req.full_url.split('?')[0]
      if path.endswith('login-public'):return Response({'userId':'fixture'})
-     if path.endswith('/sessions'):return Response({'id':'fixture-session'})
+     if path.endswith('/sessions'):menu.append(1);return Response({'id':'fixture-session'})
      if req.data:return Response({})
-     if len(requests)==3:return Response([{'options':[{'id':'central','title':'Central de cobrança'}]}])
+     if menu:menu.clear();return Response([{'options':[{'id':'central','title':'Central de cobrança'},{'id':'consig','title':'Empréstimo Consignado'}]}])
+     if json.loads(requests[-2].data or 'null') and b'"consig"' in requests[-2].data:return Response([{'options':[{'id':'boleto','title':'Boleto'}]}])
      return Response([{'direction':'O','contentText':message}])
     api=ApiSession({'baseUrl':'https://example.invalid','code':'fixture','accountUid':'fixture'})
     job={'nome':'Fixture','cpf':'00000000000','telefone':'11999999999'}
@@ -139,7 +141,15 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
     if code=='CONTRATO_EM_ASSESSORIA':self.assertTrue(result['message'].startswith('Assessoria: '),result['message'])
     self.assertIn(message,result['resultado_saldo']['todasMensagens'])
     self.assertNotIn('resultado_parcela',result)
-    self.assertEqual(len(requests),6)
+    if code=='ENCAMINHADO_ESPECIALISTA':
+     # Especialista na Central de cobranças: repete pelo Empréstimo consignado antes de concluir.
+     self.assertEqual(len(requests),14)
+     self.assertEqual(result['resultado_saldo']['fluxo'],'consignado')
+     self.assertEqual(result['resultado_saldo']['fluxo_cobranca']['codigo'],code)
+     self.assertIn('Empréstimo consignado',result['message'])
+     chosen=[json.loads(r.data)['customData']['options'][0]['id'] for r in requests if r.data and b'customData' in r.data and b'"options"' in r.data]
+     self.assertEqual(chosen,['central','consig','boleto'])
+    else:self.assertEqual(len(requests),6)
 
  async def test_sequential_checkpoint_and_referral(self):
   api=ApiSession({});events=[]
@@ -160,6 +170,35 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
   api.flow=confirmed
   r=await api.run({},on_checkpoint=save)
   self.assertEqual(events,['saldo','saved','parcela']);self.assertEqual(r['status'],'revisao');self.assertIn('assessoria',r['message'])
+ async def test_specialist_retries_through_consignado(self):
+  saldo_ok={'sucesso':True,'valorSaldo':'1.000,00','totalParcelas':'10','todasMensagens':[]}
+  parcela_ok={'sucesso':True,'valorParcela':'100,00','todasMensagens':[]}
+  specialist={'sucesso':False,'codigo':'ENCAMINHADO_ESPECIALISTA','etapa':'seleção','motivo_interrupcao':'especialista','todasMensagens':[]}
+  def fake(answers):
+   calls=[]
+   async def flow(job,kind,menu='cobranca'):
+    calls.append((kind,menu));return dict(answers[(kind,menu)])
+   return flow,calls
+  # Saldo pela cobrança vai ao especialista; pelo consignado retorna: segue para a parcela normalmente.
+  api=ApiSession({});api.flow,calls=fake({('saldo','cobranca'):specialist,('saldo','consignado'):saldo_ok,('parcela','cobranca'):parcela_ok})
+  r=await api.run({})
+  self.assertEqual(calls,[('saldo','cobranca'),('saldo','consignado'),('parcela','cobranca')])
+  self.assertEqual(r['status'],'concluida');self.assertEqual(r['saldo_liquidacao'],1000.0);self.assertEqual(r['valor_parcela'],100.0)
+  self.assertEqual(r['resultado_saldo']['fluxo_cobranca']['codigo'],'ENCAMINHADO_ESPECIALISTA')
+  # Saldo retorna e a parcela vai ao especialista: repete só a parcela pelo consignado, mantendo o saldo.
+  api=ApiSession({});api.flow,calls=fake({('saldo','cobranca'):saldo_ok,('parcela','cobranca'):specialist,('parcela','consignado'):parcela_ok})
+  r=await api.run({})
+  self.assertEqual(calls,[('saldo','cobranca'),('parcela','cobranca'),('parcela','consignado')])
+  self.assertEqual(r['status'],'concluida');self.assertEqual(r['saldo_liquidacao'],1000.0);self.assertEqual(r['valor_parcela'],100.0)
+  # Especialista nos dois fluxos da parcela: já vendeu, com o saldo preservado.
+  api=ApiSession({});api.flow,calls=fake({('saldo','cobranca'):saldo_ok,('parcela','cobranca'):specialist,('parcela','consignado'):specialist})
+  r=await api.run({})
+  self.assertEqual(r['status'],'ja_vendeu');self.assertEqual(r['saldo_liquidacao'],1000.0);self.assertIn('Empréstimo consignado',r['message'])
+  # Consignado sem o botão esperado: revisão (não conclui "Já vendeu" sem confirmar).
+  failed={'sucesso':False,'codigo':'TENTATIVAS_ESGOTADAS','etapa':'menu de empréstimo consignado','motivo_interrupcao':'Opção esperada não encontrada no menu de saldo','todasMensagens':[]}
+  api=ApiSession({});api.flow,calls=fake({('saldo','cobranca'):specialist,('saldo','consignado'):failed})
+  r=await api.run({})
+  self.assertEqual(r['status'],'revisao');self.assertIn('Cobrança encaminhou ao especialista',r['message'])
  async def test_failed_checkpoint_does_not_start_parcela(self):
   api=ApiSession({});api.flow=AsyncMock(return_value={'sucesso':True,'valorSaldo':'12.3'})
   with self.assertRaises(OSError):await api.run({},on_checkpoint=AsyncMock(side_effect=OSError()))

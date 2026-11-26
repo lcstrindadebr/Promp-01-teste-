@@ -244,6 +244,8 @@ async def run_once(client,timeout=60000,on_progress=None,kind="saldo",session=No
 
 
 def route_can_retry(result):
+ # Especialista pela Central de cobrança: confirma pelo Empréstimo consignado antes de concluir "Já vendeu".
+ if result['status']=='ja_vendeu':return result.get('rota')=='central_cobranca'
  diagnostic=result.get('diagnostico') or {}
  if diagnostic.get('categoria') in ('acesso_portal','dados','tls','proxy_autenticacao','proxy_configuracao','autenticacao_http'):
   return False
@@ -276,6 +278,8 @@ async def run_with_alternate_route(client,timeout,report,kind,**options):
  if 'saldo_liquidacao' in first and second['status']!='concluida' and 'saldo_liquidacao' not in second:
   final.update(status='revisao',saldo_liquidacao=first['saldo_liquidacao'],
                message='Saldo informado na primeira rota. Total de parcelas não confirmado.')
+ if first['status']=='ja_vendeu' and second['status']=='ja_vendeu':
+  final['message']='O chat encaminhou o CPF para um especialista pela Central de cobrança e pelo Empréstimo consignado: cliente já vendeu.'
  final['tentativa_anterior']=first
  final['rota_alternativa']=alternate
  diagnostic=second.get('diagnostico') or (first.get('diagnostico') if final['status']=='revisao' else None)

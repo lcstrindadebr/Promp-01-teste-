@@ -112,7 +112,11 @@ def parse_result(items,kind):
 
 class ApiSession:
  def __init__(self,config):self.config=config;self.telemetry=None
- async def flow(self,job,kind):
+ async def flow(self,job,kind,menu='cobranca'):
+  # menu: 'cobranca' (Central de cobranças, padrão) ou 'consignado' (Empréstimo consignado, segunda via
+  # quando a cobrança encaminha o CPF ao especialista).
+  menu_label='empréstimo consignado' if menu=='consignado' else 'cobrança'
+  menu_option=(lambda t:'consig' in t or 'empr' in t) if menu=='consignado' else (lambda t:'cobran' in t)
   cfg=self.config;cookie='';session=str(uuid.uuid4());user=str(uuid.uuid4());items=[]
   events=[];stage='autenticação'
   def mark(value,status='iniciada'):
@@ -161,7 +165,7 @@ class ApiSession:
   def validate_menu(raw,predicate):
    nonlocal items
    items=messages(raw)
-   assert_service_available(items,after_cpf=stage!='menu de cobrança')
+   assert_service_available(items,after_cpf=stage not in ('menu de '+menu_label,'menu de boleto'))
    option(predicate)
   def validate_result(raw):
    nonlocal items
@@ -191,10 +195,15 @@ class ApiSession:
    sess,_=await call('/sessions',{'id':session,'fromId':user,'from':job['telefone'],'fromName':job['nome'],
     'to':cfg['accountUid'],'context':{'uid':job['telefone'],'name':job['nome'],'setCustomData':{}}})
    session=sess.get('id') or session
-   mark('menu de cobrança')
+   mark('menu de '+menu_label)
    await asyncio.sleep(8)
-   raw,_=await call('/sessions/'+session+'/messages',limit=20,validate=lambda raw:validate_menu(raw,lambda t:'cobran' in t));items=messages(raw);assert_service_available(items)
-   selected=option(lambda t:'cobran' in t);await message(selected['id'],selected)
+   raw,_=await call('/sessions/'+session+'/messages',limit=20,validate=lambda raw:validate_menu(raw,menu_option));items=messages(raw);assert_service_available(items)
+   selected=option(menu_option);await message(selected['id'],selected)
+   if menu=='consignado':
+    # Mesmo caminho do robô: Empréstimo consignado → Boleto → CPF.
+    mark('menu de boleto');await asyncio.sleep(5)
+    raw,_=await call('/sessions/'+session+'/messages',limit=20,validate=lambda raw:validate_menu(raw,lambda t:'boleto' in t));items=messages(raw)
+    selected=option(lambda t:'boleto' in t);await message(selected['id'],selected)
    mark('envio do CPF')
    await asyncio.sleep(5);await message(format_cpf(job['cpf']))
    await asyncio.sleep(6)
@@ -208,7 +217,7 @@ class ApiSession:
    if result['sucesso'] and result.get('valorSaldo' if kind=='saldo' else 'valorParcela') is None:
     reason='A mensagem de '+kind+' foi reconhecida, mas não contém valor numérico.'
    mark(stage,'interrompida' if reason else 'concluída')
-   result.update(etapa=stage,motivo_interrupcao=reason,eventos=events)
+   result.update(etapa=stage,motivo_interrupcao=reason,eventos=events,fluxo=menu)
    return result
   except Exception as error:
    # Persist only classified errors, never exception text, URLs or cookies.
@@ -225,14 +234,28 @@ class ApiSession:
    detail=(cause.reason if isinstance(cause,FlowStopped) else ('HTTP '+str(cause.code)) if isinstance(cause,urllib.error.HTTPError)
            else ('Opção esperada não encontrada' if isinstance(cause,ValueError) else 'Falha na comunicação com o atendimento'))
    mark(stage,'interrompida')
-   return {'sucesso':False,'etapa':stage,'motivo_interrupcao':reason,'codigo':error.code if isinstance(error,FlowStopped) else diagnostic['codigo'],'eventos':events,
+   return {'sucesso':False,'fluxo':menu,'etapa':stage,'motivo_interrupcao':reason,'codigo':error.code if isinstance(error,FlowStopped) else diagnostic['codigo'],'eventos':events,
     'erro':error.reason+' Último erro: '+detail if retried else detail,
     'http_status':cause.code if isinstance(cause,urllib.error.HTTPError) else None,
     'todasMensagens':[m.get('contentText') or m.get('content') or m.get('text') or '' for m in items]}
 
+ async def consult(self,job,kind,on_progress=None):
+  """Saldo ou parcela pela Central de cobranças; se o chat encaminhar ao especialista, repete pelo
+  Empréstimo consignado antes de concluir "Já vendeu" (vale também para a parcela depois do saldo)."""
+  first=await self.flow(job,kind)
+  if first.get('codigo')!='ENCAMINHADO_ESPECIALISTA':return first
+  if on_progress:await on_progress(25 if kind=='saldo' else 75,'API · '+kind+' pelo empréstimo consignado')
+  second=await self.flow(job,kind,menu='consignado')
+  second['fluxo_cobranca']={'codigo':first.get('codigo'),'etapa':first.get('etapa'),'motivo_interrupcao':first.get('motivo_interrupcao')}
+  if second.get('codigo')=='ENCAMINHADO_ESPECIALISTA':
+   second['motivo_interrupcao']='O atendimento Digi+ encaminhou o CPF para um especialista pela Central de cobranças e pelo Empréstimo consignado: cliente já vendeu.'
+  elif second.get('motivo_interrupcao'):
+   second['motivo_interrupcao']='Cobrança encaminhou ao especialista; no empréstimo consignado: '+second['motivo_interrupcao']
+  return second
+
  async def run(self,job,on_progress=None,on_checkpoint=None):
   if on_progress:await on_progress(5,'API experimental · saldo')
-  first=await self.flow(job,'saldo')
+  first=await self.consult(job,'saldo',on_progress)
   # valor_parcela starts empty so an early stop always clears it explicitly in the saved row.
   result={'resultado_saldo':first,'saldo_liquidacao':money(first.get('valorSaldo')),'valor_parcela':None,
    'total_parcelas':int(first['totalParcelas']) if first.get('totalParcelas') else None,
@@ -255,7 +278,7 @@ class ApiSession:
    return result
   if on_checkpoint:await on_checkpoint(result.copy())
   if on_progress:await on_progress(50,'API experimental · parcela')
-  second=await self.flow(job,'parcela')
+  second=await self.consult(job,'parcela',on_progress)
   result['resultado_parcela']=second
   result['valor_parcela']=money(second.get('valorParcela'))
   result.update(status='concluida' if first['sucesso'] and second['sucesso'] else 'revisao',progress=100,stage='API experimental · finalizada')
