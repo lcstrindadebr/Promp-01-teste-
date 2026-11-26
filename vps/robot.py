@@ -37,6 +37,9 @@ def parse_response(text, *, ended=False, cpf_sent=False, kind="saldo"):
    result={'status':'revisao','message':'Resposta parcial de saldo e parcelas.','diagnostico':failure('retorno_portal','SALDO_PARCIAL')}
    if saldo:result.update(saldo_liquidacao=float(value),message='Saldo informado. Total de parcelas não confirmado.')
    return result
+ # Depois do CPF, "Aguarde um momento que um especialista vai te ajudar." significa que o cliente já vendeu.
+ if cpf_sent and re.search(r'aguarde um momento que (?:um|uma|o|a) especialista',lower):
+  return {'status':'ja_vendeu','message':'O chat encaminhou o CPF para um especialista: cliente já vendeu.'}
  # Technical failures must never be classified as absence of a client.
  if inactive:
   return {'status':'interrompida' if cpf_sent else 'erro','message':'Sessão encerrada por falta de interação.'}
@@ -159,7 +162,7 @@ async def run_once(client,timeout=60000,on_progress=None,kind="saldo",session=No
    result=on_progress(percent,label)
    if inspect.isawaitable(result):await result
  async def finish(result):
-  if result['status'] in ('concluida','nao_cliente'):await emit(100,'Concluída' if result['status']=='concluida' else 'Não é cliente')
+  if result['status'] in ('concluida','nao_cliente','ja_vendeu'):await emit(100,{'concluida':'Concluída','nao_cliente':'Não é cliente','ja_vendeu':'Já vendeu'}[result['status']])
   if result['status'] in ('erro','revisao','interrompida') and not result.get('diagnostico'):
    message=result.get('message','')
    code='CPF_RECUSADO' if 'CPF como inválido' in message else 'CHAT_SEM_RESULTADO'
