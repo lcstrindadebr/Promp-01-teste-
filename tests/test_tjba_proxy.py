@@ -25,3 +25,4 @@ class ProxyTests(unittest.TestCase):
   self.assertIn('**launch_options()', (root/'tjba.py').read_text())
   self.assertIn('**options', (root/'diagnose_tjba.py').read_text())
   self.assertNotIn('tjba_proxy', (root/'robot.py').read_text())
+  self.assertIn('from digimais_proxy import launch_options', (root/'robot.py').read_text())
