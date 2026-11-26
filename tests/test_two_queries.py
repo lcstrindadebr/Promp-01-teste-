@@ -91,6 +91,24 @@ class TwoQueriesTests(unittest.IsolatedAsyncioTestCase):
   self.assertEqual(result['saldo_liquidacao'],1234.56)
   self.assertNotIn('total_parcelas',result)
 
+ async def test_specialist_on_central_is_confirmed_through_consignado(self):
+  sold={'status':'ja_vendeu','rota':'central_cobranca','message':'especialista'}
+  # Consignado retorna o saldo: segue para a parcela normalmente.
+  with patch('robot.run_once',new=AsyncMock(side_effect=[sold,SALDO,{'status':'concluida','rota':'central_cobranca','valor_parcela':99}])) as one:
+   result=await run(CLIENT)
+  self.assertEqual([call.kwargs for call in one.await_args_list],[
+   {'kind':'saldo'},{'kind':'saldo','route':'emprestimo_consignado'},{'kind':'parcela'}])
+  self.assertEqual(result['saldo_liquidacao'],1234.56);self.assertEqual(result['valor_parcela'],99)
+  # Especialista nos dois caminhos: já vendeu.
+  with patch('robot.run_once',new=AsyncMock(side_effect=[sold,dict(sold,rota='emprestimo_consignado')])) as one:
+   result=await run(CLIENT)
+  self.assertEqual(one.await_count,2);self.assertEqual(result['status'],'ja_vendeu')
+  self.assertIn('Empréstimo consignado',result['message'])
+  # Já veio pelo consignado: não volta para a cobrança.
+  with patch('robot.run_once',new=AsyncMock(return_value=dict(sold,rota='emprestimo_consignado'))) as one:
+   result=await run(CLIENT)
+  self.assertEqual(one.await_count,1);self.assertEqual(result['status'],'ja_vendeu')
+
  async def test_route_does_not_retry_refused_cpf_or_human_verification(self):
   for code in ('CPF_RECUSADO','VERIFICACAO_HUMANA'):
    result={'status':'revisao','rota':'central_cobranca','diagnostico':{'codigo':code}}
