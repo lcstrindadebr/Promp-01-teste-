@@ -1,6 +1,7 @@
 """HTTP pilot: original n8n menus, waits and success predicates, isolated per flow."""
 import asyncio,json,re,uuid,urllib.request,urllib.parse,urllib.error
 from robot_failures import diagnose
+import digimais_proxy
 from datetime import datetime,timezone
 from http.cookies import SimpleCookie
 import unicodedata
@@ -121,7 +122,8 @@ class ApiSession:
     req=urllib.request.Request(cfg['baseUrl'].rstrip('/')+path+'?'+urllib.parse.urlencode(query),
      data=json.dumps(body).encode() if body is not None else None,
      headers={'Content-Type':'application/json','Accept':'application/json','Cookie':cookie})
-    with urllib.request.urlopen(req,timeout=45) as res:
+    # Proxy do Digi+ quando configurado no instalador (digimais-proxy.json); sem arquivo, acesso direto.
+    with digimais_proxy.urlopen(req,timeout=45) as res:
      return json.load(res),res.headers.get_all('Set-Cookie',[])
    data,set_cookies=await asyncio.to_thread(send)
    jar=SimpleCookie();jar.load(cookie)

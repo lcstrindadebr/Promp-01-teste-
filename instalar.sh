@@ -8,7 +8,7 @@ EXISTING=0
 if [[ -f "$APP/.env" && -f "$APP/vps/worker.py" && -x "$APP/.venv/bin/python" ]]; then EXISTING=1; fi
 printf '\033[1;32m\n╔══════════════════════════════════════════╗\n║       APOIARCRED · INSTALADOR MVP        ║\n╚══════════════════════════════════════════╝\033[0m\n'
 if (( EXISTING )); then
-    printf '\nInstância encontrada: %s\n\n  1) Atualizar pelo GitHub\n  2) Trocar conexão/API do Supabase\n  3) Diagnosticar robô Digi+ (sem consulta de CPF)\n  4) Diagnosticar ambiente TJBA (sem login e sem CPF)\n  5) Configurar ou remover proxy TJBA\n  6) Interromper imediatamente e devolver consultas à fila\n  7) Atualizar somente o painel (sem mexer nos robôs)\n  0) Sair\n\n' "$APP"
+    printf '\nInstância encontrada: %s\n\n  1) Atualizar pelo GitHub\n  2) Trocar conexão/API do Supabase\n  3) Diagnosticar robô Digi+ (sem consulta de CPF)\n  4) Diagnosticar ambiente TJBA (sem login e sem CPF)\n  5) Configurar ou remover proxy TJBA\n  6) Interromper imediatamente e devolver consultas à fila\n  7) Atualizar somente o painel (sem mexer nos robôs)\n  8) Configurar ou remover proxy Digi+ (API e robô)\n  0) Sair\n\n' "$APP"
 else
     printf '\nNenhuma instância completa encontrada.\n\n  1) Instalar nova instância\n  0) Sair\n\n'
 fi
@@ -92,6 +92,15 @@ case "$OPTION" in
     7)
         (( EXISTING )) || { echo 'Instale o sistema primeiro.'; exit 1; }
         exec bash "$SOURCE/atualizar.sh" painel
+        ;;
+    8)
+        (( EXISTING )) || { echo 'Instale o sistema primeiro.'; exit 1; }
+        [[ -f "$APP/vps/digimais_proxy.py" ]] || { echo 'Atualize pela opção 1 primeiro.'; exit 1; }
+        exec 9>/run/lock/apoiarcred-instalar.lock
+        flock -n 9 || { echo 'Outra operação está em andamento.'; exit 1; }
+        (cd "$APP/vps" && "$APP/.venv/bin/python" "$APP/vps/digimais_proxy.py")
+        if systemctl is-active --quiet apoiarcred-robo; then systemctl restart apoiarcred-robo; fi
+        echo 'Configuração aplicada. Execute a opção 3 para testar a API e o chat do Digi+ pelo proxy.'
         ;;
     *) echo 'Opção inválida.'; exit 1 ;;
 esac

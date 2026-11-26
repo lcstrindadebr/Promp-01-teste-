@@ -3,6 +3,7 @@ import asyncio, inspect, re, time
 from decimal import Decimal
 from chat_browser import CHROMIUM_ARGS, CHAT_URL, NavigationIssue, open_direct_chat, check_access
 from robot_failures import diagnose, failure, label
+from digimais_proxy import launch_options
 class RobotError(Exception):pass
 
 def format_cpf(value):
@@ -123,7 +124,8 @@ class DigiSession:
    from playwright.async_api import async_playwright
    try:
     self.manager=async_playwright();self.pw=await self.manager.__aenter__()
-    self.browser=await self.pw.chromium.launch(headless=True,args=list(CHROMIUM_ARGS))
+    # Proxy do Digi+ quando configurado no instalador; sem arquivo, acesso direto.
+    self.browser=await self.pw.chromium.launch(headless=True,args=list(CHROMIUM_ARGS),**launch_options())
     self.started=time.monotonic();self.owner=owner
    except BaseException:
     await self.close();raise

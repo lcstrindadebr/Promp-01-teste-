@@ -2,6 +2,16 @@
 import asyncio, os, socket, ssl, sys
 from datetime import datetime,timezone
 from chat_browser import CHROMIUM_ARGS, CHAT_HOST,open_direct_chat,describe_error,NavigationIssue
+import urllib.request, urllib.error
+import digimais_proxy
+API_LOGIN='https://c1webchatapi.voltdigital.com.br/api/auth/login-public'
+
+def api_status(opener):
+    # Login vazio, sem dados de cliente: só mostra se o servidor da API aceita conversar com este IP.
+    req=urllib.request.Request(API_LOGIN,data=b'{}',method='POST',headers={'Content-Type':'application/json','Accept':'application/json'})
+    try:
+        with opener.open(req,timeout=20) as res:return res.status
+    except urllib.error.HTTPError as e:return e.code
 
 async def main():
     from playwright.async_api import async_playwright
@@ -22,10 +32,20 @@ async def main():
     # Proxy settings can explain transport differences; never print credentials or values.
     proxies=[name for name in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY') if os.environ.get(name) or os.environ.get(name.lower())]
     if proxies:record('Proxy no ambiente',True,', '.join(proxies)+' definido(s), valores ocultos')
+    # Proxy do Digi+ e resposta da API com e sem ele: 403 direto e outra resposta pelo proxy indica IP da VPS recusado.
+    try:
+        options=digimais_proxy.launch_options();record('Proxy Digi+',True,digimais_proxy.describe())
+    except digimais_proxy.ProxyConfigError as e:
+        options=None;record('Proxy Digi+',False,str(e))
+    try:record('API Digi+ direto',True,'HTTP '+str(await asyncio.to_thread(api_status,urllib.request.build_opener())))
+    except Exception as e:record('API Digi+ direto',False,type(e).__name__)
+    if options:
+        try:record('API Digi+ pelo proxy',True,'HTTP '+str(await asyncio.to_thread(api_status,digimais_proxy.opener())))
+        except Exception as e:record('API Digi+ pelo proxy',False,type(e).__name__)
     browser=None;context=None
     async with async_playwright() as pw:
         try:
-            browser=await pw.chromium.launch(headless=True,args=list(CHROMIUM_ARGS))
+            browser=await pw.chromium.launch(headless=True,args=list(CHROMIUM_ARGS),**(options or {}))
             context=await browser.new_context(locale='pt-BR');record('Chromium',True,'iniciado')
             record('Configuração de transporte',True,'HTTP/2 e QUIC desativados; HTTPS com validação TLS mantida')
             async def report(percent,label):print(f'ETAPA | {percent}% | {label}',flush=True)
