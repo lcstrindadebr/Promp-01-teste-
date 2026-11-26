@@ -28,6 +28,8 @@ class FlowStopped(Exception):
 
 BUSINESS_RESULTS={
  'DOCUMENTO_NAO_LOCALIZADO':('nao_cliente','Não é cliente'),
+ # Depois do CPF o chat só responde "Aguarde um momento que um especialista vai te ajudar.": o cliente já vendeu.
+ 'ENCAMINHADO_ESPECIALISTA':('ja_vendeu','Já vendeu'),
  # Refinado por collection_result: administrativa ou jurídica, conforme a assessoria citada.
  'CONTRATO_EM_ASSESSORIA':('inadimplencia_administrativa','Inadimplência administrativa'),
 }
@@ -76,6 +78,8 @@ def assert_service_available(items,after_cpf=False):
   text=' '.join(re.sub(r'[*_]', '', text).split())
   if 'nao consegui localizar o seu documento' in text:
    raise FlowStopped('DOCUMENTO_NAO_LOCALIZADO','O atendimento Digi+ informou que não localizou o documento.')
+  if re.search(r'aguarde um momento que (?:um|uma|o|a) especialista',text):
+   raise FlowStopped('ENCAMINHADO_ESPECIALISTA','O atendimento Digi+ encaminhou o CPF para um especialista: cliente já vendeu.')
   if re.search(r'(?:seu|o) contrato esta sob (?:a )?responsabilidade d[ae] (?:nossa |uma )?assessoria de cobranca',text):
    raise FlowStopped('CONTRATO_EM_ASSESSORIA','O atendimento Digi+ informou que o contrato está sob responsabilidade de uma assessoria de cobrança.')
 

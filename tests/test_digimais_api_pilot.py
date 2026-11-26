@@ -107,6 +107,8 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
    ('Desculpe, não consegui localizar o seu documento. Este canal é exclusivo para clientes.', 'nao_cliente', 'DOCUMENTO_NAO_LOCALIZADO'),
    ('Informamos que seu contrato está sob a responsabilidade da nossa assessoria de cobrança,**MZ ASSESSORIA E COBRANÇA - (11)4293-0260**.', 'inadimplencia_administrativa', 'CONTRATO_EM_ASSESSORIA'),
    ('Informamos que seu contrato está sob a responsabilidade da nossa assessoria de cobrança, J.S. SANTOS- JURIDICO. Assim, todas as negociações.', 'inadimplencia_juridica', 'CONTRATO_EM_ASSESSORIA'),
+   # Only "wait for a specialist" after the CPF: the client already sold, no retry and no robot.
+   ('Aguarde um momento que um especialista vai te ajudar.', 'ja_vendeu', 'ENCAMINHADO_ESPECIALISTA'),
   ]
   for message,status,code in cases:
    with self.subTest(status=status):
@@ -133,6 +135,7 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
      result=await api.run(job)
     self.assertEqual(result['status'],status)
     self.assertEqual(result['resultado_saldo']['codigo'],code)
+    self.assertFalse(any(e['status']=='nova tentativa' for e in result['resultado_saldo']['eventos']),'Definitive replies are not retried')
     if code=='CONTRATO_EM_ASSESSORIA':self.assertTrue(result['message'].startswith('Assessoria: '),result['message'])
     self.assertIn(message,result['resultado_saldo']['todasMensagens'])
     self.assertNotIn('resultado_parcela',result)

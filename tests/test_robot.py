@@ -40,3 +40,10 @@ class ResponseTests(unittest.TestCase):
  def test_nonbreaking_whitespace(self):
   self.assertEqual(parse_response('Saldo para quitação hoje: R$ 1.234,56. Total de\u00a0parcelas: 12')['total_parcelas'],12)
 if __name__=='__main__':unittest.main()
+
+
+class SpecialistReferralTests(unittest.TestCase):
+ def test_specialist_after_cpf_means_already_sold(self):
+  text='Seja bem-vindo(a) ao atendimento Web do Banco Digi+ Para te localizar aqui no sistema, por favor, digite o número do seu *CPF*. 088.886.314-45 Aguarde um momento que um especialista vai te ajudar.'
+  self.assertEqual(parse_response(text,cpf_sent=True)['status'],'ja_vendeu')
+  self.assertIsNone(parse_response('Aguarde um momento que um especialista vai te ajudar.',cpf_sent=False),'Only after the CPF')
